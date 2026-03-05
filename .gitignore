@@ -1,0 +1,41 @@
+# Local env
+.env
+.env.*
+!.env.example
+.python-version
+
+# OS/editor
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Go
+.gocache/
+/bin/
+*.test
+*.out
+
+# Local binaries
+rubick
+msn-scraper
+news-scraper
+
+# Generated outputs
+dist/
+output/
+*.db
+*.db-shm
+*.db-wal
+output_*.json
+screener_*.json
+stocks_*.json
+test_*.json
+*.har
+network_*.txt
+response.html
