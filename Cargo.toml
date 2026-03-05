@@ -2,6 +2,12 @@
 name = "idx-cli"
 version = "0.1.0"
 edition = "2024"
+description = "CLI tool for Indonesian stock market (IDX) analysis"
+license = "MIT"
+repository = "https://github.com/0xrsydn/idx-cli"
+homepage = "https://github.com/0xrsydn/idx-cli"
+keywords = ["idx", "stocks", "indonesia", "cli", "finance"]
+categories = ["command-line-utilities", "finance"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
