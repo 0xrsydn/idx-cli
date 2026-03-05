@@ -1,0 +1,54 @@
+mod api;
+mod cache;
+mod cli;
+mod config;
+mod error;
+mod output;
+
+use clap::CommandFactory;
+use clap::Parser;
+use clap_complete::{generate, shells};
+
+use crate::api::default_provider;
+use crate::cli::{Cli, Commands};
+use crate::config::IdxConfig;
+use crate::error::IdxError;
+use crate::output::emit_error;
+
+fn main() {
+    if let Err(err) = run() {
+        std::process::exit(err.exit_code());
+    }
+}
+
+fn run() -> Result<(), IdxError> {
+    let cli = Cli::parse();
+    let config = IdxConfig::load_with_cli(&cli)?;
+
+    match &cli.command {
+        Commands::Version => {
+            println!("{}", env!("CARGO_PKG_VERSION"));
+        }
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            let name = cmd.get_name().to_owned();
+            match shell {
+                cli::Shell::Bash => generate(shells::Bash, &mut cmd, name, &mut std::io::stdout()),
+                cli::Shell::Zsh => generate(shells::Zsh, &mut cmd, name, &mut std::io::stdout()),
+                cli::Shell::Fish => generate(shells::Fish, &mut cmd, name, &mut std::io::stdout()),
+            }
+        }
+        Commands::Stocks(stocks) => {
+            let provider = default_provider();
+            if let Err(err) = cli::stocks::handle(stocks, &config, provider.as_ref()) {
+                emit_error(&err, &config.output);
+                return Err(err);
+            }
+        }
+        Commands::Config(_) | Commands::Cache(_) => {
+            println!("Not implemented yet");
+        }
+    }
+
+    Ok(())
+}
