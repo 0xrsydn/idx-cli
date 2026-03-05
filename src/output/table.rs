@@ -4,9 +4,8 @@ use owo_colors::OwoColorize;
 use crate::api::types::{Ohlc, Quote};
 use crate::error::IdxError;
 
-pub fn format_idr(value: f64) -> String {
-    let rounded = value.round() as i64;
-    let chars: Vec<char> = rounded.to_string().chars().rev().collect();
+pub fn format_idr(value: i64) -> String {
+    let chars: Vec<char> = value.to_string().chars().rev().collect();
     let mut out = String::new();
     for (i, ch) in chars.iter().enumerate() {
         if i > 0 && i % 3 == 0 {
@@ -15,6 +14,10 @@ pub fn format_idr(value: f64) -> String {
         out.push(*ch);
     }
     out.chars().rev().collect()
+}
+
+pub fn format_u64(value: u64) -> String {
+    format_idr(value as i64)
 }
 
 pub fn print_quotes(quotes: &[Quote], no_color: bool) -> Result<(), IdxError> {
@@ -36,12 +39,12 @@ pub fn print_quotes(quotes: &[Quote], no_color: bool) -> Result<(), IdxError> {
         table.add_row(vec![
             Cell::new(&q.symbol),
             Cell::new(format_idr(q.price)),
-            Cell::new(format!("{:+.2}", q.change)),
+            Cell::new(format!("{:+}", q.change)),
             pct_cell,
-            Cell::new(format_idr(q.volume as f64)),
+            Cell::new(format_u64(q.volume)),
             Cell::new(
                 q.market_cap
-                    .map(format_idr)
+                    .map(format_u64)
                     .unwrap_or_else(|| "-".to_string()),
             ),
         ]);
@@ -65,7 +68,7 @@ pub fn print_history(symbol: &str, history: &[Ohlc]) -> Result<(), IdxError> {
             Cell::new(format_idr(item.high)),
             Cell::new(format_idr(item.low)),
             Cell::new(format_idr(item.close)),
-            Cell::new(format_idr(item.volume as f64)),
+            Cell::new(format_u64(item.volume)),
         ]);
     }
     println!("{table}");
@@ -74,11 +77,11 @@ pub fn print_history(symbol: &str, history: &[Ohlc]) -> Result<(), IdxError> {
 
 #[cfg(test)]
 mod tests {
-    use super::format_idr;
+    use super::{format_idr, format_u64};
 
     #[test]
     fn formats_idr_numbers() {
-        assert_eq!(format_idr(9875.0), "9,875");
-        assert_eq!(format_idr(1_215_200_000_000_000.0), "1,215,200,000,000,000");
+        assert_eq!(format_idr(9875), "9,875");
+        assert_eq!(format_u64(1_215_200_000_000_000), "1,215,200,000,000,000");
     }
 }

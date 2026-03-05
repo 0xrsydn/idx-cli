@@ -12,13 +12,18 @@ const BASE_URL: &str = "https://query2.finance.yahoo.com";
 
 pub struct YahooProvider {
     agent: ureq::Agent,
+    verbose: bool,
 }
 
 impl YahooProvider {
-    pub fn new() -> Self {
-        Self {
-            agent: ureq::Agent::new_with_defaults(),
-        }
+    pub fn new(verbose: bool) -> Self {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_connect(Some(Duration::from_secs(5)))
+            .timeout_recv_body(Some(Duration::from_secs(10)))
+            .build()
+            .into();
+
+        Self { agent, verbose }
     }
 
     fn chart_url(symbol: &str, period: &Period, interval: &Interval) -> String {
@@ -41,16 +46,23 @@ impl YahooProvider {
             let response = self.agent.get(&url).header("User-Agent", USER_AGENT).call();
             match response {
                 Ok(ok) => {
-                    return ok
+                    let chart = ok
                         .into_body()
                         .read_json::<ChartResponse>()
-                        .map_err(|e| IdxError::ParseError(e.to_string()));
+                        .map_err(|e| IdxError::ParseError(e.to_string()))?;
+                    if let Some(err) = chart.chart.error.as_ref() {
+                        return Err(map_chart_error(symbol, err));
+                    }
+                    return Ok(chart);
                 }
                 Err(ureq::Error::StatusCode(429)) => {
                     if attempt < 2 {
                         std::thread::sleep(wait + jitter());
                         wait *= 2;
                     }
+                }
+                Err(ureq::Error::StatusCode(404)) => {
+                    return Err(IdxError::SymbolNotFound(symbol.to_string()));
                 }
                 Err(e) => return Err(IdxError::Http(e.to_string())),
             }
@@ -60,11 +72,23 @@ impl YahooProvider {
 }
 
 fn jitter() -> Duration {
-    let millis = (std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_millis() % 100)
-        .unwrap_or(42)) as u64;
-    Duration::from_millis(millis)
+    Duration::from_millis(fastrand::u64(0..100))
+}
+
+fn round_price(value: f64) -> i64 {
+    value.round() as i64
+}
+
+// verbose behavior is configured on YahooProvider and threaded into history parsing.
+
+fn map_chart_error(symbol: &str, err: &ChartError) -> IdxError {
+    if err.code.eq_ignore_ascii_case("Not Found") {
+        return IdxError::SymbolNotFound(symbol.to_string());
+    }
+    IdxError::Http(format!(
+        "yahoo chart error {}: {}",
+        err.code, err.description
+    ))
 }
 
 impl MarketDataProvider for YahooProvider {
@@ -80,17 +104,24 @@ impl MarketDataProvider for YahooProvider {
         interval: &Interval,
     ) -> Result<Vec<Ohlc>, IdxError> {
         let chart = self.fetch_chart(symbol, period, interval)?;
-        parse_history(&chart)
+        parse_history_with_verbose(&chart, self.verbose)
     }
 }
 
 pub(crate) fn parse_quote_from_str(symbol: &str, raw: &str) -> Result<Quote, IdxError> {
     let chart: ChartResponse =
         serde_json::from_str(raw).map_err(|e| IdxError::ParseError(e.to_string()))?;
+    if let Some(err) = chart.chart.error.as_ref() {
+        return Err(map_chart_error(symbol, err));
+    }
     parse_quote(symbol, &chart)
 }
 
 fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, IdxError> {
+    if let Some(err) = chart.chart.error.as_ref() {
+        return Err(map_chart_error(symbol, err));
+    }
+
     let result = chart
         .chart
         .result
@@ -98,17 +129,26 @@ fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, IdxError> {
         .and_then(|r| r.first())
         .ok_or(IdxError::ProviderUnavailable)?;
     let meta = result.meta.as_ref().ok_or(IdxError::ProviderUnavailable)?;
-    let price = meta
+    let raw_price = meta
         .regular_market_price
         .ok_or(IdxError::SymbolNotFound(symbol.to_string()))?;
-    let prev_close = meta.previous_close.or(meta.chart_previous_close);
-    let change = prev_close.map_or(0.0, |p| price - p);
-    let change_pct = prev_close.map_or(0.0, |p| if p != 0.0 { (change / p) * 100.0 } else { 0.0 });
+    let raw_prev_close = meta.previous_close.or(meta.chart_previous_close);
+
+    let price = round_price(raw_price);
+    let prev_close = raw_prev_close.map(round_price);
+    let change = prev_close.map_or(0, |p| price - p);
+    let change_pct = raw_prev_close.map_or(0.0, |p| {
+        if p != 0.0 {
+            ((raw_price - p) / p) * 100.0
+        } else {
+            0.0
+        }
+    });
 
     let (week52_position, range_signal) = match (meta.fifty_two_week_low, meta.fifty_two_week_high)
     {
         (Some(low), Some(high)) if high > low => {
-            let pos = (price - low) / (high - low);
+            let pos = (raw_price - low) / (high - low);
             let signal = if pos > 0.66 {
                 "upper"
             } else if pos < 0.33 {
@@ -128,8 +168,8 @@ fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, IdxError> {
         change_pct,
         volume: meta.regular_market_volume.unwrap_or(0),
         market_cap: meta.market_cap,
-        week52_high: meta.fifty_two_week_high,
-        week52_low: meta.fifty_two_week_low,
+        week52_high: meta.fifty_two_week_high.map(round_price),
+        week52_low: meta.fifty_two_week_low.map(round_price),
         week52_position,
         range_signal,
         prev_close,
@@ -140,10 +180,14 @@ fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, IdxError> {
 pub(crate) fn parse_history_from_str(raw: &str) -> Result<Vec<Ohlc>, IdxError> {
     let chart: ChartResponse =
         serde_json::from_str(raw).map_err(|e| IdxError::ParseError(e.to_string()))?;
-    parse_history(&chart)
+    parse_history_with_verbose(&chart, false)
 }
 
-fn parse_history(chart: &ChartResponse) -> Result<Vec<Ohlc>, IdxError> {
+fn parse_history_with_verbose(chart: &ChartResponse, verbose: bool) -> Result<Vec<Ohlc>, IdxError> {
+    if let Some(err) = chart.chart.error.as_ref() {
+        return Err(map_chart_error("unknown", err));
+    }
+
     let result = chart
         .chart
         .result
@@ -162,20 +206,28 @@ fn parse_history(chart: &ChartResponse) -> Result<Vec<Ohlc>, IdxError> {
         .ok_or(IdxError::ProviderUnavailable)?;
 
     let mut out = Vec::new();
+    let mut dropped = 0usize;
     for (i, ts) in timestamps.iter().enumerate() {
         let open = quote
             .open
             .as_ref()
-            .and_then(|v| v.get(i).copied().flatten());
+            .and_then(|v| v.get(i).copied().flatten())
+            .map(round_price);
         let high = quote
             .high
             .as_ref()
-            .and_then(|v| v.get(i).copied().flatten());
-        let low = quote.low.as_ref().and_then(|v| v.get(i).copied().flatten());
+            .and_then(|v| v.get(i).copied().flatten())
+            .map(round_price);
+        let low = quote
+            .low
+            .as_ref()
+            .and_then(|v| v.get(i).copied().flatten())
+            .map(round_price);
         let close = quote
             .close
             .as_ref()
-            .and_then(|v| v.get(i).copied().flatten());
+            .and_then(|v| v.get(i).copied().flatten())
+            .map(round_price);
         let volume = quote
             .volume
             .as_ref()
@@ -193,8 +245,17 @@ fn parse_history(chart: &ChartResponse) -> Result<Vec<Ohlc>, IdxError> {
                 close,
                 volume,
             });
+        } else {
+            dropped += 1;
         }
     }
+
+    if dropped > 0 && verbose {
+        eprintln!(
+            "warning: dropped {dropped} OHLC row(s) from Yahoo response due to missing fields"
+        );
+    }
+
     Ok(out)
 }
 
@@ -206,6 +267,14 @@ struct ChartResponse {
 #[derive(Debug, Deserialize)]
 struct ChartRoot {
     result: Option<Vec<ChartResult>>,
+    error: Option<ChartError>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChartError {
+    code: String,
+    description: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -226,9 +295,10 @@ struct ChartMeta {
     regular_market_volume: Option<u64>,
     regular_market_day_high: Option<f64>,
     regular_market_day_low: Option<f64>,
-    market_cap: Option<f64>,
+    market_cap: Option<u64>,
     fifty_two_week_high: Option<f64>,
     fifty_two_week_low: Option<f64>,
+    #[serde(rename = "averageDailyVolume3Month")]
     average_daily_volume_3month: Option<u64>,
 }
 
@@ -249,7 +319,8 @@ struct IndicatorQuote {
 #[cfg(test)]
 mod tests {
     use super::{
-        ChartResponse, parse_history, parse_history_from_str, parse_quote, parse_quote_from_str,
+        ChartResponse, parse_history_from_str, parse_history_with_verbose, parse_quote,
+        parse_quote_from_str,
     };
 
     const SAMPLE: &str = r#"{
@@ -282,10 +353,10 @@ mod tests {
         let chart: ChartResponse = serde_json::from_str(SAMPLE).expect("valid chart fixture");
         let quote = parse_quote("BBCA.JK", &chart).expect("quote parsed");
         assert_eq!(quote.symbol, "BBCA.JK");
-        assert_eq!(quote.price, 9875.0);
-        let history = parse_history(&chart).expect("history parsed");
+        assert_eq!(quote.price, 9875);
+        let history = parse_history_with_verbose(&chart, false).expect("history parsed");
         assert_eq!(history.len(), 2);
-        assert_eq!(history[0].close, 9875.0);
+        assert_eq!(history[0].close, 9875);
     }
 
     #[test]
@@ -297,8 +368,17 @@ mod tests {
 
         let quote = parse_quote_from_str("BBCA.JK", &quote_raw).expect("fixture quote parsed");
         assert_eq!(quote.symbol, "BBCA.JK");
+        assert_eq!(quote.market_cap, Some(1_215_200_000_000_000));
+        assert_eq!(quote.avg_volume, Some(10_000_000));
 
         let history = parse_history_from_str(&history_raw).expect("fixture history parsed");
         assert!(!history.is_empty());
+    }
+
+    #[test]
+    fn maps_not_found_chart_error_to_symbol_not_found() {
+        let raw = r#"{"chart":{"result":null,"error":{"code":"Not Found","description":"No data found"}}}"#;
+        let err = parse_quote_from_str("INVALID.JK", raw).expect_err("expected symbol error");
+        assert!(matches!(err, crate::error::IdxError::SymbolNotFound(_)));
     }
 }

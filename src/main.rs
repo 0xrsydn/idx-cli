@@ -39,7 +39,7 @@ fn run() -> Result<(), IdxError> {
             }
         }
         Commands::Stocks(stocks) => {
-            let provider = default_provider();
+            let provider = default_provider(cli.verbose > 0);
             if let Err(err) = cli::stocks::handle(
                 stocks,
                 &config,

@@ -25,11 +25,11 @@ pub fn resolve_symbol(symbol: &str, exchange: &str) -> String {
     format!("{trimmed}.{}", exchange.trim().to_uppercase())
 }
 
-pub fn default_provider() -> Box<dyn MarketDataProvider> {
+pub fn default_provider(verbose: bool) -> Box<dyn MarketDataProvider> {
     if std::env::var("IDX_USE_MOCK_PROVIDER").is_ok() {
         Box::new(MockProvider::from_fixtures())
     } else {
-        Box::new(yahoo::YahooProvider::new())
+        Box::new(yahoo::YahooProvider::new(verbose))
     }
 }
 
