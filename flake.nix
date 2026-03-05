@@ -25,7 +25,6 @@
             rustToolchain
             pkg-config
             openssl
-            sqlite
             cargo-watch
             cargo-nextest
             prek
