@@ -16,14 +16,18 @@ pub enum Shell {
 #[derive(Debug, Parser)]
 #[command(name = "idx", about = "Indonesian stock analysis CLI")]
 pub struct Cli {
-    #[arg(short, long, value_enum, global = true, default_value_t = OutputFormat::Table)]
-    pub output: OutputFormat,
+    #[arg(short, long, value_enum, global = true)]
+    pub output: Option<OutputFormat>,
     #[arg(long, global = true)]
     pub no_color: bool,
     #[arg(short, long, global = true)]
     pub quiet: bool,
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
+    #[arg(long, global = true)]
+    pub offline: bool,
+    #[arg(long, global = true)]
+    pub no_cache: bool,
     #[command(subcommand)]
     pub command: Commands,
 }

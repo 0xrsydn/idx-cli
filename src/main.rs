@@ -40,13 +40,22 @@ fn run() -> Result<(), IdxError> {
         }
         Commands::Stocks(stocks) => {
             let provider = default_provider();
-            if let Err(err) = cli::stocks::handle(stocks, &config, provider.as_ref()) {
+            if let Err(err) = cli::stocks::handle(stocks, &config, provider.as_ref(), cli.offline, cli.no_cache) {
                 emit_error(&err, &config.output);
                 return Err(err);
             }
         }
-        Commands::Config(_) | Commands::Cache(_) => {
-            println!("Not implemented yet");
+        Commands::Config(cfg) => {
+            if let Err(err) = cli::config::handle(cfg) {
+                emit_error(&err, &config.output);
+                return Err(err);
+            }
+        }
+        Commands::Cache(cache) => {
+            if let Err(err) = cli::cache::handle(cache) {
+                emit_error(&err, &config.output);
+                return Err(err);
+            }
         }
     }
 
