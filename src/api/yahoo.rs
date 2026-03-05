@@ -6,7 +6,9 @@ use crate::api::types::{Interval, Ohlc, Period, Quote};
 use crate::api::MarketDataProvider;
 use crate::error::IdxError;
 
-const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+// query2 works without crumb/cookie auth from datacenter IPs; query1 requires consent cookies
+const BASE_URL: &str = "https://query2.finance.yahoo.com";
 
 pub struct YahooProvider {
     agent: ureq::Agent,
@@ -19,33 +21,18 @@ impl YahooProvider {
         }
     }
 
-    fn crumb(&self) -> Result<String, IdxError> {
-        let resp = self
-            .agent
-            .get("https://query1.finance.yahoo.com/v1/test/getcrumb")
-            .header("User-Agent", USER_AGENT)
-            .call()
-            .map_err(|e| IdxError::Http(e.to_string()))?;
-
-        let mut body = resp.into_body();
-        body.read_to_string()
-            .map(|s| s.trim().to_string())
-            .map_err(|e| IdxError::Http(e.to_string()))
-    }
-
-    fn chart_url(symbol: &str, period: &Period, interval: &Interval, crumb: &str) -> String {
+    fn chart_url(symbol: &str, period: &Period, interval: &Interval) -> String {
         format!(
-            "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={}&interval={}&crumb={crumb}",
+            "{BASE_URL}/v8/finance/chart/{symbol}?range={}&interval={}",
             period.as_str(),
             interval.as_str()
         )
     }
 
     fn fetch_chart(&self, symbol: &str, period: &Period, interval: &Interval) -> Result<ChartResponse, IdxError> {
-        let crumb = self.crumb()?;
         let mut wait = Duration::from_millis(250);
-        for _ in 0..3 {
-            let url = Self::chart_url(symbol, period, interval, &crumb);
+        for attempt in 0..3 {
+            let url = Self::chart_url(symbol, period, interval);
             let response = self
                 .agent
                 .get(&url)
@@ -59,8 +46,10 @@ impl YahooProvider {
                         .map_err(|e| IdxError::ParseError(e.to_string()));
                 }
                 Err(ureq::Error::StatusCode(429)) => {
-                    std::thread::sleep(wait + jitter());
-                    wait *= 2;
+                    if attempt < 2 {
+                        std::thread::sleep(wait + jitter());
+                        wait *= 2;
+                    }
                 }
                 Err(e) => return Err(IdxError::Http(e.to_string())),
             }
@@ -98,7 +87,7 @@ fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, IdxError> {
         .ok_or(IdxError::ProviderUnavailable)?;
     let meta = result.meta.as_ref().ok_or(IdxError::ProviderUnavailable)?;
     let price = meta.regular_market_price.ok_or(IdxError::SymbolNotFound(symbol.to_string()))?;
-    let prev_close = meta.previous_close;
+    let prev_close = meta.previous_close.or(meta.chart_previous_close);
     let change = prev_close.map_or(0.0, |p| price - p);
     let change_pct = prev_close.map_or(0.0, |p| if p != 0.0 { (change / p) * 100.0 } else { 0.0 });
 
@@ -192,11 +181,15 @@ struct ChartResult {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct ChartMeta {
     symbol: Option<String>,
     regular_market_price: Option<f64>,
     previous_close: Option<f64>,
+    chart_previous_close: Option<f64>,
     regular_market_volume: Option<u64>,
+    regular_market_day_high: Option<f64>,
+    regular_market_day_low: Option<f64>,
     market_cap: Option<f64>,
     fifty_two_week_high: Option<f64>,
     fifty_two_week_low: Option<f64>,
