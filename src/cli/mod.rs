@@ -14,7 +14,12 @@ pub enum Shell {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "idx", about = "Indonesian stock analysis CLI")]
+#[command(
+    name = "idx",
+    bin_name = "idx",
+    about = "CLI tool for Indonesian stock market (IDX) analysis",
+    long_about = "idx-cli is a Rust command-line tool for Indonesian stock market (IDX) analysis.\nIt supports quote lookup, historical data, local caching, and output formats for both humans and AI agents."
+)]
 pub struct Cli {
     #[arg(short, long, value_enum, global = true)]
     pub output: Option<OutputFormat>,
@@ -34,9 +39,14 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    #[command(about = "Stock data and analysis")]
     Stocks(stocks::StocksCmd),
+    #[command(about = "Manage configuration")]
     Config(config::ConfigCmd),
+    #[command(about = "Manage local cache")]
     Cache(cache::CacheCmd),
+    #[command(about = "Generate shell completions")]
     Completions { shell: Shell },
+    #[command(about = "Show idx-cli version")]
     Version,
 }

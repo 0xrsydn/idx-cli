@@ -4,6 +4,7 @@ use crate::config::{config_path, ensure_default_config, get_config_value, set_co
 use crate::error::IdxError;
 
 #[derive(Debug, Args)]
+#[command(about = "Manage configuration")]
 pub struct ConfigCmd {
     #[command(subcommand)]
     pub command: ConfigSubcommand,
@@ -11,9 +12,13 @@ pub struct ConfigCmd {
 
 #[derive(Debug, Subcommand)]
 pub enum ConfigSubcommand {
+    #[command(about = "Create default configuration file")]
     Init,
+    #[command(about = "Get a configuration value by key")]
     Get { key: String },
+    #[command(about = "Set a configuration value by key")]
     Set { key: String, value: String },
+    #[command(about = "Print configuration file path")]
     Path,
 }
 

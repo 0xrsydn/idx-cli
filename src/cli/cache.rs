@@ -4,6 +4,7 @@ use crate::cache::Cache;
 use crate::error::IdxError;
 
 #[derive(Debug, Args)]
+#[command(about = "Manage local cache")]
 pub struct CacheCmd {
     #[command(subcommand)]
     pub command: CacheSubcommand,
@@ -11,7 +12,9 @@ pub struct CacheCmd {
 
 #[derive(Debug, Subcommand)]
 pub enum CacheSubcommand {
+    #[command(about = "Show cache usage information")]
     Info,
+    #[command(about = "Clear all cached files")]
     Clear,
 }
 

@@ -8,6 +8,7 @@ use crate::error::IdxError;
 use crate::output::{render_history, render_quotes};
 
 #[derive(Debug, Args)]
+#[command(about = "Stock data and analysis")]
 pub struct StocksCmd {
     #[command(subcommand)]
     pub command: StocksSubcommand,
@@ -15,10 +16,20 @@ pub struct StocksCmd {
 
 #[derive(Debug, Subcommand)]
 pub enum StocksSubcommand {
+    #[command(
+        about = "Get real-time stock quotes",
+        after_help = "Examples:\n  idx stocks quote BBCA\n  idx stocks quote BBCA,BBRI,BMRI\n  idx -o json stocks quote BBCA"
+    )]
     Quote {
+        /// One or more symbols, comma-separated or space-separated.
         symbols: Vec<String>,
     },
+    #[command(
+        about = "Get historical OHLC data",
+        after_help = "Examples:\n  idx stocks history BBCA --period 3mo\n  idx stocks history BBCA --period 1y --interval 1wk"
+    )]
     History {
+        /// Single ticker symbol (e.g. BBCA).
         symbol: String,
         #[arg(long, value_enum, default_value_t = Period::ThreeMonths)]
         period: Period,
