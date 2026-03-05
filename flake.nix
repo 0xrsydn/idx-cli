@@ -28,6 +28,7 @@
             sqlite
             cargo-watch
             cargo-nextest
+            prek
           ];
 
           env = {
