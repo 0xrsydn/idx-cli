@@ -2,7 +2,7 @@ use serde::Serialize;
 use thiserror::Error;
 
 #[allow(dead_code)]
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum IdxError {
     #[error("symbol not found: {0}")]
     SymbolNotFound(String),

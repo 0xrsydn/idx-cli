@@ -78,6 +78,12 @@ impl MarketDataProvider for YahooProvider {
     }
 }
 
+pub(crate) fn parse_quote_from_str(symbol: &str, raw: &str) -> Result<Quote, IdxError> {
+    let chart: ChartResponse =
+        serde_json::from_str(raw).map_err(|e| IdxError::ParseError(e.to_string()))?;
+    parse_quote(symbol, &chart)
+}
+
 fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, IdxError> {
     let result = chart
         .chart
@@ -120,6 +126,12 @@ fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, IdxError> {
         prev_close,
         avg_volume: meta.average_daily_volume_3month,
     })
+}
+
+pub(crate) fn parse_history_from_str(raw: &str) -> Result<Vec<Ohlc>, IdxError> {
+    let chart: ChartResponse =
+        serde_json::from_str(raw).map_err(|e| IdxError::ParseError(e.to_string()))?;
+    parse_history(&chart)
 }
 
 fn parse_history(chart: &ChartResponse) -> Result<Vec<Ohlc>, IdxError> {
@@ -212,7 +224,7 @@ struct IndicatorQuote {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_history, parse_quote, ChartResponse};
+    use super::{parse_history, parse_history_from_str, parse_quote, parse_quote_from_str, ChartResponse};
 
     const SAMPLE: &str = r#"{
       "chart": {
@@ -248,5 +260,17 @@ mod tests {
         let history = parse_history(&chart).expect("history parsed");
         assert_eq!(history.len(), 2);
         assert_eq!(history[0].close, 9875.0);
+    }
+
+    #[test]
+    fn parses_realistic_fixture_json() {
+        let quote_raw = std::fs::read_to_string("tests/fixtures/chart_bbca_1d.json").expect("fixture exists");
+        let history_raw = std::fs::read_to_string("tests/fixtures/chart_bbca_3mo.json").expect("fixture exists");
+
+        let quote = parse_quote_from_str("BBCA.JK", &quote_raw).expect("fixture quote parsed");
+        assert_eq!(quote.symbol, "BBCA.JK");
+
+        let history = parse_history_from_str(&history_raw).expect("fixture history parsed");
+        assert!(!history.is_empty());
     }
 }

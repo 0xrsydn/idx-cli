@@ -27,30 +27,49 @@ pub fn resolve_symbol(symbol: &str, exchange: &str) -> String {
 
 pub fn default_provider() -> Box<dyn MarketDataProvider> {
     if std::env::var("IDX_USE_MOCK_PROVIDER").is_ok() {
-        Box::new(MockProvider)
+        Box::new(MockProvider::from_fixtures())
     } else {
         Box::new(yahoo::YahooProvider::new())
     }
 }
 
-struct MockProvider;
+pub struct MockProvider {
+    quote: Result<Quote, IdxError>,
+    history: Result<Vec<Ohlc>, IdxError>,
+}
+
+impl MockProvider {
+    pub fn from_fixtures() -> Self {
+        if std::env::var("IDX_MOCK_ERROR").is_ok() {
+            return Self::with_error(IdxError::ProviderUnavailable);
+        }
+
+        let quote_raw = std::fs::read_to_string("tests/fixtures/chart_bbca_1d.json")
+            .unwrap_or_else(|_| "{}".to_string());
+        let history_raw = std::fs::read_to_string("tests/fixtures/chart_bbca_3mo.json")
+            .unwrap_or_else(|_| "{}".to_string());
+
+        let quote = yahoo::parse_quote_from_str("BBCA.JK", &quote_raw)
+            .map_err(|e| IdxError::ParseError(e.to_string()));
+        let history = yahoo::parse_history_from_str(&history_raw)
+            .map_err(|e| IdxError::ParseError(e.to_string()));
+
+        Self { quote, history }
+    }
+
+    pub fn with_error(err: IdxError) -> Self {
+        Self {
+            quote: Err(err),
+            history: Err(IdxError::ProviderUnavailable),
+        }
+    }
+}
 
 impl MarketDataProvider for MockProvider {
     fn quote(&self, symbol: &str) -> Result<Quote, IdxError> {
-        Ok(Quote {
-            symbol: symbol.to_string(),
-            price: 9875.0,
-            change: 117.0,
-            change_pct: 1.2,
-            volume: 12_300_000,
-            market_cap: Some(1_215_200_000_000_000.0),
-            week52_high: Some(10_250.0),
-            week52_low: Some(7_800.0),
-            week52_position: Some(0.73),
-            range_signal: Some("upper".to_string()),
-            prev_close: Some(9_758.0),
-            avg_volume: Some(10_000_000),
-        })
+        let mut q = self.quote.clone()?;
+        q.symbol = symbol.to_string();
+        Ok(q)
     }
 
     fn history(
@@ -59,14 +78,7 @@ impl MarketDataProvider for MockProvider {
         _period: &Period,
         _interval: &Interval,
     ) -> Result<Vec<Ohlc>, IdxError> {
-        Ok(vec![Ohlc {
-            date: chrono::NaiveDate::from_ymd_opt(2026, 3, 1).expect("valid date"),
-            open: 9800.0,
-            high: 9900.0,
-            low: 9750.0,
-            close: 9875.0,
-            volume: 12_300_000,
-        }])
+        self.history.clone()
     }
 }
 
@@ -81,5 +93,6 @@ mod tests {
         assert_eq!(resolve_symbol("TLKM.us", "JK"), "TLKM.US");
         assert_eq!(resolve_symbol("abcd.ef.gh", "JK"), "ABCD.EF.GH");
         assert_eq!(resolve_symbol(" bbri ", "jk"), "BBRI.JK");
+        assert_eq!(resolve_symbol("", "JK"), ".JK");
     }
 }
