@@ -1,10 +1,10 @@
 use std::fs;
 
-use assert_cmd::{Command, cargo::cargo_bin};
+use assert_cmd::Command;
 use predicates::prelude::*;
 
 fn bin() -> Command {
-    Command::new(cargo_bin("idx-cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("idx-cli"))
 }
 
 fn test_env_dir(name: &str) -> std::path::PathBuf {
@@ -62,6 +62,30 @@ fn history_with_mock_provider_table_contains_columns() {
         .stdout(predicate::str::contains("DATE"))
         .stdout(predicate::str::contains("OPEN"))
         .stdout(predicate::str::contains("VOLUME"));
+}
+
+#[test]
+fn technical_with_mock_provider_table_contains_expected_rows() {
+    bin()
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["stocks", "technical", "BBCA"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Technical Analysis for"))
+        .stdout(predicate::str::contains("RSI (14)"))
+        .stdout(predicate::str::contains("Overall Signal"));
+}
+
+#[test]
+fn technical_with_mock_provider_json_contains_fields() {
+    bin()
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["-o", "json", "stocks", "technical", "BBCA"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"symbol\""))
+        .stdout(predicate::str::contains("\"sma20\""))
+        .stdout(predicate::str::contains("\"signals\""));
 }
 
 #[test]
@@ -124,6 +148,30 @@ fn serves_stale_cache_on_provider_failure_with_warning() {
         .env("IDX_CACHE_QUOTE_TTL", "0")
         .env("IDX_MOCK_ERROR", "1")
         .args(["stocks", "quote", "BBCA"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning: network failed"));
+}
+
+#[test]
+fn technical_serves_stale_cache_on_provider_failure_with_warning() {
+    let root = test_env_dir("technical-stale");
+    let cache_home = root.join("cache");
+
+    bin()
+        .env("XDG_CACHE_HOME", &cache_home)
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .env("IDX_CACHE_QUOTE_TTL", "0")
+        .args(["stocks", "technical", "BBCA"])
+        .assert()
+        .success();
+
+    bin()
+        .env("XDG_CACHE_HOME", &cache_home)
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .env("IDX_CACHE_QUOTE_TTL", "0")
+        .env("IDX_MOCK_ERROR", "1")
+        .args(["stocks", "technical", "BBCA"])
         .assert()
         .success()
         .stderr(predicate::str::contains("warning: network failed"));

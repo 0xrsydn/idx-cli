@@ -1,8 +1,10 @@
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 use owo_colors::OwoColorize;
 
+use crate::analysis::signals::Signal;
 use crate::api::types::{Ohlc, Quote};
 use crate::error::IdxError;
+use crate::output::TechnicalReport;
 
 pub fn format_idr(value: i64) -> String {
     let chars: Vec<char> = value.to_string().chars().rev().collect();
@@ -94,13 +96,160 @@ pub fn print_history(symbol: &str, history: &[Ohlc]) -> Result<(), IdxError> {
     Ok(())
 }
 
+pub fn print_technical(report: &TechnicalReport, no_color: bool) -> Result<(), IdxError> {
+    println!(
+        "{}",
+        format!(
+            "Technical Analysis for {} ({})",
+            report.symbol, report.as_of
+        )
+        .bold()
+    );
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec!["METRIC", "VALUE", "SIGNAL"]);
+
+    table.add_row(vec![
+        Cell::new("Current Price"),
+        Cell::new(format_idr(report.current_price)),
+        Cell::new("-"),
+    ]);
+    table.add_row(vec![
+        Cell::new("SMA 20"),
+        Cell::new(format_idr_option(report.sma20)),
+        Cell::new("-"),
+    ]);
+    table.add_row(vec![
+        Cell::new("SMA 50"),
+        Cell::new(format_idr_option(report.sma50)),
+        Cell::new("-"),
+    ]);
+    table.add_row(vec![
+        Cell::new("SMA 200"),
+        Cell::new(format_idr_option(report.sma200)),
+        Cell::new("-"),
+    ]);
+    table.add_row(vec![
+        Cell::new("RSI (14)"),
+        Cell::new(format_float(report.rsi14, 2)),
+        Cell::new(format_signal(report.signals.rsi, no_color, false)),
+    ]);
+    table.add_row(vec![
+        Cell::new("MACD (12,26,9)"),
+        Cell::new(format!(
+            "{}/{}/{}",
+            format_float(report.macd.line, 2),
+            format_float(report.macd.signal, 2),
+            format_float(report.macd.histogram, 2)
+        )),
+        Cell::new(format_signal(report.signals.macd, no_color, false)),
+    ]);
+    table.add_row(vec![
+        Cell::new("Trend"),
+        Cell::new(trend_context(report)),
+        Cell::new(format_signal(report.signals.trend, no_color, false)),
+    ]);
+    table.add_row(vec![
+        Cell::new("Volume Ratio (20)"),
+        Cell::new(format_volume_ratio(report)),
+        Cell::new("-"),
+    ]);
+    table.add_row(vec![
+        Cell::new("Overall Signal"),
+        Cell::new("-"),
+        Cell::new(format_signal(report.signals.overall, no_color, true)),
+    ]);
+
+    println!("{table}");
+    Ok(())
+}
+
+fn format_idr_option(value: Option<f64>) -> String {
+    value
+        .map(|v| format_idr(v.round() as i64))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_float(value: Option<f64>, precision: usize) -> String {
+    value
+        .map(|v| format!("{v:.prec$}", prec = precision))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_signal(signal: Signal, no_color: bool, uppercase: bool) -> String {
+    let label = if uppercase {
+        signal_label_upper(signal)
+    } else {
+        signal_label(signal)
+    };
+
+    if no_color {
+        return label.to_string();
+    }
+
+    match signal {
+        Signal::Bullish => label.green().to_string(),
+        Signal::Bearish => label.red().to_string(),
+        Signal::Neutral => label.yellow().to_string(),
+    }
+}
+
+fn signal_label(signal: Signal) -> &'static str {
+    match signal {
+        Signal::Bullish => "Bullish",
+        Signal::Bearish => "Bearish",
+        Signal::Neutral => "Neutral",
+    }
+}
+
+fn signal_label_upper(signal: Signal) -> &'static str {
+    match signal {
+        Signal::Bullish => "BULLISH",
+        Signal::Bearish => "BEARISH",
+        Signal::Neutral => "NEUTRAL",
+    }
+}
+
+fn trend_context(report: &TechnicalReport) -> String {
+    match (report.sma50, report.sma200) {
+        (Some(sma50), Some(sma200)) => format!(
+            "{} vs SMA50 {}, SMA200 {}",
+            format_idr(report.current_price),
+            format_idr(sma50.round() as i64),
+            format_idr(sma200.round() as i64)
+        ),
+        _ => "Insufficient data".to_string(),
+    }
+}
+
+fn format_volume_ratio(report: &TechnicalReport) -> String {
+    match (report.volume.ratio20, report.volume.average20) {
+        (Some(ratio), Some(avg)) => format!(
+            "{ratio:.2}x ({} vs {} avg)",
+            format_u64(report.volume.current),
+            format_u64(avg.round() as u64)
+        ),
+        _ => "-".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{format_idr, format_u64};
+    use super::{format_idr, format_signal, format_u64};
+    use crate::analysis::signals::Signal;
 
     #[test]
     fn formats_idr_numbers() {
         assert_eq!(format_idr(9875), "9,875");
         assert_eq!(format_u64(1_215_200_000_000_000), "1,215,200,000,000,000");
+    }
+
+    #[test]
+    fn formats_plain_signal_labels() {
+        assert_eq!(format_signal(Signal::Bullish, true, false), "Bullish");
+        assert_eq!(format_signal(Signal::Bearish, true, true), "BEARISH");
     }
 }

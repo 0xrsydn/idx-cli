@@ -1,3 +1,4 @@
+pub mod analysis;
 mod api;
 mod cache;
 mod cli;
