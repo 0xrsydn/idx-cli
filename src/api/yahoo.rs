@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use crate::api::types::{Interval, Ohlc, Period, Quote};
 use crate::api::MarketDataProvider;
+use crate::api::types::{Interval, Ohlc, Period, Quote};
 use crate::error::IdxError;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
@@ -29,15 +29,16 @@ impl YahooProvider {
         )
     }
 
-    fn fetch_chart(&self, symbol: &str, period: &Period, interval: &Interval) -> Result<ChartResponse, IdxError> {
+    fn fetch_chart(
+        &self,
+        symbol: &str,
+        period: &Period,
+        interval: &Interval,
+    ) -> Result<ChartResponse, IdxError> {
         let mut wait = Duration::from_millis(250);
         for attempt in 0..3 {
             let url = Self::chart_url(symbol, period, interval);
-            let response = self
-                .agent
-                .get(&url)
-                .header("User-Agent", USER_AGENT)
-                .call();
+            let response = self.agent.get(&url).header("User-Agent", USER_AGENT).call();
             match response {
                 Ok(ok) => {
                     return ok
@@ -72,7 +73,12 @@ impl MarketDataProvider for YahooProvider {
         parse_quote(symbol, &chart)
     }
 
-    fn history(&self, symbol: &str, period: &Period, interval: &Interval) -> Result<Vec<Ohlc>, IdxError> {
+    fn history(
+        &self,
+        symbol: &str,
+        period: &Period,
+        interval: &Interval,
+    ) -> Result<Vec<Ohlc>, IdxError> {
         let chart = self.fetch_chart(symbol, period, interval)?;
         parse_history(&chart)
     }
@@ -92,12 +98,15 @@ fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, IdxError> {
         .and_then(|r| r.first())
         .ok_or(IdxError::ProviderUnavailable)?;
     let meta = result.meta.as_ref().ok_or(IdxError::ProviderUnavailable)?;
-    let price = meta.regular_market_price.ok_or(IdxError::SymbolNotFound(symbol.to_string()))?;
+    let price = meta
+        .regular_market_price
+        .ok_or(IdxError::SymbolNotFound(symbol.to_string()))?;
     let prev_close = meta.previous_close.or(meta.chart_previous_close);
     let change = prev_close.map_or(0.0, |p| price - p);
     let change_pct = prev_close.map_or(0.0, |p| if p != 0.0 { (change / p) * 100.0 } else { 0.0 });
 
-    let (week52_position, range_signal) = match (meta.fifty_two_week_low, meta.fifty_two_week_high) {
+    let (week52_position, range_signal) = match (meta.fifty_two_week_low, meta.fifty_two_week_high)
+    {
         (Some(low), Some(high)) if high > low => {
             let pos = (price - low) / (high - low);
             let signal = if pos > 0.66 {
@@ -141,7 +150,10 @@ fn parse_history(chart: &ChartResponse) -> Result<Vec<Ohlc>, IdxError> {
         .as_ref()
         .and_then(|r| r.first())
         .ok_or(IdxError::ProviderUnavailable)?;
-    let timestamps = result.timestamp.as_ref().ok_or(IdxError::ProviderUnavailable)?;
+    let timestamps = result
+        .timestamp
+        .as_ref()
+        .ok_or(IdxError::ProviderUnavailable)?;
     let quote = result
         .indicators
         .as_ref()
@@ -151,11 +163,23 @@ fn parse_history(chart: &ChartResponse) -> Result<Vec<Ohlc>, IdxError> {
 
     let mut out = Vec::new();
     for (i, ts) in timestamps.iter().enumerate() {
-        let open = quote.open.as_ref().and_then(|v| v.get(i).copied().flatten());
-        let high = quote.high.as_ref().and_then(|v| v.get(i).copied().flatten());
+        let open = quote
+            .open
+            .as_ref()
+            .and_then(|v| v.get(i).copied().flatten());
+        let high = quote
+            .high
+            .as_ref()
+            .and_then(|v| v.get(i).copied().flatten());
         let low = quote.low.as_ref().and_then(|v| v.get(i).copied().flatten());
-        let close = quote.close.as_ref().and_then(|v| v.get(i).copied().flatten());
-        let volume = quote.volume.as_ref().and_then(|v| v.get(i).copied().flatten());
+        let close = quote
+            .close
+            .as_ref()
+            .and_then(|v| v.get(i).copied().flatten());
+        let volume = quote
+            .volume
+            .as_ref()
+            .and_then(|v| v.get(i).copied().flatten());
 
         if let (Some(open), Some(high), Some(low), Some(close), Some(volume)) =
             (open, high, low, close, volume)
@@ -224,7 +248,9 @@ struct IndicatorQuote {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_history, parse_history_from_str, parse_quote, parse_quote_from_str, ChartResponse};
+    use super::{
+        ChartResponse, parse_history, parse_history_from_str, parse_quote, parse_quote_from_str,
+    };
 
     const SAMPLE: &str = r#"{
       "chart": {
@@ -264,8 +290,10 @@ mod tests {
 
     #[test]
     fn parses_realistic_fixture_json() {
-        let quote_raw = std::fs::read_to_string("tests/fixtures/chart_bbca_1d.json").expect("fixture exists");
-        let history_raw = std::fs::read_to_string("tests/fixtures/chart_bbca_3mo.json").expect("fixture exists");
+        let quote_raw =
+            std::fs::read_to_string("tests/fixtures/chart_bbca_1d.json").expect("fixture exists");
+        let history_raw =
+            std::fs::read_to_string("tests/fixtures/chart_bbca_3mo.json").expect("fixture exists");
 
         let quote = parse_quote_from_str("BBCA.JK", &quote_raw).expect("fixture quote parsed");
         assert_eq!(quote.symbol, "BBCA.JK");

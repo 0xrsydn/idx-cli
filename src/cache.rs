@@ -43,23 +43,39 @@ impl Cache {
         Self { root }
     }
 
-
-    pub fn get<T: DeserializeOwned>(&self, data_type: &str, symbol: &str) -> Result<Option<T>, IdxError> {
+    pub fn get<T: DeserializeOwned>(
+        &self,
+        data_type: &str,
+        symbol: &str,
+    ) -> Result<Option<T>, IdxError> {
         let Some(entry): Option<CacheEntry<T>> = self.read_entry(data_type, symbol)? else {
             return Ok(None);
         };
         let age = Utc::now().signed_duration_since(entry.fetched_at);
-        if age > chrono::Duration::from_std(Duration::from_secs(entry.ttl_secs)).map_err(|e| IdxError::CacheMiss(e.to_string()))? {
+        if age
+            > chrono::Duration::from_std(Duration::from_secs(entry.ttl_secs))
+                .map_err(|e| IdxError::CacheMiss(e.to_string()))?
+        {
             return Ok(None);
         }
         Ok(Some(entry.data))
     }
 
-    pub fn get_stale<T: DeserializeOwned>(&self, data_type: &str, symbol: &str) -> Result<Option<T>, IdxError> {
+    pub fn get_stale<T: DeserializeOwned>(
+        &self,
+        data_type: &str,
+        symbol: &str,
+    ) -> Result<Option<T>, IdxError> {
         Ok(self.read_entry::<T>(data_type, symbol)?.map(|e| e.data))
     }
 
-    pub fn put<T: Serialize>(&self, data_type: &str, symbol: &str, data: &T, ttl_secs: u64) -> Result<(), IdxError> {
+    pub fn put<T: Serialize>(
+        &self,
+        data_type: &str,
+        symbol: &str,
+        data: &T,
+        ttl_secs: u64,
+    ) -> Result<(), IdxError> {
         let path = self.entry_path(data_type, symbol);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| IdxError::Io(e.to_string()))?;
@@ -70,7 +86,8 @@ impl Cache {
             schema_version: SCHEMA_VERSION,
             data,
         };
-        let raw = serde_json::to_string_pretty(&entry).map_err(|e| IdxError::ParseError(e.to_string()))?;
+        let raw = serde_json::to_string_pretty(&entry)
+            .map_err(|e| IdxError::ParseError(e.to_string()))?;
         fs::write(path, raw).map_err(|e| IdxError::Io(e.to_string()))
     }
 
@@ -88,7 +105,8 @@ impl Cache {
                     files += 1;
                     total_size += meta.len();
                     if let Ok(raw) = fs::read_to_string(p)
-                        && let Ok(entry) = serde_json::from_str::<CacheEntry<serde_json::Value>>(&raw)
+                        && let Ok(entry) =
+                            serde_json::from_str::<CacheEntry<serde_json::Value>>(&raw)
                     {
                         oldest = Some(oldest.map_or(entry.fetched_at, |o| o.min(entry.fetched_at)));
                         newest = Some(newest.map_or(entry.fetched_at, |n| n.max(entry.fetched_at)));
@@ -132,7 +150,11 @@ impl Cache {
         Ok(())
     }
 
-    fn read_entry<T: DeserializeOwned>(&self, data_type: &str, symbol: &str) -> Result<Option<CacheEntry<T>>, IdxError> {
+    fn read_entry<T: DeserializeOwned>(
+        &self,
+        data_type: &str,
+        symbol: &str,
+    ) -> Result<Option<CacheEntry<T>>, IdxError> {
         let path = self.entry_path(data_type, symbol);
         if !path.exists() {
             return Ok(None);
@@ -178,20 +200,29 @@ mod tests {
         let root = tmp();
         let cache = Cache::with_root(root.clone());
 
-        cache.put("quote", "BBCA.JK", &T { v: 7 }, 300).expect("cache write");
+        cache
+            .put("quote", "BBCA.JK", &T { v: 7 }, 300)
+            .expect("cache write");
         let fresh: Option<T> = cache.get("quote", "BBCA.JK").expect("cache read fresh");
         assert_eq!(fresh, Some(T { v: 7 }));
 
         let path = root.join("quote/BBCA.JK.json");
-        let mut entry: CacheEntry<T> = serde_json::from_str(&fs::read_to_string(&path).expect("read cache file"))
-            .expect("parse cache entry");
+        let mut entry: CacheEntry<T> =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read cache file"))
+                .expect("parse cache entry");
         entry.fetched_at = chrono::Utc::now() - chrono::Duration::seconds(1000);
-        fs::write(&path, serde_json::to_string(&entry).expect("serialize entry")).expect("write old entry");
+        fs::write(
+            &path,
+            serde_json::to_string(&entry).expect("serialize entry"),
+        )
+        .expect("write old entry");
 
         let expired: Option<T> = cache.get("quote", "BBCA.JK").expect("cache read expired");
         assert_eq!(expired, None);
 
-        let stale: Option<T> = cache.get_stale("quote", "BBCA.JK").expect("cache read stale");
+        let stale: Option<T> = cache
+            .get_stale("quote", "BBCA.JK")
+            .expect("cache read stale");
         assert_eq!(stale, Some(T { v: 7 }));
     }
 }

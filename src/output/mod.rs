@@ -15,14 +15,22 @@ pub enum OutputFormat {
     Json,
 }
 
-pub fn render_quotes(quotes: &[Quote], format: &OutputFormat, no_color: bool) -> Result<(), IdxError> {
+pub fn render_quotes(
+    quotes: &[Quote],
+    format: &OutputFormat,
+    no_color: bool,
+) -> Result<(), IdxError> {
     match format {
         OutputFormat::Table => table::print_quotes(quotes, no_color),
         OutputFormat::Json => json::print_json(quotes),
     }
 }
 
-pub fn render_history(symbol: &str, history: &[Ohlc], format: &OutputFormat) -> Result<(), IdxError> {
+pub fn render_history(
+    symbol: &str,
+    history: &[Ohlc],
+    format: &OutputFormat,
+) -> Result<(), IdxError> {
     match format {
         OutputFormat::Table => table::print_history(symbol, history),
         OutputFormat::Json => json::print_json(history),
@@ -38,7 +46,10 @@ pub fn emit_error(err: &IdxError, format: &OutputFormat) {
                 "code": format!("{:?}", err.code()).to_uppercase(),
                 "message": err.to_string()
             });
-            eprintln!("{}", serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()));
+            eprintln!(
+                "{}",
+                serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string())
+            );
         }
     }
 }

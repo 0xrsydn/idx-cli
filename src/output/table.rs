@@ -1,4 +1,4 @@
-use comfy_table::{presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
+use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 use owo_colors::OwoColorize;
 
 use crate::api::types::{Ohlc, Quote};
@@ -39,7 +39,11 @@ pub fn print_quotes(quotes: &[Quote], no_color: bool) -> Result<(), IdxError> {
             Cell::new(format!("{:+.2}", q.change)),
             pct_cell,
             Cell::new(format_idr(q.volume as f64)),
-            Cell::new(q.market_cap.map(format_idr).unwrap_or_else(|| "-".to_string())),
+            Cell::new(
+                q.market_cap
+                    .map(format_idr)
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
         ]);
     }
 

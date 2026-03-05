@@ -40,7 +40,13 @@ fn run() -> Result<(), IdxError> {
         }
         Commands::Stocks(stocks) => {
             let provider = default_provider();
-            if let Err(err) = cli::stocks::handle(stocks, &config, provider.as_ref(), cli.offline, cli.no_cache) {
+            if let Err(err) = cli::stocks::handle(
+                stocks,
+                &config,
+                provider.as_ref(),
+                cli.offline,
+                cli.no_cache,
+            ) {
                 emit_error(&err, &config.output);
                 return Err(err);
             }

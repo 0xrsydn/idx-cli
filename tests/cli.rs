@@ -1,6 +1,6 @@
 use std::fs;
 
-use assert_cmd::{cargo::cargo_bin, Command};
+use assert_cmd::{Command, cargo::cargo_bin};
 use predicates::prelude::*;
 
 fn bin() -> Command {
@@ -16,10 +16,7 @@ fn test_env_dir(name: &str) -> std::path::PathBuf {
 
 #[test]
 fn help_works() {
-    bin()
-        .arg("--help")
-        .assert()
-        .success();
+    bin().arg("--help").assert().success();
 }
 
 #[test]

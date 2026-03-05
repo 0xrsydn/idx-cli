@@ -89,7 +89,8 @@ impl IdxConfig {
         let path = config_path()?;
         if path.exists() {
             let raw = fs::read_to_string(&path).map_err(|e| IdxError::Io(e.to_string()))?;
-            let parsed: FileConfig = toml::from_str(&raw).map_err(|e| IdxError::ConfigError(e.to_string()))?;
+            let parsed: FileConfig =
+                toml::from_str(&raw).map_err(|e| IdxError::ConfigError(e.to_string()))?;
             if let Some(general) = parsed.general {
                 if let Some(exchange) = general.exchange {
                     cfg.exchange = exchange;
@@ -142,7 +143,8 @@ pub fn get_config_value(key: &str) -> Result<Option<String>, IdxError> {
         return Ok(None);
     }
     let raw = fs::read_to_string(path).map_err(|e| IdxError::Io(e.to_string()))?;
-    let value: toml::Value = toml::from_str(&raw).map_err(|e| IdxError::ConfigError(e.to_string()))?;
+    let value: toml::Value =
+        toml::from_str(&raw).map_err(|e| IdxError::ConfigError(e.to_string()))?;
 
     let mut cur = &value;
     for part in key.split('.') {
@@ -157,7 +159,8 @@ pub fn get_config_value(key: &str) -> Result<Option<String>, IdxError> {
 pub fn set_config_value(key: &str, value: &str) -> Result<(), IdxError> {
     let path = ensure_default_config()?;
     let raw = fs::read_to_string(&path).map_err(|e| IdxError::Io(e.to_string()))?;
-    let mut root: toml::Value = toml::from_str(&raw).map_err(|e| IdxError::ConfigError(e.to_string()))?;
+    let mut root: toml::Value =
+        toml::from_str(&raw).map_err(|e| IdxError::ConfigError(e.to_string()))?;
 
     let mut parts = key.split('.').peekable();
     let mut current = root
@@ -180,8 +183,11 @@ pub fn set_config_value(key: &str, value: &str) -> Result<(), IdxError> {
         }
     }
 
-    fs::write(&path, toml::to_string_pretty(&root).map_err(|e| IdxError::ConfigError(e.to_string()))?)
-        .map_err(|e| IdxError::Io(e.to_string()))
+    fs::write(
+        &path,
+        toml::to_string_pretty(&root).map_err(|e| IdxError::ConfigError(e.to_string()))?,
+    )
+    .map_err(|e| IdxError::Io(e.to_string()))
 }
 
 fn parse_toml_value(value: &str) -> toml::Value {
