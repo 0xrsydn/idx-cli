@@ -20,12 +20,30 @@ pub fn format_u64(value: u64) -> String {
     format_idr(value as i64)
 }
 
+fn format_52w_range_bar(position: Option<f64>) -> String {
+    let Some(pos) = position else {
+        return "-".to_string();
+    };
+
+    let clamped = pos.clamp(0.0, 1.0);
+    let filled = (clamped * 10.0).round() as usize;
+    format!("{}{}", "█".repeat(filled), "░".repeat(10 - filled))
+}
+
 pub fn print_quotes(quotes: &[Quote], no_color: bool) -> Result<(), IdxError> {
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_header(vec!["SYMBOL", "PRICE", "CHG", "CHG%", "VOLUME", "MKT CAP"]);
+        .set_header(vec![
+            "SYMBOL",
+            "PRICE",
+            "CHG",
+            "CHG%",
+            "VOLUME",
+            "MKT CAP",
+            "52W RANGE",
+        ]);
 
     for q in quotes {
         let pct = format!("{:+.2}%", q.change_pct);
@@ -47,6 +65,7 @@ pub fn print_quotes(quotes: &[Quote], no_color: bool) -> Result<(), IdxError> {
                     .map(format_u64)
                     .unwrap_or_else(|| "-".to_string()),
             ),
+            Cell::new(format_52w_range_bar(q.week52_position)),
         ]);
     }
 
