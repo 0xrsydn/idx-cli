@@ -352,6 +352,76 @@ thiserror = "2"
 
 ---
 
+## Agent Skills
+
+Inspired by [Google Workspace CLI's skills system](https://github.com/googleworkspace/cli/tree/main/skills), `idx-cli` ships a `skills/` directory with SKILL.md files that teach AI agents how to use the CLI effectively. No MCP, no JSON schema bloat — just markdown instructions that any agent framework can pick up.
+
+### Structure
+
+```
+skills/
+├── idx-shared/SKILL.md          # Install block, common patterns, output modes
+├── idx-quote/SKILL.md           # Price lookup, multi-symbol quotes
+├── idx-technical/SKILL.md       # Technical analysis workflow
+├── idx-fundamental/SKILL.md     # Fundamental analysis (growth, valuation, risk)
+├── idx-compare/SKILL.md         # Multi-stock comparison
+├── idx-screen/SKILL.md          # Stock screening with expressions & presets
+├── idx-ownership/SKILL.md       # Ownership intelligence queries
+├── idx-watchlist/SKILL.md       # Watchlist management
+├── idx-workflow-dd/SKILL.md     # Due diligence workflow (chains multiple commands)
+└── idx-workflow-sector/SKILL.md # Sector analysis workflow
+```
+
+### Skill anatomy
+
+Each SKILL.md follows a consistent format:
+
+```markdown
+# idx-quote — Stock Price Lookup
+
+## Install
+<!-- Auto-install block for agent frameworks -->
+```bash
+cargo install idx-cli  # or: nix run github:0xrsydn/idx-cli
+```
+
+## Commands
+<!-- Exact commands with examples -->
+idx stocks quote BBCA
+idx stocks quote BBCA,BBRI,BMRI -o json
+
+## Output format
+<!-- What the agent should expect back -->
+
+## Patterns
+<!-- Common usage patterns, gotchas, tips -->
+
+## See also
+<!-- Related skills -->
+```
+
+### Integration with agent frameworks
+
+```bash
+# OpenClaw — symlink all skills
+ln -s /path/to/idx-cli/skills/idx-* ~/.openclaw/skills/
+
+# Or install specific skills
+cp -r skills/idx-quote skills/idx-ownership ~/.openclaw/skills/
+
+# Claude Code — skills are auto-discovered from repo
+# Gemini CLI — same pattern as gws
+```
+
+### Design principles
+
+1. **Self-contained** — each skill has everything an agent needs, no cross-references required
+2. **Example-driven** — real commands with real output, not abstract descriptions
+3. **Composable** — workflow skills reference atomic skills, agents can chain them
+4. **Framework-agnostic** — plain markdown works with OpenClaw, Claude, Gemini, Cursor, etc.
+
+---
+
 ## Open Questions
 
 1. **Stock universe for screening** — Yahoo doesn't have a "list all IDX stocks" endpoint. We need a static list of IDX symbols (~800) bundled or fetched from IDX website. How to maintain?
