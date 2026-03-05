@@ -1,5 +1,7 @@
 node_modules/
 target/
+.direnv/
+result
 
 # Large research data files (tracked in Git LFS or kept local-only)
 research/*.pdf
