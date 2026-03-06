@@ -77,41 +77,6 @@ pub(crate) struct IndustryMetric {
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct MsnChart {
-    pub(crate) series: ChartSeries,
-}
-
-pub(crate) type RawChart = MsnChart;
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ChartSeries {
-    #[serde(default)]
-    pub(crate) time_stamps: Vec<String>,
-    #[serde(default)]
-    pub(crate) prices: Vec<f64>,
-    #[serde(default)]
-    pub(crate) open_prices: Vec<f64>,
-    #[serde(default)]
-    pub(crate) prices_high: Vec<f64>,
-    #[serde(default)]
-    pub(crate) prices_low: Vec<f64>,
-    #[serde(default)]
-    pub(crate) volumes: Vec<f64>,
-}
-
-impl ChartSeries {
-    pub(crate) fn has_real_ohlcv(&self) -> bool {
-        !self.time_stamps.is_empty()
-            && self.open_prices.len() == self.time_stamps.len()
-            && self.prices_high.len() == self.time_stamps.len()
-            && self.prices_low.len() == self.time_stamps.len()
-            && self.prices.len() == self.time_stamps.len()
-            && self.volumes.len() == self.time_stamps.len()
-    }
-}
-
-#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct RawEquity {
     pub(super) id: Option<String>,

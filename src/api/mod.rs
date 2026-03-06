@@ -26,8 +26,11 @@ pub trait FundamentalsProvider {
     fn fundamentals(&self, symbol: &str) -> Result<Fundamentals, IdxError>;
 }
 
-pub trait MarketDataProvider: QuoteProvider + FundamentalsProvider + HistoryProvider {}
-impl<T> MarketDataProvider for T where T: QuoteProvider + FundamentalsProvider + HistoryProvider {}
+/// Core provider trait — quote + fundamentals only.
+/// History is a separate capability (`HistoryProvider`) not all providers support
+/// (e.g. MSN Finance/Charts returns 404 for IDX/XIDX stocks).
+pub trait MarketDataProvider: QuoteProvider + FundamentalsProvider {}
+impl<T> MarketDataProvider for T where T: QuoteProvider + FundamentalsProvider {}
 
 #[allow(dead_code)]
 pub trait ProfileProvider {
@@ -81,6 +84,18 @@ pub fn default_provider(provider: ProviderKind, verbose: bool) -> Box<dyn Market
     }
 }
 
+/// Returns a history-capable provider, or `None` if the selected provider doesn't
+/// support price history (e.g. MSN Finance/Charts returns 404 for IDX/XIDX stocks).
+pub fn history_provider(provider: ProviderKind, verbose: bool) -> Option<Box<dyn HistoryProvider>> {
+    if std::env::var("IDX_USE_MOCK_PROVIDER").is_ok() {
+        return Some(Box::new(MockProvider::from_fixtures(provider)));
+    }
+    match provider {
+        ProviderKind::Yahoo => Some(Box::new(yahoo::YahooProvider::new(verbose))),
+        ProviderKind::Msn => None,
+    }
+}
+
 pub struct MockProvider {
     quote: Result<Quote, IdxError>,
     fundamentals: Result<Fundamentals, IdxError>,
@@ -124,8 +139,6 @@ impl MockProvider {
     fn from_msn_fixtures() -> Self {
         let quote_raw = std::fs::read_to_string("tests/fixtures/msn_quote_bbca.json")
             .unwrap_or_else(|_| "[]".to_string());
-        let history_raw = std::fs::read_to_string("tests/fixtures/msn_chart_bbca_3mo.json")
-            .unwrap_or_else(|_| "[]".to_string());
         let fundamentals_raw = std::fs::read_to_string("tests/fixtures/msn_keyratios_bbca.json")
             .unwrap_or_else(|_| "[]".to_string());
 
@@ -133,9 +146,10 @@ impl MockProvider {
             .map_err(|e| IdxError::ParseError(e.to_string()));
         let fundamentals = msn::parse_fundamentals_from_str(&fundamentals_raw, Some(&quote_raw))
             .map_err(|e| IdxError::ParseError(e.to_string()));
-        let history =
-            msn::parse_history_from_str(&crate::api::types::Period::ThreeMonths, &history_raw)
-                .map_err(|e| IdxError::ParseError(e.to_string()));
+        // MSN Finance/Charts returns 404 for IDX (XIDX) — history not supported
+        let history = Err(IdxError::Unsupported(
+            "MSN does not provide price history for IDX stocks. Use --provider yahoo.".into(),
+        ));
 
         Self {
             quote,

@@ -107,27 +107,32 @@ fn technical_with_mock_provider_json_contains_fields() {
 }
 
 #[test]
-fn msn_history_with_mock_returns_data() {
-    // MSN chart parsing works with fixture data; real IDX stocks 404 on Finance/Charts
-    // which surfaces as Unsupported (not the old blanket UNSUPPORTED message).
-    test_bin("msn-history-mock")
+fn msn_history_returns_unsupported() {
+    // MSN Finance/Charts returns 404 for IDX (XIDX) stocks — history is not supported.
+    // history_provider() returns None for MSN, which surfaces as Unsupported error.
+    test_bin("msn-history-unsupported")
         .env("IDX_PROVIDER", "msn")
         .env("IDX_USE_MOCK_PROVIDER", "1")
         .args(["stocks", "history", "BBCA", "--period", "3mo"])
         .assert()
-        .success();
+        .failure()
+        .stderr(predicate::str::contains(
+            "MSN does not provide price history",
+        ));
 }
 
 #[test]
-fn msn_technical_with_mock_returns_data() {
-    // Technical analysis works via MSN chart fixture data (mock); real IDX stocks
-    // return Unsupported from Finance/Charts (404 on XIDX).
-    test_bin("msn-technical-mock")
+fn msn_technical_returns_unsupported() {
+    // Technical analysis requires history — also unsupported for MSN/IDX.
+    test_bin("msn-technical-unsupported")
         .env("IDX_PROVIDER", "msn")
         .env("IDX_USE_MOCK_PROVIDER", "1")
         .args(["-o", "json", "stocks", "technical", "BBCA"])
         .assert()
-        .success();
+        .failure()
+        .stderr(predicate::str::contains(
+            "MSN does not provide price history",
+        ));
 }
 
 #[test]

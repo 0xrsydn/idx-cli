@@ -6,9 +6,8 @@ use serde::de::DeserializeOwned;
 use crate::error::IdxError;
 
 use super::raw_types::{
-    KeyRatios, MsnQuote, RawChart, RawEarningsResponse, RawEquity, RawFinancialStatement,
-    RawInsight, RawNewsFeed, RawScreenerResponse, RawSentiment, ScreenerFilter, ScreenerOrder,
-    ScreenerRequest,
+    KeyRatios, MsnQuote, RawEarningsResponse, RawEquity, RawFinancialStatement, RawInsight,
+    RawNewsFeed, RawScreenerResponse, RawSentiment, ScreenerFilter, ScreenerOrder, ScreenerRequest,
 };
 use super::symbols::resolve_msn_id;
 
@@ -180,19 +179,6 @@ impl MsnClient {
             "{MSN_ASSETS_BASE_URL}Finance/Events/Earnings?apikey={MSN_API_KEY}&ids={id}&wrapodata=false"
         );
         self.get_json(&url, symbol, "earnings")
-    }
-
-    pub(super) fn fetch_charts(
-        &self,
-        symbol: &str,
-        chart_type: &str,
-    ) -> Result<Vec<RawChart>, IdxError> {
-        let id =
-            resolve_msn_id(symbol).ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
-        let url = format!(
-            "{MSN_ASSETS_BASE_URL}Finance/Charts?apikey={MSN_API_KEY}&ids={id}&chartType={chart_type}&wrapodata=false"
-        );
-        self.get_json(&url, symbol, "charts")
     }
 
     pub(super) fn fetch_sentiment(&self, symbol: &str) -> Result<Vec<RawSentiment>, IdxError> {

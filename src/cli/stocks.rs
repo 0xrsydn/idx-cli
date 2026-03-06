@@ -14,7 +14,7 @@ use crate::api::types::{
 };
 use crate::api::{
     EarningsProvider, FinancialsProvider, InsightsProvider, MarketDataProvider, NewsProvider,
-    ProfileProvider, SentimentProvider,
+    ProfileProvider, SentimentProvider, history_provider,
 };
 use crate::cache::Cache;
 use crate::config::IdxConfig;
@@ -208,6 +208,13 @@ pub fn handle(
             period,
             interval,
         } => {
+            let hist_provider = history_provider(config.provider, false).ok_or_else(|| {
+                IdxError::Unsupported(
+                    "MSN does not provide price history for IDX stocks. \
+                         Use --provider yahoo for historical data."
+                        .into(),
+                )
+            })?;
             let history_bucket = cache_bucket(config, "history");
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
             let key = format!("{}-{}", period.as_str(), interval.as_str());
@@ -231,7 +238,7 @@ pub fn handle(
                 return render_history(&resolved, &stale, &config.output);
             }
 
-            match provider.history(&resolved, period, interval) {
+            match hist_provider.history(&resolved, period, interval) {
                 Ok(history) => {
                     if !no_cache {
                         cache.put(
@@ -258,6 +265,13 @@ pub fn handle(
             }
         }
         StocksSubcommand::Technical { symbol } => {
+            let hist_provider = history_provider(config.provider, false).ok_or_else(|| {
+                IdxError::Unsupported(
+                    "MSN does not provide price history for IDX stocks. \
+                         Use --provider yahoo for technical analysis."
+                        .into(),
+                )
+            })?;
             let technical_bucket = cache_bucket(config, "technical");
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
             if !no_cache
@@ -272,7 +286,7 @@ pub fn handle(
                 return render_technical(&stale, &config.output, config.no_color);
             }
 
-            match provider.history(&resolved, &Period::OneYear, &Interval::Day) {
+            match hist_provider.history(&resolved, &Period::OneYear, &Interval::Day) {
                 Ok(history) => {
                     let report = build_technical_report(&resolved, &history)?;
                     if !no_cache {

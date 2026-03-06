@@ -1,17 +1,12 @@
-use std::collections::BTreeMap;
-
-use chrono::{Datelike, NaiveDate};
-
 use super::raw_types::{
-    IndustryMetric, KeyRatios, MsnChart, MsnQuote, RawChart, RawEarningsData, RawEarningsResponse,
-    RawEquity, RawFinancialStatement, RawInsight, RawNewsFeed, RawScreenerResponse, RawSentiment,
+    IndustryMetric, KeyRatios, MsnQuote, RawEarningsData, RawEarningsResponse, RawEquity,
+    RawFinancialStatement, RawInsight, RawNewsFeed, RawScreenerResponse, RawSentiment,
     RawStatementSection,
 };
 use super::symbols::{normalized_symbol, ticker_from_symbol};
 use crate::api::types::{
-    Bar, CompanyProfile, EarningsData, EarningsReport, FinancialStatements, Fundamentals,
-    InsightData, InstrumentInfo, NewsItem, Officer, Ohlc, Period, Quote, SentimentData,
-    SentimentPeriod, StatementSection,
+    CompanyProfile, EarningsData, EarningsReport, FinancialStatements, Fundamentals, InsightData,
+    InstrumentInfo, NewsItem, Officer, Quote, SentimentData, SentimentPeriod, StatementSection,
 };
 use crate::error::IdxError;
 
@@ -109,94 +104,6 @@ pub(super) fn parse_fundamentals(
     })
 }
 
-pub(super) fn parse_history(period: &Period, charts: &[MsnChart]) -> Result<Vec<Ohlc>, IdxError> {
-    parse_history_with_drop_count(period, charts).map(|v| v.0)
-}
-
-pub(super) fn parse_history_with_drop_count(
-    period: &Period,
-    charts: &[MsnChart],
-) -> Result<(Vec<Ohlc>, usize), IdxError> {
-    let chart = charts.first().ok_or(IdxError::ProviderUnavailable)?;
-
-    if !chart.series.has_real_ohlcv() {
-        return Err(IdxError::ParseError(
-            "msn does not expose real OHLC/volume for this history range".to_string(),
-        ));
-    }
-
-    let timestamps = &chart.series.time_stamps;
-
-    let mut grouped: BTreeMap<NaiveDate, Ohlc> = BTreeMap::new();
-    let mut dropped = 0usize;
-
-    for (idx, raw_ts) in timestamps.iter().enumerate() {
-        let Some(date) = parse_chart_date(raw_ts) else {
-            dropped += 1;
-            continue;
-        };
-        let point = (
-            chart.series.open_prices.get(idx).copied(),
-            chart.series.prices_high.get(idx).copied(),
-            chart.series.prices_low.get(idx).copied(),
-            chart.series.prices.get(idx).copied(),
-            chart.series.volumes.get(idx).copied(),
-        );
-
-        let (Some(open), Some(high), Some(low), Some(close), Some(volume)) = point else {
-            dropped += 1;
-            continue;
-        };
-
-        let candle = Ohlc {
-            date,
-            open: round_price(open),
-            high: round_price(high),
-            low: round_price(low),
-            close: round_price(close),
-            volume: round_u64(Some(volume)).unwrap_or(0),
-        };
-
-        grouped
-            .entry(date)
-            .and_modify(|existing| {
-                existing.high = existing.high.max(candle.high);
-                existing.low = existing.low.min(candle.low);
-                existing.close = candle.close;
-                existing.volume = existing.volume.saturating_add(candle.volume);
-            })
-            .or_insert(candle);
-    }
-
-    let mut out: Vec<Ohlc> = grouped.into_values().collect();
-    trim_history_to_period(period, &mut out);
-
-    if out.is_empty() {
-        return Err(IdxError::ProviderUnavailable);
-    }
-
-    Ok((out, dropped))
-}
-
-fn trim_history_to_period(period: &Period, rows: &mut Vec<Ohlc>) {
-    let days: i64 = match period {
-        Period::OneDay => return,
-        Period::FiveDays => 5,
-        Period::OneMonth => 31,
-        Period::ThreeMonths => 92,
-        Period::SixMonths => 183,
-        Period::OneYear => 366,
-        Period::TwoYears => 731,
-        Period::FiveYears => 1826,
-    };
-
-    let Some(last_date) = rows.last().map(|item| item.date) else {
-        return;
-    };
-    let cutoff = last_date - chrono::Duration::days(days.saturating_sub(1));
-    rows.retain(|item| item.date >= cutoff);
-}
-
 fn preferred_metric(metrics: &[IndustryMetric]) -> Option<&IndustryMetric> {
     metrics.iter().max_by_key(|metric| metric_rank(metric))
 }
@@ -262,16 +169,6 @@ fn sanitize_current_ratio(value: Option<f64>) -> Option<f64> {
             Some(number)
         }
     })
-}
-
-fn parse_chart_date(raw: &str) -> Option<NaiveDate> {
-    if let Ok(date) = chrono::DateTime::parse_from_rfc3339(raw) {
-        return Some(date.date_naive());
-    }
-    if let Ok(timestamp) = raw.parse::<i64>() {
-        return chrono::DateTime::from_timestamp(timestamp, 0).map(|dt| dt.date_naive());
-    }
-    NaiveDate::parse_from_str(raw, "%Y-%m-%d").ok()
 }
 
 fn round_price(value: f64) -> i64 {
@@ -376,57 +273,6 @@ pub(super) fn parse_earnings(
         forecast,
         history,
     })
-}
-
-pub(super) fn parse_chart_history(
-    _symbol: &str,
-    period: &Period,
-    raw: &[RawChart],
-) -> Result<Vec<Bar>, IdxError> {
-    let chart = raw
-        .first()
-        .ok_or_else(|| IdxError::ParseError("no chart data".into()))?;
-
-    let mut grouped: BTreeMap<NaiveDate, Bar> = BTreeMap::new();
-    for (idx, ts) in chart.series.time_stamps.iter().enumerate() {
-        let Some(date) = parse_chart_date(ts) else {
-            continue;
-        };
-
-        let close = chart.series.prices.get(idx).copied();
-        let open = chart.series.open_prices.get(idx).copied().or(close);
-        let high = chart.series.prices_high.get(idx).copied().or(close);
-        let low = chart.series.prices_low.get(idx).copied().or(close);
-        let volume = chart.series.volumes.get(idx).copied().unwrap_or(0.0);
-
-        let (Some(open), Some(high), Some(low), Some(close)) = (open, high, low, close) else {
-            continue;
-        };
-
-        grouped.insert(
-            date,
-            Bar {
-                date,
-                open: round_price(open),
-                high: round_price(high),
-                low: round_price(low),
-                close: round_price(close),
-                volume: round_u64(Some(volume)).unwrap_or(0),
-            },
-        );
-    }
-
-    let mut out: Vec<Bar> = grouped.into_values().collect();
-    trim_history_to_period(period, &mut out);
-    if out.is_empty() {
-        return Err(IdxError::ParseError("no chart data".into()));
-    }
-
-    if matches!(period, Period::FiveDays) {
-        Ok(resample_history(&out, ResampleInterval::Week))
-    } else {
-        Ok(out)
-    }
 }
 
 pub(super) fn parse_sentiment(
@@ -672,39 +518,4 @@ fn collect_earnings(
             period_type: v.ciq_fiscal_period_type.clone().unwrap_or_default(),
         });
     }
-}
-
-#[allow(dead_code)]
-#[derive(Clone, Copy)]
-pub(super) enum ResampleInterval {
-    Week,
-    Month,
-}
-
-#[allow(dead_code)]
-pub(super) fn resample_history(rows: &[Ohlc], interval: ResampleInterval) -> Vec<Ohlc> {
-    let mut grouped: BTreeMap<(i32, u32), Ohlc> = BTreeMap::new();
-
-    for row in rows {
-        let key = match interval {
-            ResampleInterval::Week => {
-                let iso = row.date.iso_week();
-                (iso.year(), iso.week())
-            }
-            ResampleInterval::Month => (row.date.year(), row.date.month()),
-        };
-
-        grouped
-            .entry(key)
-            .and_modify(|existing| {
-                existing.high = existing.high.max(row.high);
-                existing.low = existing.low.min(row.low);
-                existing.close = row.close;
-                existing.volume = existing.volume.saturating_add(row.volume);
-                existing.date = row.date;
-            })
-            .or_insert_with(|| row.clone());
-    }
-
-    grouped.into_values().collect()
 }

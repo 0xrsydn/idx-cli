@@ -5,23 +5,22 @@ mod raw_types;
 mod symbols;
 
 use crate::api::types::{
-    Bar, CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, Interval,
-    NewsItem, Period, Quote, SentimentData,
+    CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, NewsItem,
+    Quote, SentimentData,
 };
 use crate::api::{
-    EarningsProvider, FinancialsProvider, FundamentalsProvider, HistoryProvider, InsightsProvider,
-    NewsProvider, ProfileProvider, QuoteProvider, SentimentProvider,
+    EarningsProvider, FinancialsProvider, FundamentalsProvider, InsightsProvider, NewsProvider,
+    ProfileProvider, QuoteProvider, SentimentProvider,
 };
 use crate::error::IdxError;
 
 use client::MsnClient;
 use map::{
-    parse_chart_history, parse_earnings, parse_financial_statements, parse_fundamentals,
-    parse_insights, parse_news, parse_profile, parse_quote, parse_screener_results,
-    parse_sentiment,
+    parse_earnings, parse_financial_statements, parse_fundamentals, parse_insights, parse_news,
+    parse_profile, parse_quote, parse_screener_results, parse_sentiment,
 };
 
-pub(crate) use parse::{parse_fundamentals_from_str, parse_history_from_str, parse_quote_from_str};
+pub(crate) use parse::{parse_fundamentals_from_str, parse_quote_from_str};
 
 pub struct MsnProvider {
     client: MsnClient,
@@ -57,31 +56,6 @@ impl FundamentalsProvider for MsnProvider {
         let ratios = self.client.fetch_key_ratios(symbol)?;
         let quote = self.client.fetch_quotes(symbol)?;
         parse_fundamentals(&ratios, quote.first())
-    }
-}
-
-impl HistoryProvider for MsnProvider {
-    fn history(
-        &self,
-        symbol: &str,
-        period: &Period,
-        _interval: &Interval,
-    ) -> Result<Vec<Bar>, IdxError> {
-        let chart_type = period_to_chart_type(period);
-        let raw = self.client.fetch_charts(symbol, chart_type).map_err(|e| {
-            // Finance/Charts returns 404 for IDX stocks — MSN doesn't provide
-            // OHLCV chart history for the Indonesian exchange (XIDX).
-            if matches!(e, IdxError::SymbolNotFound(_)) {
-                IdxError::Unsupported(
-                    "MSN Finance/Charts does not provide OHLCV history for IDX (XIDX) stocks. \
-                     Use --provider yahoo for historical data."
-                        .to_string(),
-                )
-            } else {
-                e
-            }
-        })?;
-        parse_chart_history(symbol, period, &raw)
     }
 }
 
@@ -124,18 +98,5 @@ impl NewsProvider for MsnProvider {
     fn news(&self, symbol: &str, limit: usize) -> Result<Vec<NewsItem>, IdxError> {
         let raw = self.client.fetch_news(symbol, limit)?;
         parse_news(&raw)
-    }
-}
-
-fn period_to_chart_type(period: &Period) -> &'static str {
-    match period {
-        Period::OneDay => "1D",
-        Period::FiveDays => "1W",
-        Period::OneMonth => "1M",
-        Period::ThreeMonths => "3M",
-        Period::SixMonths => "6M",
-        Period::OneYear => "1Y",
-        Period::TwoYears => "3Y",
-        Period::FiveYears => "5Y",
     }
 }
