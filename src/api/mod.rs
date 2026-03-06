@@ -91,8 +91,9 @@ impl MockProvider {
             .map_err(|e| IdxError::ParseError(e.to_string()));
         let fundamentals = msn::parse_fundamentals_from_str(&fundamentals_raw, Some(&quote_raw))
             .map_err(|e| IdxError::ParseError(e.to_string()));
-        let history = msn::parse_history_from_str(&crate::api::types::Period::ThreeMonths, &history_raw)
-            .map_err(|e| IdxError::ParseError(e.to_string()));
+        let history =
+            msn::parse_history_from_str(&crate::api::types::Period::ThreeMonths, &history_raw)
+                .map_err(|e| IdxError::ParseError(e.to_string()));
 
         Self {
             quote,
