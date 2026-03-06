@@ -1,0 +1,36 @@
+[
+  {
+    "stockId": "bn91jc",
+    "symbol": "BBCA",
+    "displayName": "Bank Central Asia Tbk",
+    "shortName": "Bank Central Asia",
+    "industryMetrics": [
+      {
+        "year": "2025",
+        "fiscalPeriodType": "FY",
+        "revenueGrowthRate": 0.081,
+        "earningsGrowthRate": 0.121,
+        "netMargin": 0.324,
+        "roe": 0.198,
+        "returnOnAssetCurrent": 0.031,
+        "debtToEquityRatio": 0.42,
+        "currentRatio": 1.18,
+        "priceToEarningsRatio": 25.4,
+        "priceToBookRatio": 4.6
+      },
+      {
+        "year": "2024",
+        "fiscalPeriodType": "FY",
+        "revenueGrowthRate": 0.073,
+        "earningsGrowthRate": 0.102,
+        "netMargin": 0.311,
+        "roe": 0.187,
+        "returnOnAssetCurrent": 0.029,
+        "debtToEquityRatio": 0.45,
+        "currentRatio": 1.14,
+        "priceToEarningsRatio": 24.1,
+        "priceToBookRatio": 4.2
+      }
+    ]
+  }
+]

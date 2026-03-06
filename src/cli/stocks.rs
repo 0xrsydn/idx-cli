@@ -17,9 +17,13 @@ use crate::output::{
     render_growth, render_history, render_quotes, render_risk, render_technical, render_valuation,
 };
 
-struct FundamentalCacheSpec<'a> {
-    key: &'a str,
+struct FundamentalCacheSpec {
+    bucket: String,
     ttl_secs: u64,
+}
+
+fn cache_bucket(config: &IdxConfig, key: &str) -> String {
+    format!("{}-{key}", config.provider.as_str())
 }
 
 #[derive(Debug, Args)]
@@ -112,17 +116,18 @@ pub fn handle(
 
     match &cmd.command {
         StocksSubcommand::Quote { symbols } => {
+            let quote_bucket = cache_bucket(config, "quote");
             let mut quotes = Vec::new();
             for sym in symbols.iter().flat_map(|s| s.split(',')) {
                 let resolved = crate::api::resolve_symbol(sym, &config.exchange);
-                if !no_cache && let Some(q) = cache.get("quote", &resolved)? {
+                if !no_cache && let Some(q) = cache.get(&quote_bucket, &resolved)? {
                     quotes.push(q);
                     continue;
                 }
                 if offline {
                     let stale = cache
-                        .get_stale("quote", &resolved)?
-                        .ok_or_else(|| IdxError::CacheMiss(format!("quote/{resolved}")))?;
+                        .get_stale(&quote_bucket, &resolved)?
+                        .ok_or_else(|| IdxError::CacheMiss(format!("{quote_bucket}/{resolved}")))?;
                     quotes.push(stale);
                     continue;
                 }
@@ -130,12 +135,14 @@ pub fn handle(
                 match provider.quote(&resolved) {
                     Ok(q) => {
                         if !no_cache {
-                            cache.put("quote", &resolved, &q, config.quote_ttl)?;
+                            cache.put(&quote_bucket, &resolved, &q, config.quote_ttl)?;
                         }
                         quotes.push(q);
                     }
                     Err(err) => {
-                        if !no_cache && let Some(stale) = cache.get_stale("quote", &resolved)? {
+                        if !no_cache
+                            && let Some(stale) = cache.get_stale(&quote_bucket, &resolved)?
+                        {
                             eprintln!(
                                 "warning: network failed, serving stale cache for {resolved}"
                             );
@@ -153,21 +160,26 @@ pub fn handle(
             period,
             interval,
         } => {
+            let history_bucket = cache_bucket(config, "history");
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
             let key = format!("{}-{}", period.as_str(), interval.as_str());
             if !no_cache
-                && let Some(history) = cache
-                    .get::<Vec<crate::api::types::Ohlc>>("history", &format!("{resolved}-{key}"))?
+                && let Some(history) = cache.get::<Vec<crate::api::types::Ohlc>>(
+                    &history_bucket,
+                    &format!("{resolved}-{key}"),
+                )?
             {
                 return render_history(&resolved, &history, &config.output);
             }
             if offline {
                 let stale = cache
                     .get_stale::<Vec<crate::api::types::Ohlc>>(
-                        "history",
+                        &history_bucket,
                         &format!("{resolved}-{key}"),
                     )?
-                    .ok_or_else(|| IdxError::CacheMiss(format!("history/{resolved}-{key}")))?;
+                    .ok_or_else(|| {
+                        IdxError::CacheMiss(format!("{history_bucket}/{resolved}-{key}"))
+                    })?;
                 return render_history(&resolved, &stale, &config.output);
             }
 
@@ -175,7 +187,7 @@ pub fn handle(
                 Ok(history) => {
                     if !no_cache {
                         cache.put(
-                            "history",
+                            &history_bucket,
                             &format!("{resolved}-{key}"),
                             &history,
                             config.quote_ttl,
@@ -186,7 +198,7 @@ pub fn handle(
                 Err(err) => {
                     if !no_cache
                         && let Some(stale) = cache.get_stale::<Vec<crate::api::types::Ohlc>>(
-                            "history",
+                            &history_bucket,
                             &format!("{resolved}-{key}"),
                         )?
                     {
@@ -198,16 +210,17 @@ pub fn handle(
             }
         }
         StocksSubcommand::Technical { symbol } => {
+            let technical_bucket = cache_bucket(config, "technical");
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
             if !no_cache
-                && let Some(report) = cache.get::<TechnicalReport>("technical", &resolved)?
+                && let Some(report) = cache.get::<TechnicalReport>(&technical_bucket, &resolved)?
             {
                 return render_technical(&report, &config.output, config.no_color);
             }
             if offline {
                 let stale = cache
-                    .get_stale::<TechnicalReport>("technical", &resolved)?
-                    .ok_or_else(|| IdxError::CacheMiss(format!("technical/{resolved}")))?;
+                    .get_stale::<TechnicalReport>(&technical_bucket, &resolved)?
+                    .ok_or_else(|| IdxError::CacheMiss(format!("{technical_bucket}/{resolved}")))?;
                 return render_technical(&stale, &config.output, config.no_color);
             }
 
@@ -215,14 +228,14 @@ pub fn handle(
                 Ok(history) => {
                     let report = build_technical_report(&resolved, &history)?;
                     if !no_cache {
-                        cache.put("technical", &resolved, &report, config.quote_ttl)?;
+                        cache.put(&technical_bucket, &resolved, &report, config.quote_ttl)?;
                     }
                     render_technical(&report, &config.output, config.no_color)
                 }
                 Err(err) => {
                     if !no_cache
                         && let Some(stale) =
-                            cache.get_stale::<TechnicalReport>("technical", &resolved)?
+                            cache.get_stale::<TechnicalReport>(&technical_bucket, &resolved)?
                     {
                         eprintln!("warning: network failed, serving stale cache for {resolved}");
                         return render_technical(&stale, &config.output, config.no_color);
@@ -238,7 +251,7 @@ pub fn handle(
                 provider,
                 &resolved,
                 FundamentalCacheSpec {
-                    key: "growth",
+                    bucket: cache_bucket(config, "growth"),
                     ttl_secs: config.fundamental_ttl,
                 },
                 offline,
@@ -254,7 +267,7 @@ pub fn handle(
                 provider,
                 &resolved,
                 FundamentalCacheSpec {
-                    key: "valuation",
+                    bucket: cache_bucket(config, "valuation"),
                     ttl_secs: config.fundamental_ttl,
                 },
                 offline,
@@ -270,7 +283,7 @@ pub fn handle(
                 provider,
                 &resolved,
                 FundamentalCacheSpec {
-                    key: "risk",
+                    bucket: cache_bucket(config, "risk"),
                     ttl_secs: config.fundamental_ttl,
                 },
                 offline,
@@ -286,7 +299,7 @@ pub fn handle(
                 provider,
                 &resolved,
                 FundamentalCacheSpec {
-                    key: "fundamental",
+                    bucket: cache_bucket(config, "fundamental"),
                     ttl_secs: config.fundamental_ttl,
                 },
                 offline,
@@ -306,7 +319,7 @@ pub fn handle(
                     provider,
                     &resolved,
                     FundamentalCacheSpec {
-                        key: "fundamental",
+                        bucket: cache_bucket(config, "fundamental"),
                         ttl_secs: config.fundamental_ttl,
                     },
                     offline,
@@ -336,7 +349,7 @@ fn fetch_fundamental_analysis_report<T, F>(
     cache: &Cache,
     provider: &dyn MarketDataProvider,
     resolved: &str,
-    cache_spec: FundamentalCacheSpec<'_>,
+    cache_spec: FundamentalCacheSpec,
     offline: bool,
     no_cache: bool,
     analyzer: F,
@@ -345,26 +358,26 @@ where
     T: Serialize + DeserializeOwned,
     F: FnOnce(&str, &Fundamentals) -> T,
 {
-    if !no_cache && let Some(report) = cache.get::<T>(cache_spec.key, resolved)? {
+    if !no_cache && let Some(report) = cache.get::<T>(&cache_spec.bucket, resolved)? {
         return Ok(report);
     }
 
     if offline {
         return cache
-            .get_stale::<T>(cache_spec.key, resolved)?
-            .ok_or_else(|| IdxError::CacheMiss(format!("{}/{resolved}", cache_spec.key)));
+            .get_stale::<T>(&cache_spec.bucket, resolved)?
+            .ok_or_else(|| IdxError::CacheMiss(format!("{}/{resolved}", cache_spec.bucket)));
     }
 
     match provider.fundamentals(resolved) {
         Ok(fundamentals) => {
             let report = analyzer(resolved, &fundamentals);
             if !no_cache {
-                cache.put(cache_spec.key, resolved, &report, cache_spec.ttl_secs)?;
+                cache.put(&cache_spec.bucket, resolved, &report, cache_spec.ttl_secs)?;
             }
             Ok(report)
         }
         Err(err) => {
-            if !no_cache && let Some(stale) = cache.get_stale::<T>(cache_spec.key, resolved)? {
+            if !no_cache && let Some(stale) = cache.get_stale::<T>(&cache_spec.bucket, resolved)? {
                 eprintln!("warning: network failed, serving stale cache for {resolved}");
                 return Ok(stale);
             }

@@ -10,6 +10,8 @@ pub enum IdxError {
     RateLimited,
     #[error("provider unavailable")]
     ProviderUnavailable,
+    #[error("unsupported: {0}")]
+    Unsupported(String),
     #[error("parse error: {0}")]
     ParseError(String),
     #[error("cache miss: {0}")]
@@ -27,6 +29,7 @@ pub enum ErrorCode {
     SymbolNotFound,
     RateLimited,
     ProviderUnavailable,
+    Unsupported,
     ParseError,
     CacheMiss,
     ConfigError,
@@ -40,6 +43,7 @@ impl IdxError {
             Self::SymbolNotFound(_) => ErrorCode::SymbolNotFound,
             Self::RateLimited => ErrorCode::RateLimited,
             Self::ProviderUnavailable => ErrorCode::ProviderUnavailable,
+            Self::Unsupported(_) => ErrorCode::Unsupported,
             Self::ParseError(_) => ErrorCode::ParseError,
             Self::CacheMiss(_) => ErrorCode::CacheMiss,
             Self::ConfigError(_) => ErrorCode::ConfigError,
@@ -65,5 +69,8 @@ mod tests {
 
         let parse = IdxError::ParseError("bad json".to_string());
         assert_eq!(parse.code(), ErrorCode::ParseError);
+
+        let unsupported = IdxError::Unsupported("history unavailable".to_string());
+        assert_eq!(unsupported.code(), ErrorCode::Unsupported);
     }
 }

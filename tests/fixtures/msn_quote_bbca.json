@@ -1,0 +1,18 @@
+[
+  {
+    "id": "bn91jc",
+    "instrumentId": "bn91jc",
+    "symbol": "BBCA",
+    "shortName": "Bank Central Asia",
+    "displayName": "Bank Central Asia Tbk",
+    "price": 9875.0,
+    "priceChange": 117.0,
+    "priceChangePercent": 1.2,
+    "pricePreviousClose": 9758.0,
+    "price52wHigh": 10250.0,
+    "price52wLow": 7800.0,
+    "accumulatedVolume": 12300000.0,
+    "averageVolume": 10000000.0,
+    "marketCap": 1215200000000000.0
+  }
+]

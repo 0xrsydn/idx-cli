@@ -24,7 +24,13 @@ fn main() {
 
 fn run() -> Result<(), IdxError> {
     let cli = Cli::parse();
-    let config = IdxConfig::load_with_cli(&cli)?;
+    let config = match IdxConfig::load_with_cli(&cli) {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("Error: {err}");
+            return Err(err);
+        }
+    };
 
     match &cli.command {
         Commands::Version => {
@@ -40,7 +46,7 @@ fn run() -> Result<(), IdxError> {
             }
         }
         Commands::Stocks(stocks) => {
-            let provider = default_provider(cli.verbose > 0);
+            let provider = default_provider(config.provider, cli.verbose > 0);
             if let Err(err) = cli::stocks::handle(
                 stocks,
                 &config,
