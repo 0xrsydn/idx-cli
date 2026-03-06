@@ -34,7 +34,6 @@
 - [x] 41 tests passing (22 unit + 19 integration)
 
 ## 🚧 Next Up
-- [ ] Fix Yahoo crumb auth for quoteSummary (fetch crumb from consent.yahoo.com, pass as cookie/param) — unblocks live fundamental commands
 
 ## 📋 Backlog (per SPEC.md)
 - [ ] `market summary` — IHSG index, market breadth
@@ -51,4 +50,6 @@
 ## 🐛 Known Issues
 - [ ] Yahoo Finance returns 429 from datacenter IPs occasionally
 - [ ] SMA200 trend shows "Insufficient data" if Yahoo returns < 200 candles
-- [ ] Yahoo quoteSummary returns 401 from datacenter IPs — needs crumb/cookie auth (fundamental/growth/valuation/risk/compare commands affected)
+- [x] Yahoo quoteSummary crumb auth — fixed via curl-impersonate-chrome (curl_chrome131)
+  - fc.yahoo.com → A3 cookie + query1 getcrumb → crumb, both sent to quoteSummary
+  - Requires nixpkgs#curl-impersonate-chrome in PATH (added to flake.nix + clan-private)

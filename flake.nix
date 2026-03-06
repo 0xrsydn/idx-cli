@@ -28,7 +28,7 @@
             cargo-watch
             cargo-nextest
             prek
-            curl-impersonate-chrome  # required for Yahoo Finance auth (--impersonate chrome)
+            curl-impersonate  # required for Yahoo Finance auth (curl_chrome* binaries for TLS fingerprinting)
           ];
 
           env = {
