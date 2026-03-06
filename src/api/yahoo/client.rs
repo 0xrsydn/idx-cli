@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::api::types::{Interval, Period};
 use crate::error::IdxError;
 
-use super::parse::{ChartResponse, QuoteSummaryResponse};
+use super::raw_types::{ChartResponse, QuoteSummaryResponse};
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const BASE_URL: &str = "https://query2.finance.yahoo.com";
@@ -42,7 +42,7 @@ impl YahooClient {
 
     fn quote_summary_url(symbol: &str, crumb: &str) -> String {
         format!(
-            "{BASE_URL}/v10/finance/quoteSummary/{symbol}?modules=defaultKeyStatistics,financialData,incomeStatementHistory&crumb={crumb}"
+            "{BASE_URL}/v10/finance/quoteSummary/{symbol}?modules=summaryDetail,defaultKeyStatistics,financialData,assetProfile,incomeStatementHistory&crumb={crumb}"
         )
     }
 
@@ -262,8 +262,15 @@ impl YahooClient {
     ) -> Result<QuoteSummaryResponse, IdxError> {
         for auth_attempt in 0..2 {
             let crumb = self.get_or_init_crumb()?;
-            let cookie_header =
-                Self::cookie_header_from_jar(&Self::cookie_jar_path()).unwrap_or_default();
+            let cookie_header = match Self::cookie_header_from_jar(&Self::cookie_jar_path()) {
+                Ok(header) => header,
+                Err(err) => {
+                    eprintln!("warning: failed to parse Yahoo cookie jar: {err}");
+                    return Err(IdxError::AuthError(format!(
+                        "failed to parse Yahoo cookies: {err}"
+                    )));
+                }
+            };
             let url = Self::quote_summary_url(symbol, &crumb);
             let mut wait = Duration::from_millis(250);
 

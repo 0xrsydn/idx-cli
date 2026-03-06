@@ -16,12 +16,16 @@ pub enum IdxError {
     ParseError(String),
     #[error("cache miss: {0}")]
     CacheMiss(String),
+    #[error("offline: {0}")]
+    Offline(String),
     #[error("config error: {0}")]
     ConfigError(String),
     #[error("io error: {0}")]
     Io(String),
     #[error("http error: {0}")]
     Http(String),
+    #[error("auth error: {0}")]
+    AuthError(String),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -32,9 +36,11 @@ pub enum ErrorCode {
     Unsupported,
     ParseError,
     CacheMiss,
+    Offline,
     ConfigError,
     Io,
     Http,
+    AuthError,
 }
 
 impl IdxError {
@@ -46,9 +52,11 @@ impl IdxError {
             Self::Unsupported(_) => ErrorCode::Unsupported,
             Self::ParseError(_) => ErrorCode::ParseError,
             Self::CacheMiss(_) => ErrorCode::CacheMiss,
+            Self::Offline(_) => ErrorCode::Offline,
             Self::ConfigError(_) => ErrorCode::ConfigError,
             Self::Io(_) => ErrorCode::Io,
             Self::Http(_) => ErrorCode::Http,
+            Self::AuthError(_) => ErrorCode::AuthError,
         }
     }
 

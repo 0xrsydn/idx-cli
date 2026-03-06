@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::IdxError;
 
-const SCHEMA_VERSION: u32 = 1;
+const CURRENT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone)]
 pub struct Cache {
@@ -83,7 +83,7 @@ impl Cache {
         let entry = CacheEntry {
             fetched_at: Utc::now(),
             ttl_secs,
-            schema_version: SCHEMA_VERSION,
+            schema_version: CURRENT_SCHEMA_VERSION,
             data,
         };
         let raw = serde_json::to_string_pretty(&entry)
@@ -124,17 +124,21 @@ impl Cache {
         })
     }
 
-    pub fn clear(&self) -> Result<usize, IdxError> {
+    pub fn clear(&self) -> Result<(usize, Vec<PathBuf>), IdxError> {
         if !self.root.exists() {
-            return Ok(0);
+            return Ok((0, Vec::new()));
         }
         let mut removed = 0usize;
+        let mut failed = Vec::new();
         self.walk(&self.root, &mut |p| {
-            if p.is_file() && fs::remove_file(p).is_ok() {
-                removed += 1;
+            if p.is_file() {
+                match fs::remove_file(p) {
+                    Ok(_) => removed += 1,
+                    Err(_) => failed.push(p.to_path_buf()),
+                }
             }
         })?;
-        Ok(removed)
+        Ok((removed, failed))
     }
 
     fn walk<F: FnMut(&Path)>(&self, dir: &Path, f: &mut F) -> Result<(), IdxError> {
@@ -159,8 +163,19 @@ impl Cache {
         if !path.exists() {
             return Ok(None);
         }
-        let raw = fs::read_to_string(path).map_err(|e| IdxError::Io(e.to_string()))?;
-        let entry = serde_json::from_str(&raw).map_err(|e| IdxError::ParseError(e.to_string()))?;
+        let raw = fs::read_to_string(&path).map_err(|e| IdxError::Io(e.to_string()))?;
+        let entry: CacheEntry<T> =
+            serde_json::from_str(&raw).map_err(|e| IdxError::ParseError(e.to_string()))?;
+        if entry.schema_version != CURRENT_SCHEMA_VERSION {
+            eprintln!(
+                "debug: cache schema mismatch for {} (got {}, expected {})",
+                path.display(),
+                entry.schema_version,
+                CURRENT_SCHEMA_VERSION
+            );
+            let _ = fs::remove_file(&path);
+            return Ok(None);
+        }
         Ok(Some(entry))
     }
 

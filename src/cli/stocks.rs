@@ -7,14 +7,23 @@ use crate::analysis::fundamental::{
 };
 use crate::analysis::signals::{self, Signal, TechnicalSignal};
 use crate::analysis::technical;
-use crate::api::MarketDataProvider;
-use crate::api::types::{Fundamentals, Interval, Ohlc, Period};
+use crate::api::msn::MsnProvider;
+use crate::api::types::{
+    CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, Interval,
+    NewsItem, Ohlc, Period, Quote, SentimentData,
+};
+use crate::api::{
+    EarningsProvider, FinancialsProvider, InsightsProvider, MarketDataProvider, NewsProvider,
+    ProfileProvider, SentimentProvider, history_provider,
+};
 use crate::cache::Cache;
 use crate::config::IdxConfig;
 use crate::error::IdxError;
 use crate::output::{
-    MacdSnapshot, TechnicalReport, VolumeSnapshot, render_compare, render_fundamental,
-    render_growth, render_history, render_quotes, render_risk, render_technical, render_valuation,
+    MacdSnapshot, TechnicalReport, VolumeSnapshot, render_compare, render_earnings,
+    render_financials, render_fundamental, render_growth, render_history, render_insights,
+    render_news, render_profile, render_quotes, render_risk, render_screener, render_sentiment,
+    render_technical, render_valuation,
 };
 
 struct FundamentalCacheSpec {
@@ -95,6 +104,45 @@ pub enum StocksSubcommand {
         /// Single ticker symbol (e.g. BBCA).
         symbol: String,
     },
+    #[command(about = "Get company profile")]
+    Profile { symbol: String },
+    #[command(about = "Get financial statements")]
+    Financials {
+        symbol: String,
+        #[arg(long, default_value = "income")]
+        statement: String,
+    },
+    #[command(about = "Get earnings report")]
+    Earnings {
+        symbol: String,
+        #[arg(long)]
+        annual: bool,
+        #[arg(long)]
+        quarterly: bool,
+        #[arg(long)]
+        forecast: bool,
+        #[arg(long)]
+        history: bool,
+    },
+    #[command(about = "Get crowd sentiment")]
+    Sentiment { symbol: String },
+    #[command(about = "Get AI insights")]
+    Insights { symbol: String },
+    #[command(about = "Get stock news")]
+    News {
+        symbol: String,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
+    #[command(about = "MSN screener")]
+    Screen {
+        #[arg(long, default_value = "top-performers")]
+        filter: String,
+        #[arg(long, default_value = "id")]
+        region: String,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
     #[command(
         about = "Compare fundamentals across stocks",
         after_help = "Examples:\n  idx stocks compare BBCA BBRI BMRI\n  idx stocks compare BBCA,BBRI,BMRI\n  idx -o json stocks compare BBCA,BBRI"
@@ -160,6 +208,13 @@ pub fn handle(
             period,
             interval,
         } => {
+            let hist_provider = history_provider(config.provider, false).ok_or_else(|| {
+                IdxError::Unsupported(
+                    "MSN does not provide price history for IDX stocks. \
+                         Use --provider yahoo for historical data."
+                        .into(),
+                )
+            })?;
             let history_bucket = cache_bucket(config, "history");
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
             let key = format!("{}-{}", period.as_str(), interval.as_str());
@@ -183,7 +238,7 @@ pub fn handle(
                 return render_history(&resolved, &stale, &config.output);
             }
 
-            match provider.history(&resolved, period, interval) {
+            match hist_provider.history(&resolved, period, interval) {
                 Ok(history) => {
                     if !no_cache {
                         cache.put(
@@ -210,6 +265,13 @@ pub fn handle(
             }
         }
         StocksSubcommand::Technical { symbol } => {
+            let hist_provider = history_provider(config.provider, false).ok_or_else(|| {
+                IdxError::Unsupported(
+                    "MSN does not provide price history for IDX stocks. \
+                         Use --provider yahoo for technical analysis."
+                        .into(),
+                )
+            })?;
             let technical_bucket = cache_bucket(config, "technical");
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
             if !no_cache
@@ -224,7 +286,7 @@ pub fn handle(
                 return render_technical(&stale, &config.output, config.no_color);
             }
 
-            match provider.history(&resolved, &Period::OneYear, &Interval::Day) {
+            match hist_provider.history(&resolved, &Period::OneYear, &Interval::Day) {
                 Ok(history) => {
                     let report = build_technical_report(&resolved, &history)?;
                     if !no_cache {
@@ -308,6 +370,71 @@ pub fn handle(
             )?;
             render_fundamental(&report, &config.output, config.no_color)
         }
+        StocksSubcommand::Profile { symbol } => {
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let profile: CompanyProfile = fetch_msn_only(&resolved, config.provider, || {
+                MsnProvider::new(false).profile(&resolved)
+            })?;
+            render_profile(&profile, &config.output)
+        }
+        StocksSubcommand::Financials {
+            symbol,
+            statement: _,
+        } => {
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let financials: FinancialStatements =
+                fetch_msn_only(&resolved, config.provider, || {
+                    MsnProvider::new(false).financials(&resolved)
+                })?;
+            render_financials(&financials, &config.output)
+        }
+        StocksSubcommand::Earnings {
+            symbol,
+            annual: _,
+            quarterly: _,
+            forecast: _,
+            history: _,
+        } => {
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let earnings: EarningsReport = fetch_msn_only(&resolved, config.provider, || {
+                MsnProvider::new(false).earnings(&resolved)
+            })?;
+            render_earnings(&earnings, &config.output)
+        }
+        StocksSubcommand::Sentiment { symbol } => {
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let sentiment: SentimentData = fetch_msn_only(&resolved, config.provider, || {
+                MsnProvider::new(false).sentiment(&resolved)
+            })?;
+            render_sentiment(&sentiment, &config.output)
+        }
+        StocksSubcommand::Insights { symbol } => {
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let insights: InsightData = fetch_msn_only(&resolved, config.provider, || {
+                MsnProvider::new(false).insights(&resolved)
+            })?;
+            render_insights(&insights, &config.output)
+        }
+        StocksSubcommand::News { symbol, limit } => {
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let news: Vec<NewsItem> = fetch_msn_only(&resolved, config.provider, || {
+                MsnProvider::new(false).news(&resolved, *limit)
+            })?;
+            render_news(&news, &config.output)
+        }
+        StocksSubcommand::Screen {
+            filter,
+            region,
+            limit,
+        } => {
+            let msn = MsnProvider::new(false);
+            let filter_key = screener_filter_key(filter);
+            let region_key = screener_region_key(region);
+            let quotes: Vec<Quote> = fetch_msn_only("screen", config.provider, || {
+                msn.screener(filter_key, region_key, *limit)
+            })?;
+            render_screener(&quotes, &config.output, config.no_color)
+        }
         StocksSubcommand::Compare { symbols } => {
             let mut reports: Vec<FundamentalReport> = Vec::new();
             let mut last_error = None;
@@ -343,6 +470,40 @@ pub fn handle(
             render_compare(&reports, &config.output, config.no_color)
         }
     }
+}
+
+#[allow(dead_code)] // wired up once per-subcommand handlers are fully split
+pub(crate) fn fetch_with_cache<T, F>(
+    cache: &Cache,
+    bucket: &str,
+    key: &str,
+    ttl_secs: u64,
+    offline: bool,
+    no_cache: bool,
+    fetch_fn: F,
+) -> Result<T, IdxError>
+where
+    T: Serialize + DeserializeOwned,
+    F: FnOnce() -> Result<T, IdxError>,
+{
+    if !no_cache
+        && !offline
+        && let Some(cached) = cache.get::<T>(bucket, key)?
+    {
+        return Ok(cached);
+    }
+
+    if offline {
+        return cache
+            .get_stale::<T>(bucket, key)?
+            .ok_or_else(|| IdxError::Offline("no cached data available".to_string()));
+    }
+
+    let data = fetch_fn()?;
+    if !no_cache {
+        let _ = cache.put(bucket, key, &data, ttl_secs);
+    }
+    Ok(data)
 }
 
 fn fetch_fundamental_analysis_report<T, F>(
@@ -463,6 +624,44 @@ fn average_last(values: &[f64], period: usize) -> Option<f64> {
 
     let start = values.len() - period;
     Some(values[start..].iter().sum::<f64>() / period as f64)
+}
+
+fn fetch_msn_only<T>(
+    symbol: &str,
+    provider: crate::config::ProviderKind,
+    f: impl FnOnce() -> Result<T, IdxError>,
+) -> Result<T, IdxError> {
+    if !matches!(provider, crate::config::ProviderKind::Msn) {
+        return Err(IdxError::Unsupported(format!(
+            "{symbol}: command requires --provider msn"
+        )));
+    }
+    f()
+}
+
+fn screener_filter_key(filter: &str) -> &'static str {
+    match filter {
+        "top-performers" => "st_list_topperfs",
+        "worst-performers" => "st_list_poorperfs",
+        "high-dividend" => "st_list_highdividend",
+        "low-pe" => "st_list_lowpe",
+        "52w-high" => "st_list_52wkhi",
+        "52w-low" => "st_list_52wklow",
+        "high-volume" => "st_list_highvol",
+        "large-cap" => "st_list_largecap",
+        _ => "st_list_topperfs",
+    }
+}
+
+fn screener_region_key(region: &str) -> &'static str {
+    match region {
+        "id" => "st_reg_id",
+        "us" => "st_reg_us",
+        "sg" => "st_reg_sg",
+        "hk" => "st_reg_hk",
+        "jp" => "st_reg_jp",
+        _ => "st_reg_id",
+    }
 }
 
 #[cfg(test)]

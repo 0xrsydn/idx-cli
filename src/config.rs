@@ -92,8 +92,13 @@ impl IdxConfig {
         if let Ok(output) = std::env::var("IDX_OUTPUT") {
             cfg.output = if output.eq_ignore_ascii_case("json") {
                 OutputFormat::Json
-            } else {
+            } else if output.eq_ignore_ascii_case("table") {
                 OutputFormat::Table
+            } else {
+                return Err(IdxError::ConfigError(format!(
+                    "invalid IDX_OUTPUT value: '{}', expected 'json' or 'table'",
+                    output
+                )));
             };
         }
         if let Ok(no_color) = std::env::var("IDX_NO_COLOR") {

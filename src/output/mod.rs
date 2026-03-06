@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::analysis::fundamental::{FundamentalReport, GrowthReport, RiskReport, ValuationReport};
 use crate::analysis::signals::TechnicalSignal;
-use crate::api::types::{Ohlc, Quote};
+use crate::api::types::{
+    CompanyProfile, EarningsReport, FinancialStatements, InsightData, NewsItem, Ohlc, Quote,
+    SentimentData,
+};
 use crate::error::IdxError;
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq, Serialize, serde::Deserialize, Default)]
@@ -134,6 +137,62 @@ pub fn render_compare(
     match format {
         OutputFormat::Table => table::print_compare(reports, no_color),
         OutputFormat::Json => json::print_json(reports),
+    }
+}
+
+pub fn render_profile(profile: &CompanyProfile, format: &OutputFormat) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_profile(profile),
+        OutputFormat::Json => json::print_json(profile),
+    }
+}
+
+pub fn render_financials(
+    financials: &FinancialStatements,
+    format: &OutputFormat,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_financials(financials),
+        OutputFormat::Json => json::print_json(financials),
+    }
+}
+
+pub fn render_earnings(report: &EarningsReport, format: &OutputFormat) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_earnings(report),
+        OutputFormat::Json => json::print_json(report),
+    }
+}
+
+pub fn render_sentiment(data: &SentimentData, format: &OutputFormat) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_sentiment(data),
+        OutputFormat::Json => json::print_json(data),
+    }
+}
+
+pub fn render_insights(data: &InsightData, format: &OutputFormat) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_insights(data),
+        OutputFormat::Json => json::print_json(data),
+    }
+}
+
+pub fn render_news(items: &[NewsItem], format: &OutputFormat) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_news(items),
+        OutputFormat::Json => json::print_json(items),
+    }
+}
+
+pub fn render_screener(
+    quotes: &[Quote],
+    format: &OutputFormat,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_quotes(quotes, no_color),
+        OutputFormat::Json => json::print_json(quotes),
     }
 }
 

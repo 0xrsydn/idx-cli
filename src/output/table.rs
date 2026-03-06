@@ -3,7 +3,10 @@ use owo_colors::OwoColorize;
 
 use crate::analysis::fundamental::{FundamentalReport, GrowthReport, RiskReport, ValuationReport};
 use crate::analysis::signals::Signal;
-use crate::api::types::{Ohlc, Quote};
+use crate::api::types::{
+    CompanyProfile, EarningsData, EarningsReport, FinancialStatements, InsightData, NewsItem, Ohlc,
+    Quote, SentimentData,
+};
 use crate::error::IdxError;
 use crate::output::TechnicalReport;
 
@@ -514,6 +517,194 @@ fn add_compare_row(table: &mut Table, label: &str, values: Vec<String>) {
     let mut row = vec![Cell::new(label)];
     row.extend(values.into_iter().map(Cell::new));
     table.add_row(row);
+}
+
+pub fn print_profile(profile: &CompanyProfile) -> Result<(), IdxError> {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_header(vec!["FIELD", "VALUE"]);
+
+    // Use long_name with short_name as fallback (IDX stocks often only have shortName)
+    let name = if !profile.long_name.is_empty() {
+        &profile.long_name
+    } else {
+        &profile.short_name
+    };
+
+    let add_if_present = |t: &mut Table, label: &str, value: &str| {
+        if !value.is_empty() {
+            t.add_row(vec![Cell::new(label), Cell::new(value)]);
+        }
+    };
+
+    add_if_present(&mut table, "Symbol", &profile.symbol);
+    add_if_present(&mut table, "Name", name);
+    add_if_present(&mut table, "Sector", &profile.sector);
+    add_if_present(&mut table, "Industry", &profile.industry);
+    add_if_present(&mut table, "Website", &profile.website);
+    add_if_present(&mut table, "Country", &profile.country);
+    add_if_present(&mut table, "City", &profile.city);
+    add_if_present(&mut table, "Phone", &profile.phone);
+    if profile.employees > 0 {
+        table.add_row(vec![
+            Cell::new("Employees"),
+            Cell::new(profile.employees.to_string()),
+        ]);
+    }
+    if !profile.description.is_empty() {
+        // Truncate long descriptions for table display
+        let desc = if profile.description.len() > 200 {
+            format!("{}...", &profile.description[..200])
+        } else {
+            profile.description.clone()
+        };
+        table.add_row(vec![Cell::new("Description"), Cell::new(desc)]);
+    }
+    if !profile.officers.is_empty() {
+        table.add_row(vec![
+            Cell::new("Executives"),
+            Cell::new(
+                profile
+                    .officers
+                    .iter()
+                    .take(5)
+                    .map(|o| format!("{} ({})", o.name, o.title))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+        ]);
+    }
+    println!("{table}");
+    Ok(())
+}
+
+pub fn print_financials(fin: &FinancialStatements) -> Result<(), IdxError> {
+    let print_section = |label: &str, section: &crate::api::types::StatementSection| {
+        println!("\n── {label} ({}) ──", section.end_date);
+        let mut t = Table::new();
+        let value_header = format!("VALUE ({})", section.currency);
+        t.load_preset(UTF8_FULL)
+            .set_header(vec!["LINE ITEM", value_header.as_str()]);
+        // Sort keys for deterministic output
+        let mut entries: Vec<(&String, &f64)> = section.values.iter().collect();
+        entries.sort_by_key(|(k, _)| k.as_str());
+        for (k, v) in entries {
+            t.add_row(vec![Cell::new(k), Cell::new(format_idr(*v as i64))]);
+        }
+        println!("{t}");
+    };
+
+    if let Some(income) = &fin.income_statement {
+        print_section("Income Statement", income);
+    }
+    if let Some(balance) = &fin.balance_sheet {
+        print_section("Balance Sheet", balance);
+    }
+    if let Some(cf) = &fin.cash_flow {
+        print_section("Cash Flow", cf);
+    }
+
+    if fin.income_statement.is_none() && fin.balance_sheet.is_none() && fin.cash_flow.is_none() {
+        println!("No financial statement data available for this stock.");
+    }
+    Ok(())
+}
+
+pub fn print_earnings(report: &EarningsReport) -> Result<(), IdxError> {
+    let mut table = Table::new();
+    table.load_preset(UTF8_FULL).set_header(vec![
+        "PERIOD",
+        "EPS ACT",
+        "EPS FC",
+        "SURPRISE",
+        "SURPRISE%",
+        "REVENUE",
+        "DATE",
+    ]);
+    for row in &report.history {
+        add_earnings_row(&mut table, row);
+    }
+    for row in &report.forecast {
+        add_earnings_row(&mut table, row);
+    }
+    println!("{table}");
+    Ok(())
+}
+
+pub fn print_sentiment(data: &SentimentData) -> Result<(), IdxError> {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_header(vec!["RANGE", "BULLISH", "BEARISH", "NEUTRAL"]);
+    for row in &data.statistics {
+        table.add_row(vec![
+            Cell::new(&row.time_range),
+            Cell::new(row.bullish),
+            Cell::new(row.bearish),
+            Cell::new(row.neutral),
+        ]);
+    }
+    println!("{table}");
+    Ok(())
+}
+
+pub fn print_insights(data: &InsightData) -> Result<(), IdxError> {
+    println!("{}", data.summary);
+    if !data.highlights.is_empty() {
+        println!("Highlights:");
+        for h in &data.highlights {
+            println!("- {h}");
+        }
+    }
+    if !data.risks.is_empty() {
+        println!("Risks:");
+        for r in &data.risks {
+            println!("- {r}");
+        }
+    }
+    Ok(())
+}
+
+pub fn print_news(items: &[NewsItem]) -> Result<(), IdxError> {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_header(vec!["TITLE", "PROVIDER", "DATE", "URL"]);
+    for item in items {
+        table.add_row(vec![
+            Cell::new(&item.title),
+            Cell::new(&item.provider),
+            Cell::new(&item.published_at),
+            Cell::new(truncate_url(&item.url)),
+        ]);
+    }
+    println!("{table}");
+    Ok(())
+}
+
+fn add_earnings_row(table: &mut Table, row: &EarningsData) {
+    table.add_row(vec![
+        Cell::new(&row.period_type),
+        Cell::new(format_float(row.eps_actual, 2)),
+        Cell::new(format_float(row.eps_forecast, 2)),
+        Cell::new(format_float(row.eps_surprise, 2)),
+        Cell::new(format_float(row.eps_surprise_pct, 2)),
+        Cell::new(format_float(row.revenue_actual, 2)),
+        Cell::new(
+            row.earning_release_date
+                .clone()
+                .unwrap_or_else(|| "-".to_string()),
+        ),
+    ]);
+}
+
+fn truncate_url(url: &str) -> String {
+    if url.len() > 72 {
+        format!("{}...", &url[..72])
+    } else {
+        url.to_string()
+    }
 }
 
 #[cfg(test)]
