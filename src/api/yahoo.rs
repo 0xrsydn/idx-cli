@@ -121,48 +121,41 @@ impl YahooProvider {
         Ok(cookies.join("; "))
     }
 
-    fn run_curl(stage: &str, args: &[&str]) -> Result<Output, IdxError> {
-        // curl-impersonate is required for --impersonate chrome TLS fingerprinting.
-        // Install via: nix profile install nixpkgs#curl-impersonate-chrome
-        let output = Command::new("curl-impersonate")
-            .args(args)
-            .output()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    return IdxError::Http(
-                        "curl-impersonate not found; install curl-impersonate-chrome (nixpkgs#curl-impersonate-chrome)"
-                            .to_string(),
-                    );
-                }
-                IdxError::Http(format!("failed to run curl-impersonate for Yahoo {stage}: {e}"))
-            })?;
+    fn chrome_curl_binary() -> Option<&'static str> {
+        // curl-impersonate-chrome ships per-version binaries (curl_chrome131 etc).
+        // Try latest versions first; no --impersonate flag needed — the binary IS the impersonation.
+        const CANDIDATES: &[&str] = &[
+            "curl_chrome136",
+            "curl_chrome133a",
+            "curl_chrome131",
+            "curl_chrome124",
+            "curl_chrome120",
+            "curl_chrome116",
+        ];
+        CANDIDATES
+            .iter()
+            .copied()
+            .find(|bin| Command::new(bin).arg("--version").output().is_ok())
+    }
+
+    fn run_curl(stage: &str, binary: &str, args: &[&str]) -> Result<Output, IdxError> {
+        let output = Command::new(binary).args(args).output().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                return IdxError::Http(format!(
+                    "curl-impersonate binary '{binary}' not found; install nixpkgs#curl-impersonate-chrome"
+                ));
+            }
+            IdxError::Http(format!("failed to run {binary} for Yahoo {stage}: {e}"))
+        })?;
 
         if output.status.success() {
             return Ok(output);
         }
 
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr_trimmed = stderr.trim();
-        let stdout_trimmed = stdout.trim();
-        let detail = if stderr_trimmed.is_empty() {
-            stdout_trimmed
-        } else {
-            stderr_trimmed
-        };
-
-        if detail.contains("--impersonate")
-            || detail.contains("unknown option")
-            || detail.contains("unrecognized option")
-        {
-            return Err(IdxError::Http(
-                "curl does not support --impersonate; install a curl build with that feature"
-                    .to_string(),
-            ));
-        }
-
+        let detail = stderr.trim();
         Err(IdxError::Http(format!(
-            "Yahoo {stage} curl failed (status {}): {}",
+            "Yahoo {stage} {binary} failed (status {}): {}",
             output.status,
             if detail.is_empty() {
                 "no output"
@@ -173,6 +166,12 @@ impl YahooProvider {
     }
 
     fn fetch_crumb_via_curl(&self) -> Result<String, IdxError> {
+        let binary = Self::chrome_curl_binary().ok_or_else(|| {
+            IdxError::Http(
+                "no curl_chrome* binary found; install nixpkgs#curl-impersonate-chrome".to_string(),
+            )
+        })?;
+
         let cookie_jar = Self::cookie_jar_path();
         let cookie_jar_str = cookie_jar.to_str().ok_or_else(|| {
             IdxError::Io(format!(
@@ -181,30 +180,24 @@ impl YahooProvider {
             ))
         })?;
 
-        Self::run_curl(
-            "cookie fetch",
-            &[
-                "--impersonate",
-                "chrome",
+        // Step 1: fetch fc.yahoo.com to set A3 cookie (returns 404 but writes cookie jar)
+        // We allow non-zero exit here since 404 still writes the cookie
+        let _ = Command::new(binary)
+            .args([
                 "--silent",
                 "--cookie-jar",
                 cookie_jar_str,
                 COOKIE_FETCH_URL,
                 "--output",
                 "/dev/null",
-            ],
-        )?;
+            ])
+            .output();
 
+        // Step 2: fetch crumb with cookie jar (Chrome TLS fingerprint + A3 cookie)
         let output = Self::run_curl(
             "crumb fetch",
-            &[
-                "--impersonate",
-                "chrome",
-                "--silent",
-                "--cookie",
-                cookie_jar_str,
-                CRUMB_FETCH_URL,
-            ],
+            binary,
+            &["--silent", "--cookie", cookie_jar_str, CRUMB_FETCH_URL],
         )?;
 
         let body = String::from_utf8_lossy(&output.stdout);
@@ -274,24 +267,18 @@ impl YahooProvider {
     fn fetch_quote_summary(&self, symbol: &str) -> Result<QuoteSummaryResponse, IdxError> {
         for auth_attempt in 0..2 {
             let crumb = self.get_or_init_crumb()?;
-            let cookie_header = match Self::cookie_header_from_jar(&Self::cookie_jar_path()) {
-                Ok(header) => header,
-                Err(err) if auth_attempt == 0 => {
-                    self.clear_crumb()?;
-                    continue;
-                }
-                Err(err) => return Err(err),
-            };
+            // Read the A3 cookie written during crumb fetch and pass it to quoteSummary
+            let cookie_header =
+                Self::cookie_header_from_jar(&Self::cookie_jar_path()).unwrap_or_default();
             let url = Self::quote_summary_url(symbol, &crumb);
             let mut wait = Duration::from_millis(250);
 
             for attempt in 0..3 {
-                let response = self
-                    .agent
-                    .get(&url)
-                    .header("User-Agent", USER_AGENT)
-                    .header("Cookie", &cookie_header)
-                    .call();
+                let mut req = self.agent.get(&url).header("User-Agent", USER_AGENT);
+                if !cookie_header.is_empty() {
+                    req = req.header("Cookie", &cookie_header);
+                }
+                let response = req.call();
                 match response {
                     Ok(ok) => {
                         let quote_summary = ok
@@ -693,6 +680,8 @@ impl QuoteSummarySectionExt for QuoteSummarySection {
 enum QuoteSummaryValue {
     Wrapped { raw: Option<YahooNumber> },
     Direct(YahooNumber),
+    // Catch-all for empty objects {}, null, strings, booleans — return None for all numeric extractions
+    Unknown(serde_json::Value),
 }
 
 impl QuoteSummaryValue {
@@ -700,6 +689,7 @@ impl QuoteSummaryValue {
         match self {
             Self::Wrapped { raw } => raw.as_ref().map(YahooNumber::as_f64),
             Self::Direct(value) => Some(value.as_f64()),
+            Self::Unknown(_) => None,
         }
     }
 
@@ -707,6 +697,7 @@ impl QuoteSummaryValue {
         match self {
             Self::Wrapped { raw } => raw.as_ref().and_then(YahooNumber::as_i64),
             Self::Direct(value) => value.as_i64(),
+            Self::Unknown(_) => None,
         }
     }
 
@@ -714,6 +705,7 @@ impl QuoteSummaryValue {
         match self {
             Self::Wrapped { raw } => raw.as_ref().and_then(YahooNumber::as_u64),
             Self::Direct(value) => value.as_u64(),
+            Self::Unknown(_) => None,
         }
     }
 }
