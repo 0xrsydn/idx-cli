@@ -3,7 +3,10 @@ use owo_colors::OwoColorize;
 
 use crate::analysis::fundamental::{FundamentalReport, GrowthReport, RiskReport, ValuationReport};
 use crate::analysis::signals::Signal;
-use crate::api::types::{Ohlc, Quote};
+use crate::api::types::{
+    CompanyProfile, EarningsData, EarningsReport, FinancialStatements, InsightData, NewsItem, Ohlc,
+    Quote, SentimentData,
+};
 use crate::error::IdxError;
 use crate::output::TechnicalReport;
 
@@ -514,6 +517,130 @@ fn add_compare_row(table: &mut Table, label: &str, values: Vec<String>) {
     let mut row = vec![Cell::new(label)];
     row.extend(values.into_iter().map(Cell::new));
     table.add_row(row);
+}
+
+pub fn print_profile(profile: &CompanyProfile) -> Result<(), IdxError> {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_header(vec!["FIELD", "VALUE"]);
+    table.add_row(vec![Cell::new("Symbol"), Cell::new(&profile.symbol)]);
+    table.add_row(vec![Cell::new("Name"), Cell::new(&profile.long_name)]);
+    table.add_row(vec![Cell::new("Sector"), Cell::new(&profile.sector)]);
+    table.add_row(vec![Cell::new("Industry"), Cell::new(&profile.industry)]);
+    table.add_row(vec![Cell::new("Website"), Cell::new(&profile.website)]);
+    println!("{table}");
+    Ok(())
+}
+
+pub fn print_financials(fin: &FinancialStatements) -> Result<(), IdxError> {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_header(vec!["LINE ITEM", "VALUE"]);
+    if let Some(income) = &fin.income_statement {
+        for (k, v) in &income.values {
+            table.add_row(vec![Cell::new(k), Cell::new(format!("{v:.2}"))]);
+        }
+    }
+    println!("{table}");
+    Ok(())
+}
+
+pub fn print_earnings(report: &EarningsReport) -> Result<(), IdxError> {
+    let mut table = Table::new();
+    table.load_preset(UTF8_FULL).set_header(vec![
+        "PERIOD",
+        "EPS ACT",
+        "EPS FC",
+        "SURPRISE",
+        "SURPRISE%",
+        "REVENUE",
+        "DATE",
+    ]);
+    for row in &report.history {
+        add_earnings_row(&mut table, row);
+    }
+    for row in &report.forecast {
+        add_earnings_row(&mut table, row);
+    }
+    println!("{table}");
+    Ok(())
+}
+
+pub fn print_sentiment(data: &SentimentData) -> Result<(), IdxError> {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_header(vec!["RANGE", "BULLISH", "BEARISH", "NEUTRAL"]);
+    for row in &data.statistics {
+        table.add_row(vec![
+            Cell::new(&row.time_range),
+            Cell::new(row.bullish),
+            Cell::new(row.bearish),
+            Cell::new(row.neutral),
+        ]);
+    }
+    println!("{table}");
+    Ok(())
+}
+
+pub fn print_insights(data: &InsightData) -> Result<(), IdxError> {
+    println!("{}", data.summary);
+    if !data.highlights.is_empty() {
+        println!("Highlights:");
+        for h in &data.highlights {
+            println!("- {h}");
+        }
+    }
+    if !data.risks.is_empty() {
+        println!("Risks:");
+        for r in &data.risks {
+            println!("- {r}");
+        }
+    }
+    Ok(())
+}
+
+pub fn print_news(items: &[NewsItem]) -> Result<(), IdxError> {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_header(vec!["TITLE", "PROVIDER", "DATE", "URL"]);
+    for item in items {
+        table.add_row(vec![
+            Cell::new(&item.title),
+            Cell::new(&item.provider),
+            Cell::new(&item.published_at),
+            Cell::new(truncate_url(&item.url)),
+        ]);
+    }
+    println!("{table}");
+    Ok(())
+}
+
+fn add_earnings_row(table: &mut Table, row: &EarningsData) {
+    table.add_row(vec![
+        Cell::new(&row.period_type),
+        Cell::new(format_float(row.eps_actual, 2)),
+        Cell::new(format_float(row.eps_forecast, 2)),
+        Cell::new(format_float(row.eps_surprise, 2)),
+        Cell::new(format_float(row.eps_surprise_pct, 2)),
+        Cell::new(format_float(row.revenue_actual, 2)),
+        Cell::new(
+            row.earning_release_date
+                .clone()
+                .unwrap_or_else(|| "-".to_string()),
+        ),
+    ]);
+}
+
+fn truncate_url(url: &str) -> String {
+    if url.len() > 72 {
+        format!("{}...", &url[..72])
+    } else {
+        url.to_string()
+    }
 }
 
 #[cfg(test)]

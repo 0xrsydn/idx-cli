@@ -1,10 +1,15 @@
 use std::time::Duration;
 
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::error::IdxError;
 
-use super::raw_types::{KeyRatios, MsnQuote};
+use super::raw_types::{
+    KeyRatios, MsnQuote, RawChart, RawEarningsResponse, RawEquity, RawFinancialStatement,
+    RawInsight, RawNewsFeed, RawScreenerResponse, RawSentiment, ScreenerFilter, ScreenerOrder,
+    ScreenerRequest,
+};
 use super::symbols::resolve_msn_id;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
@@ -78,6 +83,58 @@ impl MsnClient {
         Err(IdxError::RateLimited)
     }
 
+    fn post_json<B: Serialize, T: DeserializeOwned>(
+        &self,
+        url: &str,
+        body: &B,
+        symbol: &str,
+        endpoint: &str,
+    ) -> Result<T, IdxError> {
+        let mut wait = Duration::from_millis(500);
+        for attempt in 0..3 {
+            let response = self
+                .agent
+                .post(url)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .header("Accept-Language", "en-US,en;q=0.9,id;q=0.8")
+                .header("Origin", "https://www.msn.com")
+                .header("Referer", "https://www.msn.com/")
+                .header("Content-Type", "text/plain;charset=UTF-8")
+                .send_json(body);
+
+            match response {
+                Ok(ok) => {
+                    return ok
+                        .into_body()
+                        .read_json::<T>()
+                        .map_err(|e| IdxError::ParseError(format!("msn {endpoint}: {e}")));
+                }
+                Err(ureq::Error::StatusCode(404)) => {
+                    return Err(IdxError::SymbolNotFound(symbol.to_string()));
+                }
+                Err(ureq::Error::StatusCode(429)) => {
+                    if attempt < 2 {
+                        std::thread::sleep(wait);
+                        wait *= 2;
+                        continue;
+                    }
+                    return Err(IdxError::RateLimited);
+                }
+                Err(ureq::Error::StatusCode(code)) if code >= 500 => {
+                    if attempt < 2 {
+                        std::thread::sleep(wait);
+                        wait *= 2;
+                        continue;
+                    }
+                    return Err(IdxError::Http(format!("msn {endpoint}: status {code}")));
+                }
+                Err(err) => return Err(IdxError::Http(format!("msn {endpoint}: {err}"))),
+            }
+        }
+        Err(IdxError::RateLimited)
+    }
+
     pub(super) fn fetch_quotes(&self, symbol: &str) -> Result<Vec<MsnQuote>, IdxError> {
         let id =
             resolve_msn_id(symbol).ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
@@ -93,5 +150,108 @@ impl MsnClient {
         let url =
             format!("{MSN_API_BASE_URL}keyratios?apikey={MSN_API_KEY}&ids={id}&wrapodata=false");
         self.get_json(&url, symbol, "keyratios")
+    }
+
+    pub(super) fn fetch_equities(&self, symbol: &str) -> Result<Vec<RawEquity>, IdxError> {
+        let id =
+            resolve_msn_id(symbol).ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
+        let url = format!(
+            "{MSN_ASSETS_BASE_URL}Finance/Equities?apikey={MSN_API_KEY}&ids={id}&wrapodata=false"
+        );
+        self.get_json(&url, symbol, "equities")
+    }
+
+    pub(super) fn fetch_financial_statements(
+        &self,
+        symbol: &str,
+    ) -> Result<Vec<RawFinancialStatement>, IdxError> {
+        let id =
+            resolve_msn_id(symbol).ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
+        let url = format!(
+            "{MSN_ASSETS_BASE_URL}Finance/Equities/financialstatements?apikey={MSN_API_KEY}&ids={id}&wrapodata=false"
+        );
+        self.get_json(&url, symbol, "financialstatements")
+    }
+
+    pub(super) fn fetch_earnings(&self, symbol: &str) -> Result<RawEarningsResponse, IdxError> {
+        let id =
+            resolve_msn_id(symbol).ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
+        let url = format!(
+            "{MSN_ASSETS_BASE_URL}Finance/Events/Earnings?apikey={MSN_API_KEY}&ids={id}&wrapodata=false"
+        );
+        self.get_json(&url, symbol, "earnings")
+    }
+
+    pub(super) fn fetch_charts(
+        &self,
+        symbol: &str,
+        chart_type: &str,
+    ) -> Result<Vec<RawChart>, IdxError> {
+        let id =
+            resolve_msn_id(symbol).ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
+        let url = format!(
+            "{MSN_ASSETS_BASE_URL}Finance/Charts?apikey={MSN_API_KEY}&ids={id}&chartType={chart_type}&wrapodata=false"
+        );
+        self.get_json(&url, symbol, "charts")
+    }
+
+    pub(super) fn fetch_sentiment(&self, symbol: &str) -> Result<Vec<RawSentiment>, IdxError> {
+        let id =
+            resolve_msn_id(symbol).ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
+        let url = format!(
+            "{MSN_ASSETS_BASE_URL}Finance/SentimentBrowser?apikey={MSN_API_KEY}&cm=id-id&it=web&scn=ANON&ids={id}&wrapodata=false&flightId=INeedDau"
+        );
+        self.get_json(&url, symbol, "sentiment")
+    }
+
+    pub(super) fn fetch_insights(&self, symbol: &str) -> Result<Vec<RawInsight>, IdxError> {
+        let id =
+            resolve_msn_id(symbol).ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
+        let url =
+            format!("{MSN_API_BASE_URL}insights?apikey={MSN_API_KEY}&ids={id}&wrapodata=false");
+        self.get_json(&url, symbol, "insights")
+    }
+
+    pub(super) fn fetch_news(&self, symbol: &str, limit: usize) -> Result<RawNewsFeed, IdxError> {
+        let id =
+            resolve_msn_id(symbol).ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
+        let url = format!(
+            "{MSN_ASSETS_BASE_URL}MSN/Feed/me?$top={limit}&apikey={MSN_API_KEY}&cm=id-id&contentType=article,video,slideshow&it=web&query=ef_stock_{id}&queryType=entityfeed&responseSchema=cardview&scn=ANON&wrapodata=false"
+        );
+        self.get_json(&url, symbol, "news")
+    }
+
+    pub(super) fn fetch_screener(
+        &self,
+        filter: &str,
+        region: &str,
+        limit: usize,
+    ) -> Result<RawScreenerResponse, IdxError> {
+        let url =
+            format!("{MSN_ASSETS_BASE_URL}Finance/Screener?apikey={MSN_API_KEY}&wrapodata=false");
+        let req = ScreenerRequest {
+            filter: vec![
+                ScreenerFilter {
+                    key: filter.to_string(),
+                    key_group: "st_list_".to_string(),
+                    is_range: false,
+                },
+                ScreenerFilter {
+                    key: region.to_string(),
+                    key_group: "st_reg_".to_string(),
+                    is_range: false,
+                },
+            ],
+            order: ScreenerOrder {
+                key: "st_1yr_asc_order".to_string(),
+                dir: "desc".to_string(),
+            },
+            return_value_type: vec!["quote".to_string(), "equity".to_string()],
+            screener_type: "stock".to_string(),
+            limit,
+            page_index: 0,
+        };
+
+        self.post_json(&url, &req, "SCREENER", "screener")
     }
 }

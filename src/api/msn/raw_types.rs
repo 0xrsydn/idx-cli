@@ -1,11 +1,16 @@
-use serde::de::Error as _;
-use serde::{Deserialize, Deserializer};
+use std::collections::HashMap;
 
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
+
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MsnQuote {
     #[serde(default)]
     pub(crate) symbol: Option<String>,
+    #[serde(default)]
+    pub(crate) short_name: Option<String>,
     pub(crate) price: Option<f64>,
     #[serde(default)]
     pub(crate) price_change: Option<f64>,
@@ -23,6 +28,8 @@ pub(crate) struct MsnQuote {
     pub(crate) average_volume: Option<f64>,
     #[serde(default)]
     pub(crate) market_cap: Option<f64>,
+    #[serde(default)]
+    pub(crate) return_ytd: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +81,8 @@ pub(crate) struct MsnChart {
     pub(crate) series: ChartSeries,
 }
 
+pub(crate) type RawChart = MsnChart;
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ChartSeries {
@@ -100,6 +109,183 @@ impl ChartSeries {
             && self.prices.len() == self.time_stamps.len()
             && self.volumes.len() == self.time_stamps.len()
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawEquity {
+    pub(super) id: Option<String>,
+    pub(super) symbol: Option<String>,
+    pub(super) short_name: Option<String>,
+    pub(super) long_name: Option<String>,
+    pub(super) description: Option<String>,
+    pub(super) sector: Option<String>,
+    pub(super) industry: Option<String>,
+    pub(super) website: Option<String>,
+    pub(super) full_time_employees: Option<i64>,
+    pub(super) address: Option<String>,
+    pub(super) city: Option<String>,
+    pub(super) country: Option<String>,
+    pub(super) phone: Option<String>,
+    pub(super) officers: Option<Vec<RawOfficer>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawOfficer {
+    pub(super) name: Option<String>,
+    pub(super) title: Option<String>,
+    pub(super) age: Option<i32>,
+    pub(super) year_born: Option<i32>,
+    pub(super) total_pay: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawFinancialStatement {
+    pub(super) underlying_instrument: Option<RawInstrumentInfo>,
+    pub(super) balance_sheets: Option<RawStatementSection>,
+    pub(super) cash_flow: Option<RawStatementSection>,
+    pub(super) income_statements: Option<RawStatementSection>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawInstrumentInfo {
+    pub(super) instrument_id: Option<String>,
+    pub(super) display_name: Option<String>,
+    pub(super) short_name: Option<String>,
+    pub(super) symbol: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+pub(super) struct RawStatementSection {
+    #[serde(flatten)]
+    pub(super) data: HashMap<String, serde_json::Value>,
+    pub(super) currency: Option<String>,
+    pub(super) source: Option<String>,
+    #[serde(rename = "sourceDate")]
+    pub(super) source_date: Option<String>,
+    #[serde(rename = "reportDate")]
+    pub(super) report_date: Option<String>,
+    #[serde(rename = "endDate")]
+    pub(super) end_date: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub(super) struct RawEarningsResponse {
+    pub(super) eps_last_year: Option<f64>,
+    pub(super) revenue_last_year: Option<f64>,
+    pub(super) forecast: Option<RawEarningsBucket>,
+    pub(super) history: Option<RawEarningsBucket>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct RawEarningsBucket {
+    pub(super) annual: Option<HashMap<String, RawEarningsData>>,
+    pub(super) quarterly: Option<HashMap<String, RawEarningsData>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub(super) struct RawEarningsData {
+    pub(super) eps_actual: Option<f64>,
+    pub(super) eps_surprise: Option<f64>,
+    pub(super) eps_surprise_percent: Option<f64>,
+    pub(super) eps_forecast: Option<f64>,
+    pub(super) revenue_actual: Option<f64>,
+    pub(super) revenue_surprise: Option<f64>,
+    pub(super) revenue_forecast: Option<f64>,
+    pub(super) earning_release_date: Option<String>,
+    pub(super) ciq_fiscal_period_type: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawSentiment {
+    pub(super) symbol: Option<String>,
+    pub(super) display_name: Option<String>,
+    pub(super) sentiment_statistics: Option<Vec<RawSentimentStat>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawSentimentStat {
+    pub(super) time_range_name: Option<String>,
+    pub(super) bullish: Option<i32>,
+    pub(super) bearish: Option<i32>,
+    pub(super) neutral: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawInsight {
+    pub(super) id: Option<String>,
+    pub(super) summary: Option<String>,
+    pub(super) highlights: Option<Vec<String>>,
+    pub(super) risks: Option<Vec<String>>,
+    pub(super) last_updated: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct RawNewsFeed {
+    pub(super) value: Option<Vec<RawNewsItem>>,
+    #[serde(rename = "subCards")]
+    pub(super) sub_cards: Option<Vec<RawNewsItem>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawNewsItem {
+    pub(super) id: Option<String>,
+    pub(super) title: Option<String>,
+    pub(super) url: Option<String>,
+    #[serde(rename = "abstract")]
+    pub(super) description: Option<String>,
+    pub(super) provider: Option<RawNewsProvider>,
+    pub(super) published_date_time: Option<String>,
+    pub(super) read_time_min: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct RawNewsProvider {
+    pub(super) name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ScreenerRequest {
+    pub(super) filter: Vec<ScreenerFilter>,
+    pub(super) order: ScreenerOrder,
+    pub(super) return_value_type: Vec<String>,
+    pub(super) screener_type: String,
+    pub(super) limit: usize,
+    pub(super) page_index: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ScreenerFilter {
+    pub(super) key: String,
+    pub(super) key_group: String,
+    pub(super) is_range: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ScreenerOrder {
+    pub(super) key: String,
+    pub(super) dir: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawScreenerResponse {
+    pub(super) count: Option<i32>,
+    pub(super) quote: Option<Vec<MsnQuote>>,
 }
 
 fn de_opt_f64_lenient<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>

@@ -2,9 +2,17 @@ use std::collections::BTreeMap;
 
 use chrono::{Datelike, NaiveDate};
 
-use super::raw_types::{IndustryMetric, KeyRatios, MsnChart, MsnQuote};
+use super::raw_types::{
+    IndustryMetric, KeyRatios, MsnChart, MsnQuote, RawChart, RawEarningsData, RawEarningsResponse,
+    RawEquity, RawFinancialStatement, RawInsight, RawNewsFeed, RawScreenerResponse, RawSentiment,
+    RawStatementSection,
+};
 use super::symbols::{normalized_symbol, ticker_from_symbol};
-use crate::api::types::{Fundamentals, Ohlc, Period, Quote};
+use crate::api::types::{
+    Bar, CompanyProfile, EarningsData, EarningsReport, FinancialStatements, Fundamentals,
+    InsightData, InstrumentInfo, NewsItem, Officer, Ohlc, Period, Quote, SentimentData,
+    SentimentPeriod, StatementSection,
+};
 use crate::error::IdxError;
 
 pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, IdxError> {
@@ -278,6 +286,268 @@ fn round_u64(value: Option<f64>) -> Option<u64> {
             Some(number.round() as u64)
         }
     })
+}
+
+pub(super) fn parse_profile(symbol: &str, raw: &[RawEquity]) -> Result<CompanyProfile, IdxError> {
+    let equity = raw
+        .first()
+        .ok_or_else(|| IdxError::ParseError("no profile data".into()))?;
+    Ok(CompanyProfile {
+        id: equity.id.clone().unwrap_or_default(),
+        symbol: equity.symbol.clone().unwrap_or_else(|| symbol.to_string()),
+        short_name: equity.short_name.clone().unwrap_or_default(),
+        long_name: equity.long_name.clone().unwrap_or_default(),
+        description: equity.description.clone().unwrap_or_default(),
+        sector: equity.sector.clone().unwrap_or_default(),
+        industry: equity.industry.clone().unwrap_or_default(),
+        website: equity.website.clone().unwrap_or_default(),
+        employees: equity.full_time_employees.unwrap_or_default(),
+        address: equity.address.clone().unwrap_or_default(),
+        city: equity.city.clone().unwrap_or_default(),
+        country: equity.country.clone().unwrap_or_default(),
+        phone: equity.phone.clone().unwrap_or_default(),
+        officers: equity
+            .officers
+            .as_ref()
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|officer| Officer {
+                        name: officer.name.clone().unwrap_or_default(),
+                        title: officer.title.clone().unwrap_or_default(),
+                        age: officer.age,
+                        year_born: officer.year_born,
+                        total_pay: officer.total_pay,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
+}
+
+pub(super) fn parse_financial_statements(
+    symbol: &str,
+    raw: &[RawFinancialStatement],
+) -> Result<FinancialStatements, IdxError> {
+    let item = raw
+        .first()
+        .ok_or_else(|| IdxError::ParseError("no financial statements".into()))?;
+    let instrument = item.underlying_instrument.as_ref();
+    Ok(FinancialStatements {
+        instrument: InstrumentInfo {
+            id: instrument
+                .and_then(|v| v.instrument_id.clone())
+                .unwrap_or_default(),
+            symbol: instrument
+                .and_then(|v| v.symbol.clone())
+                .unwrap_or_else(|| symbol.to_string()),
+            name: instrument
+                .and_then(|v| v.display_name.clone().or_else(|| v.short_name.clone()))
+                .unwrap_or_default(),
+        },
+        balance_sheet: item.balance_sheets.as_ref().map(parse_statement_section),
+        cash_flow: item.cash_flow.as_ref().map(parse_statement_section),
+        income_statement: item.income_statements.as_ref().map(parse_statement_section),
+    })
+}
+
+pub(super) fn parse_earnings(
+    _symbol: &str,
+    raw: &RawEarningsResponse,
+) -> Result<EarningsReport, IdxError> {
+    let mut forecast = Vec::new();
+    let mut history = Vec::new();
+
+    if let Some(bucket) = &raw.forecast {
+        collect_earnings(bucket.annual.as_ref(), &mut forecast);
+        collect_earnings(bucket.quarterly.as_ref(), &mut forecast);
+    }
+    if let Some(bucket) = &raw.history {
+        collect_earnings(bucket.annual.as_ref(), &mut history);
+        collect_earnings(bucket.quarterly.as_ref(), &mut history);
+    }
+
+    forecast.sort_by_key(|row| row.earning_release_date.clone().unwrap_or_default());
+    history.sort_by_key(|row| row.earning_release_date.clone().unwrap_or_default());
+
+    Ok(EarningsReport {
+        eps_last_year: raw.eps_last_year.unwrap_or_default(),
+        revenue_last_year: raw.revenue_last_year.unwrap_or_default(),
+        forecast,
+        history,
+    })
+}
+
+pub(super) fn parse_chart_history(
+    _symbol: &str,
+    period: &Period,
+    raw: &[RawChart],
+) -> Result<Vec<Bar>, IdxError> {
+    let chart = raw
+        .first()
+        .ok_or_else(|| IdxError::ParseError("no chart data".into()))?;
+
+    let mut grouped: BTreeMap<NaiveDate, Bar> = BTreeMap::new();
+    for (idx, ts) in chart.series.time_stamps.iter().enumerate() {
+        let Some(date) = parse_chart_date(ts) else {
+            continue;
+        };
+
+        let close = chart.series.prices.get(idx).copied();
+        let open = chart.series.open_prices.get(idx).copied().or(close);
+        let high = chart.series.prices_high.get(idx).copied().or(close);
+        let low = chart.series.prices_low.get(idx).copied().or(close);
+        let volume = chart.series.volumes.get(idx).copied().unwrap_or(0.0);
+
+        let (Some(open), Some(high), Some(low), Some(close)) = (open, high, low, close) else {
+            continue;
+        };
+
+        grouped.insert(
+            date,
+            Bar {
+                date,
+                open: round_price(open),
+                high: round_price(high),
+                low: round_price(low),
+                close: round_price(close),
+                volume: round_u64(Some(volume)).unwrap_or(0),
+            },
+        );
+    }
+
+    let mut out: Vec<Bar> = grouped.into_values().collect();
+    trim_history_to_period(period, &mut out);
+    if out.is_empty() {
+        return Err(IdxError::ParseError("no chart data".into()));
+    }
+
+    if matches!(period, Period::FiveDays) {
+        Ok(resample_history(&out, ResampleInterval::Week))
+    } else {
+        Ok(out)
+    }
+}
+
+pub(super) fn parse_sentiment(
+    symbol: &str,
+    raw: &[RawSentiment],
+) -> Result<SentimentData, IdxError> {
+    let item = raw
+        .first()
+        .ok_or_else(|| IdxError::ParseError("no sentiment data".into()))?;
+    let stats = item
+        .sentiment_statistics
+        .as_ref()
+        .map(|items| {
+            items
+                .iter()
+                .map(|it| SentimentPeriod {
+                    time_range: it.time_range_name.clone().unwrap_or_default(),
+                    bullish: it.bullish.unwrap_or_default(),
+                    bearish: it.bearish.unwrap_or_default(),
+                    neutral: it.neutral.unwrap_or_default(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(SentimentData {
+        symbol: item.symbol.clone().unwrap_or_else(|| symbol.to_string()),
+        statistics: stats,
+    })
+}
+
+pub(super) fn parse_insights(_symbol: &str, raw: &[RawInsight]) -> Result<InsightData, IdxError> {
+    let item = raw
+        .first()
+        .ok_or_else(|| IdxError::ParseError("no insights data".into()))?;
+    Ok(InsightData {
+        id: item.id.clone().unwrap_or_default(),
+        summary: item.summary.clone().unwrap_or_default(),
+        highlights: item.highlights.clone().unwrap_or_default(),
+        risks: item.risks.clone().unwrap_or_default(),
+        last_updated: item.last_updated.clone().unwrap_or_default(),
+    })
+}
+
+pub(super) fn parse_news(raw: &RawNewsFeed) -> Result<Vec<NewsItem>, IdxError> {
+    let source = raw
+        .sub_cards
+        .as_ref()
+        .or(raw.value.as_ref())
+        .ok_or_else(|| IdxError::ParseError("no news data".into()))?;
+
+    Ok(source
+        .iter()
+        .map(|item| NewsItem {
+            id: item.id.clone().unwrap_or_default(),
+            title: item.title.clone().unwrap_or_default(),
+            url: item.url.clone().unwrap_or_default(),
+            description: item.description.clone().unwrap_or_default(),
+            provider: item
+                .provider
+                .as_ref()
+                .and_then(|p| p.name.clone())
+                .unwrap_or_default(),
+            published_at: item.published_date_time.clone().unwrap_or_default(),
+            read_time_min: item.read_time_min,
+        })
+        .collect())
+}
+
+pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Quote>, IdxError> {
+    let quotes = raw
+        .quote
+        .as_ref()
+        .ok_or_else(|| IdxError::ParseError("no screener data".into()))?;
+    quotes
+        .iter()
+        .map(|q| parse_quote(q.symbol.as_deref().unwrap_or(""), std::slice::from_ref(q)))
+        .collect()
+}
+
+fn parse_statement_section(section: &RawStatementSection) -> StatementSection {
+    let mut values = std::collections::HashMap::new();
+    for (k, v) in &section.data {
+        if ["currency", "source", "sourceDate", "reportDate", "endDate"].contains(&k.as_str()) {
+            continue;
+        }
+        if let Some(num) = v.as_f64() {
+            values.insert(k.to_string(), num);
+        }
+    }
+
+    StatementSection {
+        values,
+        currency: section.currency.clone().unwrap_or_default(),
+        report_date: section.report_date.clone().unwrap_or_default(),
+        end_date: section.end_date.clone().unwrap_or_default(),
+    }
+}
+
+fn collect_earnings(
+    values: Option<&std::collections::HashMap<String, RawEarningsData>>,
+    out: &mut Vec<EarningsData>,
+) {
+    let Some(values) = values else {
+        return;
+    };
+    let mut rows: Vec<(&String, &RawEarningsData)> = values.iter().collect();
+    rows.sort_by_key(|(k, _)| (*k).clone());
+    for (_, v) in rows {
+        out.push(EarningsData {
+            eps_actual: v.eps_actual,
+            eps_forecast: v.eps_forecast,
+            eps_surprise: v.eps_surprise,
+            eps_surprise_pct: v.eps_surprise_percent,
+            revenue_actual: v.revenue_actual,
+            revenue_forecast: v.revenue_forecast,
+            revenue_surprise: v.revenue_surprise,
+            earning_release_date: v.earning_release_date.clone(),
+            period_type: v.ciq_fiscal_period_type.clone().unwrap_or_default(),
+        });
+    }
 }
 
 #[allow(dead_code)]

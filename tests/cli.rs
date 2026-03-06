@@ -107,28 +107,23 @@ fn technical_with_mock_provider_json_contains_fields() {
 }
 
 #[test]
-fn msn_history_reports_unsupported() {
-    test_bin("msn-history-unsupported")
+fn msn_history_is_no_longer_unsupported() {
+    test_bin("msn-history-supported")
         .env("IDX_PROVIDER", "msn")
         .args(["stocks", "history", "BBCA", "--period", "1mo"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "MSN provider does not currently support history or technical analysis",
-        ));
+        .stderr(predicate::str::contains("MSN provider does not currently support").not());
 }
 
 #[test]
-fn msn_technical_json_reports_unsupported() {
-    test_bin("msn-technical-unsupported")
+fn msn_technical_json_is_no_longer_unsupported() {
+    test_bin("msn-technical-supported")
         .env("IDX_PROVIDER", "msn")
         .args(["-o", "json", "stocks", "technical", "BBCA"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("\"code\": \"UNSUPPORTED\""))
-        .stderr(predicate::str::contains(
-            "MSN provider does not currently support history or technical analysis",
-        ));
+        .stderr(predicate::str::contains("\"code\": \"UNSUPPORTED\"").not());
 }
 
 #[test]
