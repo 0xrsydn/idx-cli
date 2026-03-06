@@ -107,27 +107,41 @@ fn technical_with_mock_provider_json_contains_fields() {
 }
 
 #[test]
-fn msn_history_returns_unsupported() {
-    // MSN Finance/Charts returns 404 for IDX (XIDX) stocks — history is not supported.
-    // history_provider() returns None for MSN, which surfaces as Unsupported error.
-    test_bin("msn-history-unsupported")
+fn msn_history_auto_falls_back_to_yahoo() {
+    test_bin("msn-history-auto-fallback")
         .env("IDX_PROVIDER", "msn")
         .env("IDX_USE_MOCK_PROVIDER", "1")
         .args(["stocks", "history", "BBCA", "--period", "3mo"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "MSN does not provide price history",
-        ));
+        .success()
+        .stdout(predicate::str::contains("DATE"));
 }
 
 #[test]
-fn msn_technical_returns_unsupported() {
-    // Technical analysis requires history — also unsupported for MSN/IDX.
-    test_bin("msn-technical-unsupported")
+fn msn_technical_auto_falls_back_to_yahoo() {
+    test_bin("msn-technical-auto-fallback")
         .env("IDX_PROVIDER", "msn")
         .env("IDX_USE_MOCK_PROVIDER", "1")
         .args(["-o", "json", "stocks", "technical", "BBCA"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"symbol\""));
+}
+
+#[test]
+fn explicit_msn_history_provider_returns_unsupported() {
+    test_bin("msn-history-explicit-unsupported")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args([
+            "stocks",
+            "history",
+            "BBCA",
+            "--period",
+            "3mo",
+            "--history-provider",
+            "msn",
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -225,7 +239,8 @@ fn config_init_creates_file() {
 
     assert!(config_home.join("idx/config.toml").exists());
     let raw = fs::read_to_string(config_home.join("idx/config.toml")).expect("read config");
-    assert!(raw.contains("provider = \"yahoo\""));
+    assert!(raw.contains("provider = \"msn\""));
+    assert!(raw.contains("history_provider = \"auto\""));
 }
 
 #[test]

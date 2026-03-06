@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+use clap::ValueEnum;
 use directories::ProjectDirs;
 use serde::Deserialize;
 
@@ -11,6 +12,15 @@ use crate::output::OutputFormat;
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ProviderKind {
+    Yahoo,
+    Msn,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, ValueEnum, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+#[value(rename_all = "lower")]
+pub enum HistoryProviderKind {
+    Auto,
     Yahoo,
     Msn,
 }
@@ -36,9 +46,26 @@ impl ProviderKind {
     }
 }
 
+impl HistoryProviderKind {
+    fn parse(value: &str) -> Result<Self, IdxError> {
+        if value.eq_ignore_ascii_case("auto") {
+            Ok(Self::Auto)
+        } else if value.eq_ignore_ascii_case("yahoo") {
+            Ok(Self::Yahoo)
+        } else if value.eq_ignore_ascii_case("msn") {
+            Ok(Self::Msn)
+        } else {
+            Err(IdxError::ConfigError(format!(
+                "invalid history provider '{value}' (expected auto, yahoo, or msn)"
+            )))
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct IdxConfig {
     pub provider: ProviderKind,
+    pub history_provider: HistoryProviderKind,
     pub exchange: String,
     pub output: OutputFormat,
     pub no_color: bool,
@@ -55,6 +82,7 @@ struct FileConfig {
 #[derive(Debug, Deserialize, Default)]
 struct FileGeneral {
     provider: Option<ProviderKind>,
+    history_provider: Option<HistoryProviderKind>,
     exchange: Option<String>,
     output: Option<OutputFormat>,
     color: Option<bool>,
@@ -69,7 +97,8 @@ struct FileCache {
 impl Default for IdxConfig {
     fn default() -> Self {
         Self {
-            provider: ProviderKind::Yahoo,
+            provider: ProviderKind::Msn,
+            history_provider: HistoryProviderKind::Auto,
             exchange: "JK".to_string(),
             output: OutputFormat::Table,
             no_color: false,
@@ -85,6 +114,9 @@ impl IdxConfig {
 
         if let Ok(provider) = std::env::var("IDX_PROVIDER") {
             cfg.provider = ProviderKind::parse(&provider)?;
+        }
+        if let Ok(history_provider) = std::env::var("IDX_HISTORY_PROVIDER") {
+            cfg.history_provider = HistoryProviderKind::parse(&history_provider)?;
         }
         if let Ok(exchange) = std::env::var("IDX_EXCHANGE") {
             cfg.exchange = exchange;
@@ -134,6 +166,9 @@ impl IdxConfig {
                 if let Some(provider) = general.provider {
                     cfg.provider = provider;
                 }
+                if let Some(history_provider) = general.history_provider {
+                    cfg.history_provider = history_provider;
+                }
                 if let Some(exchange) = general.exchange {
                     cfg.exchange = exchange;
                 }
@@ -158,7 +193,7 @@ impl IdxConfig {
 }
 
 pub fn default_config_toml() -> String {
-    "[general]\nprovider = \"yahoo\"\nexchange = \"JK\"\noutput = \"table\"\ncolor = true\n\n[cache]\nquote_ttl = 300\nfundamental_ttl = 3600\n".to_string()
+    "[general]\nprovider = \"msn\"\nhistory_provider = \"auto\"\nexchange = \"JK\"\noutput = \"table\"\ncolor = true\n\n[cache]\nquote_ttl = 300\nfundamental_ttl = 3600\n".to_string()
 }
 
 pub fn config_path() -> Result<PathBuf, IdxError> {
@@ -252,7 +287,8 @@ mod tests {
     #[test]
     fn default_values_are_sane() {
         let cfg = IdxConfig::default();
-        assert_eq!(cfg.provider, super::ProviderKind::Yahoo);
+        assert_eq!(cfg.provider, super::ProviderKind::Msn);
+        assert_eq!(cfg.history_provider, super::HistoryProviderKind::Auto);
         assert_eq!(cfg.exchange, "JK");
         assert_eq!(cfg.quote_ttl, 300);
     }
@@ -268,5 +304,22 @@ mod tests {
             super::ProviderKind::Msn
         );
         assert!(super::ProviderKind::parse("unknown").is_err());
+    }
+
+    #[test]
+    fn parses_history_provider_values() {
+        assert_eq!(
+            super::HistoryProviderKind::parse("auto").expect("auto history provider"),
+            super::HistoryProviderKind::Auto
+        );
+        assert_eq!(
+            super::HistoryProviderKind::parse("yahoo").expect("yahoo history provider"),
+            super::HistoryProviderKind::Yahoo
+        );
+        assert_eq!(
+            super::HistoryProviderKind::parse("MSN").expect("msn history provider"),
+            super::HistoryProviderKind::Msn
+        );
+        assert!(super::HistoryProviderKind::parse("unknown").is_err());
     }
 }

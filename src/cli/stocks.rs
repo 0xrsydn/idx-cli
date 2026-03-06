@@ -17,7 +17,7 @@ use crate::api::{
     ProfileProvider, SentimentProvider, history_provider,
 };
 use crate::cache::Cache;
-use crate::config::IdxConfig;
+use crate::config::{HistoryProviderKind, IdxConfig};
 use crate::error::IdxError;
 use crate::output::{
     MacdSnapshot, TechnicalReport, VolumeSnapshot, render_compare, render_earnings,
@@ -63,6 +63,8 @@ pub enum StocksSubcommand {
         period: Period,
         #[arg(long, value_enum, default_value_t = Interval::Day)]
         interval: Interval,
+        #[arg(long, value_enum)]
+        history_provider: Option<HistoryProviderKind>,
     },
     #[command(
         about = "Run technical analysis on a stock",
@@ -71,6 +73,8 @@ pub enum StocksSubcommand {
     Technical {
         /// Single ticker symbol (e.g. BBCA).
         symbol: String,
+        #[arg(long, value_enum)]
+        history_provider: Option<HistoryProviderKind>,
     },
     #[command(
         about = "Run growth analysis on a stock",
@@ -207,15 +211,22 @@ pub fn handle(
             symbol,
             period,
             interval,
+            history_provider: history_provider_override,
         } => {
-            let hist_provider = history_provider(config.provider, false).ok_or_else(|| {
-                IdxError::Unsupported(
-                    "MSN does not provide price history for IDX stocks. \
-                         Use --provider yahoo for historical data."
-                        .into(),
-                )
-            })?;
-            let history_bucket = cache_bucket(config, "history");
+            let history_mode = history_provider_override.unwrap_or(config.history_provider);
+            let (history_source, hist_provider) =
+                history_provider(config.provider, history_mode, false)?;
+            if matches!(history_mode, HistoryProviderKind::Auto)
+                && history_source != config.provider
+                && !matches!(config.output, crate::output::OutputFormat::Json)
+            {
+                eprintln!(
+                    "info: history provider fallback active ({} -> {})",
+                    config.provider.as_str(),
+                    history_source.as_str()
+                );
+            }
+            let history_bucket = format!("{}-history", history_source.as_str());
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
             let key = format!("{}-{}", period.as_str(), interval.as_str());
             if !no_cache
@@ -264,15 +275,24 @@ pub fn handle(
                 }
             }
         }
-        StocksSubcommand::Technical { symbol } => {
-            let hist_provider = history_provider(config.provider, false).ok_or_else(|| {
-                IdxError::Unsupported(
-                    "MSN does not provide price history for IDX stocks. \
-                         Use --provider yahoo for technical analysis."
-                        .into(),
-                )
-            })?;
-            let technical_bucket = cache_bucket(config, "technical");
+        StocksSubcommand::Technical {
+            symbol,
+            history_provider: history_provider_override,
+        } => {
+            let history_mode = history_provider_override.unwrap_or(config.history_provider);
+            let (history_source, hist_provider) =
+                history_provider(config.provider, history_mode, false)?;
+            if matches!(history_mode, HistoryProviderKind::Auto)
+                && history_source != config.provider
+                && !matches!(config.output, crate::output::OutputFormat::Json)
+            {
+                eprintln!(
+                    "info: history provider fallback active ({} -> {})",
+                    config.provider.as_str(),
+                    history_source.as_str()
+                );
+            }
+            let technical_bucket = format!("{}-technical", history_source.as_str());
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
             if !no_cache
                 && let Some(report) = cache.get::<TechnicalReport>(&technical_bucket, &resolved)?
