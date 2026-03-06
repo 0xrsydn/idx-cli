@@ -146,6 +146,7 @@ pub(super) struct RawFinancialStatement {
     pub(super) underlying_instrument: Option<RawInstrumentInfo>,
     pub(super) balance_sheets: Option<RawStatementSection>,
     pub(super) cash_flow: Option<RawStatementSection>,
+    #[serde(rename = "incomeStatement")]
     pub(super) income_statements: Option<RawStatementSection>,
 }
 
@@ -220,14 +221,22 @@ pub(super) struct RawSentimentStat {
     pub(super) neutral: Option<i32>,
 }
 
+// Actual MSN insights API response: array of insight containers, each holding
+// individual insight items grouped by category (Valuation, Risk, etc.)
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct RawInsight {
-    pub(super) id: Option<String>,
-    pub(super) summary: Option<String>,
-    pub(super) highlights: Option<Vec<String>>,
-    pub(super) risks: Option<Vec<String>>,
-    pub(super) last_updated: Option<String>,
+    pub(super) instrument_id: Option<String>,
+    pub(super) display_name: Option<String>,
+    pub(super) insights: Option<Vec<RawInsightItem>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawInsightItem {
+    pub(super) insight_name: Option<String>,
+    pub(super) category: Option<String>,
+    pub(super) insight_statement: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

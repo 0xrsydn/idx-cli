@@ -68,7 +68,19 @@ impl HistoryProvider for MsnProvider {
         _interval: &Interval,
     ) -> Result<Vec<Bar>, IdxError> {
         let chart_type = period_to_chart_type(period);
-        let raw = self.client.fetch_charts(symbol, chart_type)?;
+        let raw = self.client.fetch_charts(symbol, chart_type).map_err(|e| {
+            // Finance/Charts returns 404 for IDX stocks — MSN doesn't provide
+            // OHLCV chart history for the Indonesian exchange (XIDX).
+            if matches!(e, IdxError::SymbolNotFound(_)) {
+                IdxError::Unsupported(
+                    "MSN Finance/Charts does not provide OHLCV history for IDX (XIDX) stocks. \
+                     Use --provider yahoo for historical data."
+                        .to_string(),
+                )
+            } else {
+                e
+            }
+        })?;
         parse_chart_history(symbol, period, &raw)
     }
 }

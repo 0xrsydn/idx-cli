@@ -458,16 +458,62 @@ pub(super) fn parse_sentiment(
     })
 }
 
-pub(super) fn parse_insights(_symbol: &str, raw: &[RawInsight]) -> Result<InsightData, IdxError> {
+pub(super) fn parse_insights(symbol: &str, raw: &[RawInsight]) -> Result<InsightData, IdxError> {
     let item = raw
         .first()
         .ok_or_else(|| IdxError::ParseError("no insights data".into()))?;
+
+    let insights = item.insights.as_deref().unwrap_or(&[]);
+
+    // Group insight statements into highlights (non-risk) and risks by category
+    let highlights: Vec<String> = insights
+        .iter()
+        .filter(|i| {
+            i.category
+                .as_deref()
+                .map(|c| !c.eq_ignore_ascii_case("risk"))
+                .unwrap_or(true)
+        })
+        .filter_map(|i| {
+            let name = i.insight_name.as_deref().unwrap_or("");
+            let stmt = i.insight_statement.as_deref().unwrap_or("");
+            if stmt.is_empty() {
+                None
+            } else if name.is_empty() {
+                Some(stmt.to_string())
+            } else {
+                Some(format!("{name}: {stmt}"))
+            }
+        })
+        .collect();
+
+    let risks: Vec<String> = insights
+        .iter()
+        .filter(|i| {
+            i.category
+                .as_deref()
+                .map(|c| c.eq_ignore_ascii_case("risk"))
+                .unwrap_or(false)
+        })
+        .filter_map(|i| {
+            let stmt = i.insight_statement.as_deref().unwrap_or("");
+            if stmt.is_empty() {
+                None
+            } else {
+                Some(stmt.to_string())
+            }
+        })
+        .collect();
+
     Ok(InsightData {
-        id: item.id.clone().unwrap_or_default(),
-        summary: item.summary.clone().unwrap_or_default(),
-        highlights: item.highlights.clone().unwrap_or_default(),
-        risks: item.risks.clone().unwrap_or_default(),
-        last_updated: item.last_updated.clone().unwrap_or_default(),
+        id: item
+            .instrument_id
+            .clone()
+            .unwrap_or_else(|| symbol.to_string()),
+        summary: item.display_name.clone().unwrap_or_default(),
+        highlights,
+        risks,
+        last_updated: String::new(),
     })
 }
 
@@ -501,20 +547,98 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
         .quote
         .as_ref()
         .ok_or_else(|| IdxError::ParseError("no screener data".into()))?;
-    quotes
+
+    // Build Quote directly from screener MsnQuote data; skip stocks with no price
+    // (do not route through parse_quote which errors on missing price)
+    let results: Vec<Quote> = quotes
         .iter()
-        .map(|q| parse_quote(q.symbol.as_deref().unwrap_or(""), std::slice::from_ref(q)))
-        .collect()
+        .filter_map(|q| {
+            let raw_price = q.price?; // skip if no price
+            let price = round_price(raw_price);
+            let prev_close = q.price_previous_close.map(round_price);
+            let change = prev_close
+                .map(|pc| price - pc)
+                .or_else(|| q.price_change.map(round_price))
+                .unwrap_or(0);
+            let ticker = q
+                .symbol
+                .as_deref()
+                .and_then(ticker_from_symbol)
+                .unwrap_or_default();
+            let (week52_position, range_signal) = match (q.price_52w_low, q.price_52w_high) {
+                (Some(low), Some(high)) if high > low => {
+                    let pos = (raw_price - low) / (high - low);
+                    let sig = if pos > 0.66 {
+                        "upper"
+                    } else if pos < 0.33 {
+                        "lower"
+                    } else {
+                        "middle"
+                    };
+                    (Some(pos), Some(sig.to_string()))
+                }
+                _ => (None, None),
+            };
+            Some(Quote {
+                symbol: normalized_symbol(&ticker, &ticker),
+                price,
+                change,
+                change_pct: q.price_change_percent.unwrap_or(0.0),
+                volume: round_u64(q.accumulated_volume).unwrap_or(0),
+                market_cap: round_u64(q.market_cap),
+                week52_high: q.price_52w_high.map(round_price),
+                week52_low: q.price_52w_low.map(round_price),
+                week52_position,
+                range_signal,
+                prev_close,
+                avg_volume: round_u64(q.average_volume),
+            })
+        })
+        .collect();
+
+    if results.is_empty() {
+        return Err(IdxError::ParseError(
+            "screener returned no priced stocks".into(),
+        ));
+    }
+    Ok(results)
 }
 
 fn parse_statement_section(section: &RawStatementSection) -> StatementSection {
+    // MSN financial statement values are nested one level deep inside sub-objects
+    // (e.g., incomeStatement.income.{lineItems}, incomeStatement.revenue.{lineItems})
+    // Flatten all numeric values from any depth-1 sub-object into a single map.
+    let skip_keys = [
+        "currency",
+        "source",
+        "sourceDate",
+        "reportDate",
+        "endDate",
+        "fiscalYearEndMonth",
+        "statementType",
+        "type",
+        "_p",
+        "_t",
+        "year",
+        "underlyingInstrument",
+        "id",
+    ];
     let mut values = std::collections::HashMap::new();
+
     for (k, v) in &section.data {
-        if ["currency", "source", "sourceDate", "reportDate", "endDate"].contains(&k.as_str()) {
+        if skip_keys.contains(&k.as_str()) {
             continue;
         }
         if let Some(num) = v.as_f64() {
+            // Direct numeric value at top level
             values.insert(k.to_string(), num);
+        } else if let Some(obj) = v.as_object() {
+            // Nested sub-object — flatten one level (e.g., income.{lineItem: value})
+            for (sub_k, sub_v) in obj {
+                if let Some(num) = sub_v.as_f64() {
+                    values.insert(sub_k.to_string(), num);
+                }
+            }
         }
     }
 

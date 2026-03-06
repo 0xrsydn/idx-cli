@@ -524,26 +524,90 @@ pub fn print_profile(profile: &CompanyProfile) -> Result<(), IdxError> {
     table
         .load_preset(UTF8_FULL)
         .set_header(vec!["FIELD", "VALUE"]);
-    table.add_row(vec![Cell::new("Symbol"), Cell::new(&profile.symbol)]);
-    table.add_row(vec![Cell::new("Name"), Cell::new(&profile.long_name)]);
-    table.add_row(vec![Cell::new("Sector"), Cell::new(&profile.sector)]);
-    table.add_row(vec![Cell::new("Industry"), Cell::new(&profile.industry)]);
-    table.add_row(vec![Cell::new("Website"), Cell::new(&profile.website)]);
+
+    // Use long_name with short_name as fallback (IDX stocks often only have shortName)
+    let name = if !profile.long_name.is_empty() {
+        &profile.long_name
+    } else {
+        &profile.short_name
+    };
+
+    let add_if_present = |t: &mut Table, label: &str, value: &str| {
+        if !value.is_empty() {
+            t.add_row(vec![Cell::new(label), Cell::new(value)]);
+        }
+    };
+
+    add_if_present(&mut table, "Symbol", &profile.symbol);
+    add_if_present(&mut table, "Name", name);
+    add_if_present(&mut table, "Sector", &profile.sector);
+    add_if_present(&mut table, "Industry", &profile.industry);
+    add_if_present(&mut table, "Website", &profile.website);
+    add_if_present(&mut table, "Country", &profile.country);
+    add_if_present(&mut table, "City", &profile.city);
+    add_if_present(&mut table, "Phone", &profile.phone);
+    if profile.employees > 0 {
+        table.add_row(vec![
+            Cell::new("Employees"),
+            Cell::new(profile.employees.to_string()),
+        ]);
+    }
+    if !profile.description.is_empty() {
+        // Truncate long descriptions for table display
+        let desc = if profile.description.len() > 200 {
+            format!("{}...", &profile.description[..200])
+        } else {
+            profile.description.clone()
+        };
+        table.add_row(vec![Cell::new("Description"), Cell::new(desc)]);
+    }
+    if !profile.officers.is_empty() {
+        table.add_row(vec![
+            Cell::new("Executives"),
+            Cell::new(
+                profile
+                    .officers
+                    .iter()
+                    .take(5)
+                    .map(|o| format!("{} ({})", o.name, o.title))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+        ]);
+    }
     println!("{table}");
     Ok(())
 }
 
 pub fn print_financials(fin: &FinancialStatements) -> Result<(), IdxError> {
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .set_header(vec!["LINE ITEM", "VALUE"]);
-    if let Some(income) = &fin.income_statement {
-        for (k, v) in &income.values {
-            table.add_row(vec![Cell::new(k), Cell::new(format!("{v:.2}"))]);
+    let print_section = |label: &str, section: &crate::api::types::StatementSection| {
+        println!("\n── {label} ({}) ──", section.end_date);
+        let mut t = Table::new();
+        let value_header = format!("VALUE ({})", section.currency);
+        t.load_preset(UTF8_FULL)
+            .set_header(vec!["LINE ITEM", value_header.as_str()]);
+        // Sort keys for deterministic output
+        let mut entries: Vec<(&String, &f64)> = section.values.iter().collect();
+        entries.sort_by_key(|(k, _)| k.as_str());
+        for (k, v) in entries {
+            t.add_row(vec![Cell::new(k), Cell::new(format_idr(*v as i64))]);
         }
+        println!("{t}");
+    };
+
+    if let Some(income) = &fin.income_statement {
+        print_section("Income Statement", income);
     }
-    println!("{table}");
+    if let Some(balance) = &fin.balance_sheet {
+        print_section("Balance Sheet", balance);
+    }
+    if let Some(cf) = &fin.cash_flow {
+        print_section("Cash Flow", cf);
+    }
+
+    if fin.income_statement.is_none() && fin.balance_sheet.is_none() && fin.cash_flow.is_none() {
+        println!("No financial statement data available for this stock.");
+    }
     Ok(())
 }
 
