@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -8,12 +11,14 @@ use crate::api::types::{Fundamentals, Interval, Ohlc, Period, Quote};
 use crate::error::IdxError;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-// query2 works without crumb/cookie auth from datacenter IPs; query1 requires consent cookies
 const BASE_URL: &str = "https://query2.finance.yahoo.com";
+const COOKIE_FETCH_URL: &str = "https://fc.yahoo.com";
+const CRUMB_FETCH_URL: &str = "https://query1.finance.yahoo.com/v1/test/getcrumb";
 
 pub struct YahooProvider {
     agent: ureq::Agent,
     verbose: bool,
+    crumb: Mutex<Option<String>>,
 }
 
 impl YahooProvider {
@@ -24,7 +29,11 @@ impl YahooProvider {
             .build()
             .into();
 
-        Self { agent, verbose }
+        Self {
+            agent,
+            verbose,
+            crumb: Mutex::new(None),
+        }
     }
 
     fn chart_url(symbol: &str, period: &Period, interval: &Interval) -> String {
@@ -35,10 +44,195 @@ impl YahooProvider {
         )
     }
 
-    fn quote_summary_url(symbol: &str) -> String {
+    fn quote_summary_url(symbol: &str, crumb: &str) -> String {
         format!(
-            "{BASE_URL}/v10/finance/quoteSummary/{symbol}?modules=defaultKeyStatistics,financialData,incomeStatementHistory"
+            "{BASE_URL}/v10/finance/quoteSummary/{symbol}?modules=defaultKeyStatistics,financialData,incomeStatementHistory&crumb={crumb}"
         )
+    }
+
+    fn cookie_jar_path() -> PathBuf {
+        PathBuf::from(format!("/tmp/idx_yf_{}.txt", std::process::id()))
+    }
+
+    fn parse_crumb_body(raw: &str) -> Result<String, IdxError> {
+        let crumb = raw.trim();
+        if crumb.is_empty() {
+            return Err(IdxError::Http("received empty Yahoo crumb".to_string()));
+        }
+
+        let normalized = crumb.to_ascii_lowercase();
+        if normalized.contains("<html>") || normalized.contains("<!doctype html") {
+            return Err(IdxError::Http(
+                "received HTML instead of a Yahoo crumb".to_string(),
+            ));
+        }
+        if normalized.contains("too many requests") {
+            return Err(IdxError::Http(
+                "Yahoo crumb request was rate limited".to_string(),
+            ));
+        }
+
+        Ok(crumb.to_string())
+    }
+
+    fn cookie_header_from_jar(path: &Path) -> Result<String, IdxError> {
+        let jar = std::fs::read_to_string(path).map_err(|e| {
+            IdxError::Http(format!(
+                "failed to read Yahoo cookie jar {}: {e}",
+                path.display()
+            ))
+        })?;
+
+        let cookies: Vec<String> = jar
+            .lines()
+            .filter_map(|line| {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    return None;
+                }
+
+                let candidate = trimmed.strip_prefix("#HttpOnly_").unwrap_or(trimmed);
+                if candidate.starts_with('#') {
+                    return None;
+                }
+
+                let fields: Vec<_> = candidate.split('\t').collect();
+                if fields.len() < 7 {
+                    return None;
+                }
+
+                let name = fields[5].trim();
+                let value = fields[6].trim();
+                if name.is_empty() {
+                    return None;
+                }
+
+                Some(format!("{name}={value}"))
+            })
+            .collect();
+
+        if cookies.is_empty() {
+            return Err(IdxError::Http(format!(
+                "Yahoo cookie jar {} did not contain any cookies",
+                path.display()
+            )));
+        }
+
+        Ok(cookies.join("; "))
+    }
+
+    fn run_curl(stage: &str, args: &[&str]) -> Result<Output, IdxError> {
+        // curl-impersonate is required for --impersonate chrome TLS fingerprinting.
+        // Install via: nix profile install nixpkgs#curl-impersonate-chrome
+        let output = Command::new("curl-impersonate")
+            .args(args)
+            .output()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    return IdxError::Http(
+                        "curl-impersonate not found; install curl-impersonate-chrome (nixpkgs#curl-impersonate-chrome)"
+                            .to_string(),
+                    );
+                }
+                IdxError::Http(format!("failed to run curl-impersonate for Yahoo {stage}: {e}"))
+            })?;
+
+        if output.status.success() {
+            return Ok(output);
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr_trimmed = stderr.trim();
+        let stdout_trimmed = stdout.trim();
+        let detail = if stderr_trimmed.is_empty() {
+            stdout_trimmed
+        } else {
+            stderr_trimmed
+        };
+
+        if detail.contains("--impersonate")
+            || detail.contains("unknown option")
+            || detail.contains("unrecognized option")
+        {
+            return Err(IdxError::Http(
+                "curl does not support --impersonate; install a curl build with that feature"
+                    .to_string(),
+            ));
+        }
+
+        Err(IdxError::Http(format!(
+            "Yahoo {stage} curl failed (status {}): {}",
+            output.status,
+            if detail.is_empty() {
+                "no output"
+            } else {
+                detail
+            }
+        )))
+    }
+
+    fn fetch_crumb_via_curl(&self) -> Result<String, IdxError> {
+        let cookie_jar = Self::cookie_jar_path();
+        let cookie_jar_str = cookie_jar.to_str().ok_or_else(|| {
+            IdxError::Io(format!(
+                "failed to encode Yahoo cookie jar path {}",
+                cookie_jar.display()
+            ))
+        })?;
+
+        Self::run_curl(
+            "cookie fetch",
+            &[
+                "--impersonate",
+                "chrome",
+                "--silent",
+                "--cookie-jar",
+                cookie_jar_str,
+                COOKIE_FETCH_URL,
+                "--output",
+                "/dev/null",
+            ],
+        )?;
+
+        let output = Self::run_curl(
+            "crumb fetch",
+            &[
+                "--impersonate",
+                "chrome",
+                "--silent",
+                "--cookie",
+                cookie_jar_str,
+                CRUMB_FETCH_URL,
+            ],
+        )?;
+
+        let body = String::from_utf8_lossy(&output.stdout);
+        Self::parse_crumb_body(&body)
+    }
+
+    fn get_or_init_crumb(&self) -> Result<String, IdxError> {
+        let mut guard = self
+            .crumb
+            .lock()
+            .map_err(|e| IdxError::Io(format!("crumb lock poisoned: {e}")))?;
+
+        if let Some(crumb) = guard.as_ref() {
+            return Ok(crumb.clone());
+        }
+
+        let crumb = self.fetch_crumb_via_curl()?;
+        *guard = Some(crumb.clone());
+        Ok(crumb)
+    }
+
+    fn clear_crumb(&self) -> Result<(), IdxError> {
+        let mut guard = self
+            .crumb
+            .lock()
+            .map_err(|e| IdxError::Io(format!("crumb lock poisoned: {e}")))?;
+        *guard = None;
+        Ok(())
     }
 
     fn fetch_chart(
@@ -78,33 +272,60 @@ impl YahooProvider {
     }
 
     fn fetch_quote_summary(&self, symbol: &str) -> Result<QuoteSummaryResponse, IdxError> {
-        let mut wait = Duration::from_millis(250);
-        for attempt in 0..3 {
-            let url = Self::quote_summary_url(symbol);
-            let response = self.agent.get(&url).header("User-Agent", USER_AGENT).call();
-            match response {
-                Ok(ok) => {
-                    let quote_summary = ok
-                        .into_body()
-                        .read_json::<QuoteSummaryResponse>()
-                        .map_err(|e| IdxError::ParseError(e.to_string()))?;
-                    if let Some(err) = quote_summary.quote_summary.error.as_ref() {
-                        return Err(map_yahoo_error(symbol, "quoteSummary", err));
+        for auth_attempt in 0..2 {
+            let crumb = self.get_or_init_crumb()?;
+            let cookie_header = match Self::cookie_header_from_jar(&Self::cookie_jar_path()) {
+                Ok(header) => header,
+                Err(err) if auth_attempt == 0 => {
+                    self.clear_crumb()?;
+                    continue;
+                }
+                Err(err) => return Err(err),
+            };
+            let url = Self::quote_summary_url(symbol, &crumb);
+            let mut wait = Duration::from_millis(250);
+
+            for attempt in 0..3 {
+                let response = self
+                    .agent
+                    .get(&url)
+                    .header("User-Agent", USER_AGENT)
+                    .header("Cookie", &cookie_header)
+                    .call();
+                match response {
+                    Ok(ok) => {
+                        let quote_summary = ok
+                            .into_body()
+                            .read_json::<QuoteSummaryResponse>()
+                            .map_err(|e| IdxError::ParseError(e.to_string()))?;
+                        if let Some(err) = quote_summary.quote_summary.error.as_ref() {
+                            return Err(map_yahoo_error(symbol, "quoteSummary", err));
+                        }
+                        return Ok(quote_summary);
                     }
-                    return Ok(quote_summary);
-                }
-                Err(ureq::Error::StatusCode(429)) => {
-                    if attempt < 2 {
-                        std::thread::sleep(wait + jitter());
-                        wait *= 2;
+                    Err(ureq::Error::StatusCode(401)) => {
+                        if auth_attempt == 0 {
+                            self.clear_crumb()?;
+                            break;
+                        }
+                        return Err(IdxError::Http(
+                            "yahoo quoteSummary returned unauthorized (401)".to_string(),
+                        ));
                     }
+                    Err(ureq::Error::StatusCode(429)) => {
+                        if attempt < 2 {
+                            std::thread::sleep(wait + jitter());
+                            wait *= 2;
+                        }
+                    }
+                    Err(ureq::Error::StatusCode(404)) => {
+                        return Err(IdxError::SymbolNotFound(symbol.to_string()));
+                    }
+                    Err(e) => return Err(IdxError::Http(e.to_string())),
                 }
-                Err(ureq::Error::StatusCode(404)) => {
-                    return Err(IdxError::SymbolNotFound(symbol.to_string()));
-                }
-                Err(e) => return Err(IdxError::Http(e.to_string())),
             }
         }
+
         Err(IdxError::RateLimited)
     }
 }
@@ -535,7 +756,7 @@ impl YahooNumber {
 #[cfg(test)]
 mod tests {
     use super::{
-        ChartResponse, parse_fundamentals_from_str, parse_history_from_str,
+        ChartResponse, YahooProvider, parse_fundamentals_from_str, parse_history_from_str,
         parse_history_with_verbose, parse_quote, parse_quote_from_str,
     };
 
@@ -608,5 +829,22 @@ mod tests {
         let raw = r#"{"chart":{"result":null,"error":{"code":"Not Found","description":"No data found"}}}"#;
         let err = parse_quote_from_str("INVALID.JK", raw).expect_err("expected symbol error");
         assert!(matches!(err, crate::error::IdxError::SymbolNotFound(_)));
+    }
+
+    #[test]
+    fn parses_crumb_body_trimmed() {
+        let crumb = YahooProvider::parse_crumb_body("  abc123xyz\n").expect("crumb should parse");
+        assert_eq!(crumb, "abc123xyz");
+
+        let empty = YahooProvider::parse_crumb_body(" \n").expect_err("empty crumb must fail");
+        assert!(matches!(empty, crate::error::IdxError::Http(_)));
+
+        let html = YahooProvider::parse_crumb_body("<html>blocked</html>")
+            .expect_err("html crumb must fail");
+        assert!(matches!(html, crate::error::IdxError::Http(_)));
+
+        let rate_limited = YahooProvider::parse_crumb_body("Too Many Requests")
+            .expect_err("rate limited crumb must fail");
+        assert!(matches!(rate_limited, crate::error::IdxError::Http(_)));
     }
 }

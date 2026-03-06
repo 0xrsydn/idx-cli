@@ -28,6 +28,7 @@
             cargo-watch
             cargo-nextest
             prek
+            curl-impersonate-chrome  # required for Yahoo Finance auth (--impersonate chrome)
           ];
 
           env = {
