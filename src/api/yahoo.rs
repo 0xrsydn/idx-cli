@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use serde::Deserialize;
 
 use crate::api::MarketDataProvider;
-use crate::api::types::{Interval, Ohlc, Period, Quote};
+use crate::api::types::{Fundamentals, Interval, Ohlc, Period, Quote};
 use crate::error::IdxError;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
@@ -34,6 +35,12 @@ impl YahooProvider {
         )
     }
 
+    fn quote_summary_url(symbol: &str) -> String {
+        format!(
+            "{BASE_URL}/v10/finance/quoteSummary/{symbol}?modules=defaultKeyStatistics,financialData,incomeStatementHistory"
+        )
+    }
+
     fn fetch_chart(
         &self,
         symbol: &str,
@@ -51,9 +58,40 @@ impl YahooProvider {
                         .read_json::<ChartResponse>()
                         .map_err(|e| IdxError::ParseError(e.to_string()))?;
                     if let Some(err) = chart.chart.error.as_ref() {
-                        return Err(map_chart_error(symbol, err));
+                        return Err(map_yahoo_error(symbol, "chart", err));
                     }
                     return Ok(chart);
+                }
+                Err(ureq::Error::StatusCode(429)) => {
+                    if attempt < 2 {
+                        std::thread::sleep(wait + jitter());
+                        wait *= 2;
+                    }
+                }
+                Err(ureq::Error::StatusCode(404)) => {
+                    return Err(IdxError::SymbolNotFound(symbol.to_string()));
+                }
+                Err(e) => return Err(IdxError::Http(e.to_string())),
+            }
+        }
+        Err(IdxError::RateLimited)
+    }
+
+    fn fetch_quote_summary(&self, symbol: &str) -> Result<QuoteSummaryResponse, IdxError> {
+        let mut wait = Duration::from_millis(250);
+        for attempt in 0..3 {
+            let url = Self::quote_summary_url(symbol);
+            let response = self.agent.get(&url).header("User-Agent", USER_AGENT).call();
+            match response {
+                Ok(ok) => {
+                    let quote_summary = ok
+                        .into_body()
+                        .read_json::<QuoteSummaryResponse>()
+                        .map_err(|e| IdxError::ParseError(e.to_string()))?;
+                    if let Some(err) = quote_summary.quote_summary.error.as_ref() {
+                        return Err(map_yahoo_error(symbol, "quoteSummary", err));
+                    }
+                    return Ok(quote_summary);
                 }
                 Err(ureq::Error::StatusCode(429)) => {
                     if attempt < 2 {
@@ -81,12 +119,12 @@ fn round_price(value: f64) -> i64 {
 
 // verbose behavior is configured on YahooProvider and threaded into history parsing.
 
-fn map_chart_error(symbol: &str, err: &ChartError) -> IdxError {
+fn map_yahoo_error(symbol: &str, endpoint: &str, err: &ChartError) -> IdxError {
     if err.code.eq_ignore_ascii_case("Not Found") {
         return IdxError::SymbolNotFound(symbol.to_string());
     }
     IdxError::Http(format!(
-        "yahoo chart error {}: {}",
+        "yahoo {endpoint} error {}: {}",
         err.code, err.description
     ))
 }
@@ -95,6 +133,11 @@ impl MarketDataProvider for YahooProvider {
     fn quote(&self, symbol: &str) -> Result<Quote, IdxError> {
         let chart = self.fetch_chart(symbol, &Period::OneDay, &Interval::Day)?;
         parse_quote(symbol, &chart)
+    }
+
+    fn fundamentals(&self, symbol: &str) -> Result<Fundamentals, IdxError> {
+        let quote_summary = self.fetch_quote_summary(symbol)?;
+        parse_fundamentals(symbol, &quote_summary)
     }
 
     fn history(
@@ -112,14 +155,14 @@ pub(crate) fn parse_quote_from_str(symbol: &str, raw: &str) -> Result<Quote, Idx
     let chart: ChartResponse =
         serde_json::from_str(raw).map_err(|e| IdxError::ParseError(e.to_string()))?;
     if let Some(err) = chart.chart.error.as_ref() {
-        return Err(map_chart_error(symbol, err));
+        return Err(map_yahoo_error(symbol, "chart", err));
     }
     parse_quote(symbol, &chart)
 }
 
 fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, IdxError> {
     if let Some(err) = chart.chart.error.as_ref() {
-        return Err(map_chart_error(symbol, err));
+        return Err(map_yahoo_error(symbol, "chart", err));
     }
 
     let result = chart
@@ -183,9 +226,21 @@ pub(crate) fn parse_history_from_str(raw: &str) -> Result<Vec<Ohlc>, IdxError> {
     parse_history_with_verbose(&chart, false)
 }
 
+pub(crate) fn parse_fundamentals_from_str(
+    symbol: &str,
+    raw: &str,
+) -> Result<Fundamentals, IdxError> {
+    let quote_summary: QuoteSummaryResponse =
+        serde_json::from_str(raw).map_err(|e| IdxError::ParseError(e.to_string()))?;
+    if let Some(err) = quote_summary.quote_summary.error.as_ref() {
+        return Err(map_yahoo_error(symbol, "quoteSummary", err));
+    }
+    parse_fundamentals(symbol, &quote_summary)
+}
+
 fn parse_history_with_verbose(chart: &ChartResponse, verbose: bool) -> Result<Vec<Ohlc>, IdxError> {
     if let Some(err) = chart.chart.error.as_ref() {
-        return Err(map_chart_error("unknown", err));
+        return Err(map_yahoo_error("unknown", "chart", err));
     }
 
     let result = chart
@@ -259,9 +314,83 @@ fn parse_history_with_verbose(chart: &ChartResponse, verbose: bool) -> Result<Ve
     Ok(out)
 }
 
+fn parse_fundamentals(
+    symbol: &str,
+    quote_summary: &QuoteSummaryResponse,
+) -> Result<Fundamentals, IdxError> {
+    if let Some(err) = quote_summary.quote_summary.error.as_ref() {
+        return Err(map_yahoo_error(symbol, "quoteSummary", err));
+    }
+
+    let result = quote_summary
+        .quote_summary
+        .result
+        .as_ref()
+        .and_then(|results| results.first())
+        .ok_or(IdxError::ProviderUnavailable)?;
+
+    Ok(Fundamentals {
+        trailing_pe: result
+            .default_key_statistics
+            .get_f64("trailingPE")
+            .or_else(|| result.financial_data.get_f64("trailingPE")),
+        forward_pe: result
+            .default_key_statistics
+            .get_f64("forwardPE")
+            .or_else(|| result.financial_data.get_f64("forwardPE")),
+        price_to_book: result
+            .default_key_statistics
+            .get_f64("priceToBook")
+            .or_else(|| result.financial_data.get_f64("priceToBook")),
+        return_on_equity: result.financial_data.get_f64("returnOnEquity"),
+        profit_margins: result.financial_data.get_f64("profitMargins"),
+        return_on_assets: result.financial_data.get_f64("returnOnAssets"),
+        revenue_growth: result.financial_data.get_f64("revenueGrowth"),
+        earnings_growth: result
+            .default_key_statistics
+            .get_f64("earningsGrowth")
+            .or_else(|| result.financial_data.get_f64("earningsGrowth")),
+        debt_to_equity: result.financial_data.get_f64("debtToEquity"),
+        current_ratio: result.financial_data.get_f64("currentRatio"),
+        enterprise_value: result
+            .default_key_statistics
+            .get_i64("enterpriseValue")
+            .or_else(|| result.financial_data.get_i64("enterpriseValue")),
+        ebitda: result
+            .financial_data
+            .get_i64("ebitda")
+            .or_else(|| result.default_key_statistics.get_i64("ebitda")),
+        market_cap: result
+            .financial_data
+            .get_u64("marketCap")
+            .or_else(|| result.default_key_statistics.get_u64("marketCap")),
+    })
+}
+
 #[derive(Debug, Deserialize)]
 struct ChartResponse {
     chart: ChartRoot,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QuoteSummaryResponse {
+    quote_summary: QuoteSummaryRoot,
+}
+
+#[derive(Debug, Deserialize)]
+struct QuoteSummaryRoot {
+    result: Option<Vec<QuoteSummaryResult>>,
+    error: Option<ChartError>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QuoteSummaryResult {
+    #[serde(default)]
+    default_key_statistics: QuoteSummarySection,
+    #[serde(default)]
+    financial_data: QuoteSummarySection,
 }
 
 #[derive(Debug, Deserialize)]
@@ -316,11 +445,98 @@ struct IndicatorQuote {
     volume: Option<Vec<Option<u64>>>,
 }
 
+type QuoteSummarySection = HashMap<String, QuoteSummaryValue>;
+
+trait QuoteSummarySectionExt {
+    fn get_f64(&self, key: &str) -> Option<f64>;
+    fn get_i64(&self, key: &str) -> Option<i64>;
+    fn get_u64(&self, key: &str) -> Option<u64>;
+}
+
+impl QuoteSummarySectionExt for QuoteSummarySection {
+    fn get_f64(&self, key: &str) -> Option<f64> {
+        self.get(key).and_then(QuoteSummaryValue::as_f64)
+    }
+
+    fn get_i64(&self, key: &str) -> Option<i64> {
+        self.get(key).and_then(QuoteSummaryValue::as_i64)
+    }
+
+    fn get_u64(&self, key: &str) -> Option<u64> {
+        self.get(key).and_then(QuoteSummaryValue::as_u64)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum QuoteSummaryValue {
+    Wrapped { raw: Option<YahooNumber> },
+    Direct(YahooNumber),
+}
+
+impl QuoteSummaryValue {
+    fn as_f64(&self) -> Option<f64> {
+        match self {
+            Self::Wrapped { raw } => raw.as_ref().map(YahooNumber::as_f64),
+            Self::Direct(value) => Some(value.as_f64()),
+        }
+    }
+
+    fn as_i64(&self) -> Option<i64> {
+        match self {
+            Self::Wrapped { raw } => raw.as_ref().and_then(YahooNumber::as_i64),
+            Self::Direct(value) => value.as_i64(),
+        }
+    }
+
+    fn as_u64(&self) -> Option<u64> {
+        match self {
+            Self::Wrapped { raw } => raw.as_ref().and_then(YahooNumber::as_u64),
+            Self::Direct(value) => value.as_u64(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum YahooNumber {
+    I64(i64),
+    U64(u64),
+    F64(f64),
+}
+
+impl YahooNumber {
+    fn as_f64(&self) -> f64 {
+        match self {
+            Self::I64(value) => *value as f64,
+            Self::U64(value) => *value as f64,
+            Self::F64(value) => *value,
+        }
+    }
+
+    fn as_i64(&self) -> Option<i64> {
+        match self {
+            Self::I64(value) => Some(*value),
+            Self::U64(value) => i64::try_from(*value).ok(),
+            Self::F64(value) => Some(value.round() as i64),
+        }
+    }
+
+    fn as_u64(&self) -> Option<u64> {
+        match self {
+            Self::I64(value) => u64::try_from(*value).ok(),
+            Self::U64(value) => Some(*value),
+            Self::F64(value) if value.is_sign_negative() => None,
+            Self::F64(value) => Some(value.round() as u64),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        ChartResponse, parse_history_from_str, parse_history_with_verbose, parse_quote,
-        parse_quote_from_str,
+        ChartResponse, parse_fundamentals_from_str, parse_history_from_str,
+        parse_history_with_verbose, parse_quote, parse_quote_from_str,
     };
 
     const SAMPLE: &str = r#"{
@@ -365,6 +581,8 @@ mod tests {
             std::fs::read_to_string("tests/fixtures/chart_bbca_1d.json").expect("fixture exists");
         let history_raw =
             std::fs::read_to_string("tests/fixtures/chart_bbca_3mo.json").expect("fixture exists");
+        let fundamentals_raw = std::fs::read_to_string("tests/fixtures/quotesummary_bbca.json")
+            .expect("fixture exists");
 
         let quote = parse_quote_from_str("BBCA.JK", &quote_raw).expect("fixture quote parsed");
         assert_eq!(quote.symbol, "BBCA.JK");
@@ -373,6 +591,16 @@ mod tests {
 
         let history = parse_history_from_str(&history_raw).expect("fixture history parsed");
         assert!(!history.is_empty());
+
+        let fundamentals = parse_fundamentals_from_str("BBCA.JK", &fundamentals_raw)
+            .expect("fixture fundamentals parsed");
+        assert_eq!(fundamentals.trailing_pe, Some(25.4));
+        assert_eq!(fundamentals.forward_pe, Some(23.1));
+        assert_eq!(fundamentals.price_to_book, Some(4.6));
+        assert_eq!(fundamentals.earnings_growth, Some(0.121));
+        assert_eq!(fundamentals.enterprise_value, Some(1_245_000_000_000_000));
+        assert_eq!(fundamentals.ebitda, Some(58_500_000_000_000));
+        assert_eq!(fundamentals.market_cap, Some(1_215_200_000_000_000));
     }
 
     #[test]

@@ -2,10 +2,11 @@ pub mod types;
 pub mod yahoo;
 
 use crate::error::IdxError;
-use types::{Interval, Ohlc, Period, Quote};
+use types::{Fundamentals, Interval, Ohlc, Period, Quote};
 
 pub trait MarketDataProvider {
     fn quote(&self, symbol: &str) -> Result<Quote, IdxError>;
+    fn fundamentals(&self, symbol: &str) -> Result<Fundamentals, IdxError>;
     fn history(
         &self,
         symbol: &str,
@@ -35,6 +36,7 @@ pub fn default_provider(verbose: bool) -> Box<dyn MarketDataProvider> {
 
 pub struct MockProvider {
     quote: Result<Quote, IdxError>,
+    fundamentals: Result<Fundamentals, IdxError>,
     history: Result<Vec<Ohlc>, IdxError>,
 }
 
@@ -48,19 +50,28 @@ impl MockProvider {
             .unwrap_or_else(|_| "{}".to_string());
         let history_raw = std::fs::read_to_string("tests/fixtures/chart_bbca_3mo.json")
             .unwrap_or_else(|_| "{}".to_string());
+        let fundamentals_raw = std::fs::read_to_string("tests/fixtures/quotesummary_bbca.json")
+            .unwrap_or_else(|_| "{}".to_string());
 
         let quote = yahoo::parse_quote_from_str("BBCA.JK", &quote_raw)
+            .map_err(|e| IdxError::ParseError(e.to_string()));
+        let fundamentals = yahoo::parse_fundamentals_from_str("BBCA.JK", &fundamentals_raw)
             .map_err(|e| IdxError::ParseError(e.to_string()));
         let history = yahoo::parse_history_from_str(&history_raw)
             .map_err(|e| IdxError::ParseError(e.to_string()));
 
-        Self { quote, history }
+        Self {
+            quote,
+            fundamentals,
+            history,
+        }
     }
 
     pub fn with_error(err: IdxError) -> Self {
         Self {
-            quote: Err(err),
-            history: Err(IdxError::ProviderUnavailable),
+            quote: Err(err.clone()),
+            fundamentals: Err(err.clone()),
+            history: Err(err),
         }
     }
 }
@@ -70,6 +81,10 @@ impl MarketDataProvider for MockProvider {
         let mut q = self.quote.clone()?;
         q.symbol = symbol.to_string();
         Ok(q)
+    }
+
+    fn fundamentals(&self, _symbol: &str) -> Result<Fundamentals, IdxError> {
+        self.fundamentals.clone()
     }
 
     fn history(

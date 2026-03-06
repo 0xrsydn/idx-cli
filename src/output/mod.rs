@@ -5,6 +5,7 @@ use chrono::NaiveDate;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
+use crate::analysis::fundamental::{FundamentalReport, GrowthReport, RiskReport, ValuationReport};
 use crate::analysis::signals::TechnicalSignal;
 use crate::api::types::{Ohlc, Quote};
 use crate::error::IdxError;
@@ -75,6 +76,64 @@ pub fn render_technical(
     match format {
         OutputFormat::Table => table::print_technical(report, no_color),
         OutputFormat::Json => json::print_json(report),
+    }
+}
+
+pub fn render_growth(
+    symbol: &str,
+    report: &GrowthReport,
+    format: &OutputFormat,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_growth(symbol, report, no_color),
+        OutputFormat::Json => json::print_json(report),
+    }
+}
+
+pub fn render_valuation(
+    symbol: &str,
+    report: &ValuationReport,
+    format: &OutputFormat,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_valuation(symbol, report, no_color),
+        OutputFormat::Json => json::print_json(report),
+    }
+}
+
+pub fn render_risk(
+    symbol: &str,
+    report: &RiskReport,
+    format: &OutputFormat,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_risk(symbol, report, no_color),
+        OutputFormat::Json => json::print_json(report),
+    }
+}
+
+pub fn render_fundamental(
+    report: &FundamentalReport,
+    format: &OutputFormat,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_fundamental(report, no_color),
+        OutputFormat::Json => json::print_json(report),
+    }
+}
+
+pub fn render_compare(
+    reports: &[FundamentalReport],
+    format: &OutputFormat,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_compare(reports, no_color),
+        OutputFormat::Json => json::print_json(reports),
     }
 }
 

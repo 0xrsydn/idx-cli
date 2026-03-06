@@ -64,6 +64,24 @@ pub struct Ohlc {
     pub volume: u64,
 }
 
+/// Fundamental metrics normalized from Yahoo Finance `/v10/finance/quoteSummary`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Fundamentals {
+    pub trailing_pe: Option<f64>,
+    pub forward_pe: Option<f64>,
+    pub price_to_book: Option<f64>,
+    pub return_on_equity: Option<f64>,
+    pub profit_margins: Option<f64>,
+    pub return_on_assets: Option<f64>,
+    pub revenue_growth: Option<f64>,
+    pub earnings_growth: Option<f64>,
+    pub debt_to_equity: Option<f64>,
+    pub current_ratio: Option<f64>,
+    pub enterprise_value: Option<i64>,
+    pub ebitda: Option<i64>,
+    pub market_cap: Option<u64>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum NumberLike {

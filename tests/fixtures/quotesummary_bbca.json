@@ -1,0 +1,82 @@
+{
+  "quoteSummary": {
+    "result": [
+      {
+        "defaultKeyStatistics": {
+          "forwardPE": {
+            "raw": 23.1,
+            "fmt": "23.10"
+          },
+          "priceToBook": {
+            "raw": 4.6,
+            "fmt": "4.60"
+          },
+          "enterpriseValue": {
+            "raw": 1245000000000000,
+            "fmt": "1.25T"
+          },
+          "trailingEps": {
+            "raw": 384.25,
+            "fmt": "384.25"
+          },
+          "forwardEps": {
+            "raw": 410.18,
+            "fmt": "410.18"
+          }
+        },
+        "financialData": {
+          "trailingPE": {
+            "raw": 25.4,
+            "fmt": "25.40"
+          },
+          "marketCap": {
+            "raw": 1215200000000000,
+            "fmt": "1.22T"
+          },
+          "currentPrice": {
+            "raw": 9875,
+            "fmt": "9,875.00"
+          },
+          "returnOnEquity": {
+            "raw": 0.202,
+            "fmt": "20.20%"
+          },
+          "returnOnAssets": {
+            "raw": 0.038,
+            "fmt": "3.80%"
+          },
+          "profitMargins": {
+            "raw": 0.385,
+            "fmt": "38.50%"
+          },
+          "revenueGrowth": {
+            "raw": 0.118,
+            "fmt": "11.80%"
+          },
+          "earningsGrowth": {
+            "raw": 0.121,
+            "fmt": "12.10%"
+          },
+          "debtToEquity": {
+            "raw": 18.5,
+            "fmt": "18.50"
+          },
+          "currentRatio": {
+            "raw": 1.21,
+            "fmt": "1.21"
+          },
+          "ebitda": {
+            "raw": 58500000000000,
+            "fmt": "58.50B"
+          },
+          "totalRevenue": {
+            "raw": 147900000000000,
+            "fmt": "147.90B"
+          }
+        },
+        "incomeStatementHistory": {}
+      }
+    ],
+    "error": null
+  }
+}

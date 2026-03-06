@@ -1,6 +1,7 @@
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 use owo_colors::OwoColorize;
 
+use crate::analysis::fundamental::{FundamentalReport, GrowthReport, RiskReport, ValuationReport};
 use crate::analysis::signals::Signal;
 use crate::api::types::{Ohlc, Quote};
 use crate::error::IdxError;
@@ -167,6 +168,223 @@ pub fn print_technical(report: &TechnicalReport, no_color: bool) -> Result<(), I
     Ok(())
 }
 
+pub fn print_growth(symbol: &str, report: &GrowthReport, no_color: bool) -> Result<(), IdxError> {
+    println!("{}", format!("Growth Analysis for {symbol}").bold());
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec!["METRIC", "VALUE", "SIGNAL"]);
+
+    table.add_row(vec![
+        Cell::new("Revenue Growth"),
+        Cell::new(format_pct(report.revenue_growth_pct)),
+        Cell::new(format_growth_signal(&report.revenue_signal, no_color)),
+    ]);
+    table.add_row(vec![
+        Cell::new("Earnings Growth"),
+        Cell::new(format_pct(report.earnings_growth_pct)),
+        Cell::new(format_growth_signal(&report.earnings_signal, no_color)),
+    ]);
+    table.add_row(vec![
+        Cell::new("Overall"),
+        Cell::new("-"),
+        Cell::new(format_growth_signal(&report.overall_signal, no_color)),
+    ]);
+
+    println!("{table}");
+    Ok(())
+}
+
+pub fn print_valuation(
+    symbol: &str,
+    report: &ValuationReport,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    println!("{}", format!("Valuation Analysis for {symbol}").bold());
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec!["METRIC", "VALUE", "SIGNAL"]);
+
+    table.add_row(vec![
+        Cell::new("P/E (Trailing)"),
+        Cell::new(format_opt_f64(report.pe_trailing, 2)),
+        Cell::new(format_valuation_signal(&report.pe_signal, no_color)),
+    ]);
+    table.add_row(vec![
+        Cell::new("P/E (Forward)"),
+        Cell::new(format_opt_f64(report.pe_forward, 2)),
+        Cell::new("-"),
+    ]);
+    table.add_row(vec![
+        Cell::new("Price/Book"),
+        Cell::new(format_opt_f64(report.pb, 2)),
+        Cell::new(format_valuation_signal(&report.pb_signal, no_color)),
+    ]);
+    table.add_row(vec![
+        Cell::new("ROE"),
+        Cell::new(format_pct(report.roe_pct)),
+        Cell::new(format_valuation_signal(&report.roe_signal, no_color)),
+    ]);
+    table.add_row(vec![
+        Cell::new("Net Margin"),
+        Cell::new(format_pct(report.net_margin_pct)),
+        Cell::new(format_valuation_signal(&report.margin_signal, no_color)),
+    ]);
+    table.add_row(vec![
+        Cell::new("EV/EBITDA"),
+        Cell::new(format_opt_f64(report.ev_ebitda, 2)),
+        Cell::new(format_valuation_signal(&report.ev_ebitda_signal, no_color)),
+    ]);
+    table.add_row(vec![
+        Cell::new("Overall"),
+        Cell::new("-"),
+        Cell::new(format_valuation_signal(&report.overall_signal, no_color)),
+    ]);
+
+    println!("{table}");
+    Ok(())
+}
+
+pub fn print_risk(symbol: &str, report: &RiskReport, no_color: bool) -> Result<(), IdxError> {
+    println!("{}", format!("Risk Analysis for {symbol}").bold());
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec!["METRIC", "VALUE", "SIGNAL"]);
+
+    table.add_row(vec![
+        Cell::new("Debt/Equity"),
+        Cell::new(format_opt_f64(report.debt_to_equity, 2)),
+        Cell::new(format_risk_signal(&report.de_signal, no_color)),
+    ]);
+    table.add_row(vec![
+        Cell::new("Current Ratio"),
+        Cell::new(format_opt_f64(report.current_ratio, 2)),
+        Cell::new(format_risk_signal(&report.current_ratio_signal, no_color)),
+    ]);
+    table.add_row(vec![
+        Cell::new("ROA"),
+        Cell::new(format_pct(report.roa_pct)),
+        Cell::new("-"),
+    ]);
+    table.add_row(vec![
+        Cell::new("Overall"),
+        Cell::new("-"),
+        Cell::new(format_risk_signal(&report.overall_signal, no_color)),
+    ]);
+
+    println!("{table}");
+    Ok(())
+}
+
+pub fn print_fundamental(report: &FundamentalReport, no_color: bool) -> Result<(), IdxError> {
+    println!(
+        "{}",
+        format!("Fundamental Analysis for {}", report.symbol).bold()
+    );
+    println!();
+    print_growth(&report.symbol, &report.growth, no_color)?;
+    println!();
+    print_valuation(&report.symbol, &report.valuation, no_color)?;
+    println!();
+    print_risk(&report.symbol, &report.risk, no_color)?;
+    println!();
+    println!(
+        "{} {}",
+        "Overall Signal:".bold(),
+        format_growth_signal(&report.overall_signal, no_color)
+    );
+    Ok(())
+}
+
+pub fn print_compare(reports: &[FundamentalReport], no_color: bool) -> Result<(), IdxError> {
+    println!("{}", "Fundamental Comparison".bold());
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    let mut header = vec![Cell::new("METRIC")];
+    header.extend(reports.iter().map(|report| Cell::new(&report.symbol)));
+    table.set_header(header);
+
+    add_compare_row(
+        &mut table,
+        "Symbol",
+        reports
+            .iter()
+            .map(|report| report.symbol.clone())
+            .collect::<Vec<_>>(),
+    );
+    add_compare_row(
+        &mut table,
+        "Overall",
+        reports
+            .iter()
+            .map(|report| format_growth_signal(&report.overall_signal, no_color))
+            .collect::<Vec<_>>(),
+    );
+    add_compare_row(
+        &mut table,
+        "Growth",
+        reports
+            .iter()
+            .map(|report| format_growth_signal(&report.growth.overall_signal, no_color))
+            .collect::<Vec<_>>(),
+    );
+    add_compare_row(
+        &mut table,
+        "Valuation",
+        reports
+            .iter()
+            .map(|report| format_valuation_signal(&report.valuation.overall_signal, no_color))
+            .collect::<Vec<_>>(),
+    );
+    add_compare_row(
+        &mut table,
+        "Risk",
+        reports
+            .iter()
+            .map(|report| format_risk_signal(&report.risk.overall_signal, no_color))
+            .collect::<Vec<_>>(),
+    );
+    add_compare_row(
+        &mut table,
+        "P/E",
+        reports
+            .iter()
+            .map(|report| format_opt_f64(report.valuation.pe_trailing, 2))
+            .collect::<Vec<_>>(),
+    );
+    add_compare_row(
+        &mut table,
+        "ROE",
+        reports
+            .iter()
+            .map(|report| format_pct(report.valuation.roe_pct))
+            .collect::<Vec<_>>(),
+    );
+    add_compare_row(
+        &mut table,
+        "Revenue Growth",
+        reports
+            .iter()
+            .map(|report| format_pct(report.growth.revenue_growth_pct))
+            .collect::<Vec<_>>(),
+    );
+
+    println!("{table}");
+    Ok(())
+}
+
 fn format_idr_option(value: Option<f64>) -> String {
     value
         .map(|v| format_idr(v.round() as i64))
@@ -176,6 +394,16 @@ fn format_idr_option(value: Option<f64>) -> String {
 fn format_float(value: Option<f64>, precision: usize) -> String {
     value
         .map(|v| format!("{v:.prec$}", prec = precision))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_opt_f64(value: Option<f64>, precision: usize) -> String {
+    format_float(value, precision)
+}
+
+fn format_pct(value: Option<f64>) -> String {
+    value
+        .map(|v| format!("{v:+.2}%"))
         .unwrap_or_else(|| "-".to_string())
 }
 
@@ -234,6 +462,58 @@ fn format_volume_ratio(report: &TechnicalReport) -> String {
         ),
         _ => "-".to_string(),
     }
+}
+
+fn format_growth_signal(signal: &str, no_color: bool) -> String {
+    format_text_signal(
+        signal,
+        no_color,
+        &["strong", "moderate", "growing", "healthy"],
+        &["contracting", "declining", "shrinking", "weak"],
+    )
+}
+
+fn format_valuation_signal(signal: &str, no_color: bool) -> String {
+    format_text_signal(
+        signal,
+        no_color,
+        &["deep value", "undervalued", "excellent", "strong"],
+        &["expensive", "negative"],
+    )
+}
+
+fn format_risk_signal(signal: &str, no_color: bool) -> String {
+    format_text_signal(
+        signal,
+        no_color,
+        &["conservative", "strong", "adequate", "low risk"],
+        &["highly leveraged", "weak", "high risk", "negative equity"],
+    )
+}
+
+fn format_text_signal(
+    signal: &str,
+    no_color: bool,
+    positive: &[&str],
+    negative: &[&str],
+) -> String {
+    if no_color {
+        return signal.to_string();
+    }
+
+    if positive.contains(&signal) {
+        signal.green().to_string()
+    } else if negative.contains(&signal) {
+        signal.red().to_string()
+    } else {
+        signal.yellow().to_string()
+    }
+}
+
+fn add_compare_row(table: &mut Table, label: &str, values: Vec<String>) {
+    let mut row = vec![Cell::new(label)];
+    row.extend(values.into_iter().map(Cell::new));
+    table.add_row(row);
 }
 
 #[cfg(test)]

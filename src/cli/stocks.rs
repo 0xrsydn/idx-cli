@@ -1,15 +1,26 @@
 use clap::{Args, Subcommand};
+use serde::{Serialize, de::DeserializeOwned};
 
+use crate::analysis::fundamental::{
+    FundamentalReport, GrowthReport, RiskReport, ValuationReport, analyze_fundamental,
+    analyze_growth, analyze_risk, analyze_valuation,
+};
 use crate::analysis::signals::{self, Signal, TechnicalSignal};
 use crate::analysis::technical;
 use crate::api::MarketDataProvider;
-use crate::api::types::{Interval, Ohlc, Period};
+use crate::api::types::{Fundamentals, Interval, Ohlc, Period};
 use crate::cache::Cache;
 use crate::config::IdxConfig;
 use crate::error::IdxError;
 use crate::output::{
-    MacdSnapshot, TechnicalReport, VolumeSnapshot, render_history, render_quotes, render_technical,
+    MacdSnapshot, TechnicalReport, VolumeSnapshot, render_compare, render_fundamental,
+    render_growth, render_history, render_quotes, render_risk, render_technical, render_valuation,
 };
+
+struct FundamentalCacheSpec<'a> {
+    key: &'a str,
+    ttl_secs: u64,
+}
 
 #[derive(Debug, Args)]
 #[command(about = "Stock data and analysis")]
@@ -47,6 +58,46 @@ pub enum StocksSubcommand {
     Technical {
         /// Single ticker symbol (e.g. BBCA).
         symbol: String,
+    },
+    #[command(
+        about = "Run growth analysis on a stock",
+        after_help = "Examples:\n  idx stocks growth BBCA\n  idx -o json stocks growth BBCA"
+    )]
+    Growth {
+        /// Single ticker symbol (e.g. BBCA).
+        symbol: String,
+    },
+    #[command(
+        about = "Run valuation analysis on a stock",
+        after_help = "Examples:\n  idx stocks valuation BBCA\n  idx -o json stocks valuation BBCA"
+    )]
+    Valuation {
+        /// Single ticker symbol (e.g. BBCA).
+        symbol: String,
+    },
+    #[command(
+        about = "Run risk analysis on a stock",
+        after_help = "Examples:\n  idx stocks risk BBCA\n  idx -o json stocks risk BBCA"
+    )]
+    Risk {
+        /// Single ticker symbol (e.g. BBCA).
+        symbol: String,
+    },
+    #[command(
+        about = "Run full fundamental analysis on a stock",
+        after_help = "Examples:\n  idx stocks fundamental BBCA\n  idx -o json stocks fundamental BBCA"
+    )]
+    Fundamental {
+        /// Single ticker symbol (e.g. BBCA).
+        symbol: String,
+    },
+    #[command(
+        about = "Compare fundamentals across stocks",
+        after_help = "Examples:\n  idx stocks compare BBCA BBRI BMRI\n  idx stocks compare BBCA,BBRI,BMRI\n  idx -o json stocks compare BBCA,BBRI"
+    )]
+    Compare {
+        /// One or more symbols, comma-separated or space-separated.
+        symbols: Vec<String>,
     },
 }
 
@@ -179,6 +230,145 @@ pub fn handle(
                     Err(err)
                 }
             }
+        }
+        StocksSubcommand::Growth { symbol } => {
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let report: GrowthReport = fetch_fundamental_analysis_report(
+                &cache,
+                provider,
+                &resolved,
+                FundamentalCacheSpec {
+                    key: "growth",
+                    ttl_secs: config.fundamental_ttl,
+                },
+                offline,
+                no_cache,
+                |_, fundamentals| analyze_growth(fundamentals),
+            )?;
+            render_growth(&resolved, &report, &config.output, config.no_color)
+        }
+        StocksSubcommand::Valuation { symbol } => {
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let report: ValuationReport = fetch_fundamental_analysis_report(
+                &cache,
+                provider,
+                &resolved,
+                FundamentalCacheSpec {
+                    key: "valuation",
+                    ttl_secs: config.fundamental_ttl,
+                },
+                offline,
+                no_cache,
+                |_, fundamentals| analyze_valuation(fundamentals),
+            )?;
+            render_valuation(&resolved, &report, &config.output, config.no_color)
+        }
+        StocksSubcommand::Risk { symbol } => {
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let report: RiskReport = fetch_fundamental_analysis_report(
+                &cache,
+                provider,
+                &resolved,
+                FundamentalCacheSpec {
+                    key: "risk",
+                    ttl_secs: config.fundamental_ttl,
+                },
+                offline,
+                no_cache,
+                |_, fundamentals| analyze_risk(fundamentals),
+            )?;
+            render_risk(&resolved, &report, &config.output, config.no_color)
+        }
+        StocksSubcommand::Fundamental { symbol } => {
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let report: FundamentalReport = fetch_fundamental_analysis_report(
+                &cache,
+                provider,
+                &resolved,
+                FundamentalCacheSpec {
+                    key: "fundamental",
+                    ttl_secs: config.fundamental_ttl,
+                },
+                offline,
+                no_cache,
+                analyze_fundamental,
+            )?;
+            render_fundamental(&report, &config.output, config.no_color)
+        }
+        StocksSubcommand::Compare { symbols } => {
+            let mut reports: Vec<FundamentalReport> = Vec::new();
+            let mut last_error = None;
+
+            for sym in symbols.iter().flat_map(|s| s.split(',')) {
+                let resolved = crate::api::resolve_symbol(sym, &config.exchange);
+                match fetch_fundamental_analysis_report(
+                    &cache,
+                    provider,
+                    &resolved,
+                    FundamentalCacheSpec {
+                        key: "fundamental",
+                        ttl_secs: config.fundamental_ttl,
+                    },
+                    offline,
+                    no_cache,
+                    analyze_fundamental,
+                ) {
+                    Ok(report) => reports.push(report),
+                    Err(err) => {
+                        eprintln!("warning: failed to fetch fundamentals for {resolved}: {err}");
+                        last_error = Some(err);
+                    }
+                }
+            }
+
+            if reports.is_empty() {
+                return Err(last_error.unwrap_or_else(|| {
+                    IdxError::CacheMiss("fundamental/no symbols could be compared".to_string())
+                }));
+            }
+
+            render_compare(&reports, &config.output, config.no_color)
+        }
+    }
+}
+
+fn fetch_fundamental_analysis_report<T, F>(
+    cache: &Cache,
+    provider: &dyn MarketDataProvider,
+    resolved: &str,
+    cache_spec: FundamentalCacheSpec<'_>,
+    offline: bool,
+    no_cache: bool,
+    analyzer: F,
+) -> Result<T, IdxError>
+where
+    T: Serialize + DeserializeOwned,
+    F: FnOnce(&str, &Fundamentals) -> T,
+{
+    if !no_cache && let Some(report) = cache.get::<T>(cache_spec.key, resolved)? {
+        return Ok(report);
+    }
+
+    if offline {
+        return cache
+            .get_stale::<T>(cache_spec.key, resolved)?
+            .ok_or_else(|| IdxError::CacheMiss(format!("{}/{resolved}", cache_spec.key)));
+    }
+
+    match provider.fundamentals(resolved) {
+        Ok(fundamentals) => {
+            let report = analyzer(resolved, &fundamentals);
+            if !no_cache {
+                cache.put(cache_spec.key, resolved, &report, cache_spec.ttl_secs)?;
+            }
+            Ok(report)
+        }
+        Err(err) => {
+            if !no_cache && let Some(stale) = cache.get_stale::<T>(cache_spec.key, resolved)? {
+                eprintln!("warning: network failed, serving stale cache for {resolved}");
+                return Ok(stale);
+            }
+            Err(err)
         }
     }
 }
