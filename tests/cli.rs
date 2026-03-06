@@ -195,6 +195,8 @@ fn config_init_creates_file() {
         .success();
 
     assert!(config_home.join("idx/config.toml").exists());
+    let raw = fs::read_to_string(config_home.join("idx/config.toml")).expect("read config");
+    assert!(raw.contains("provider = \"yahoo\""));
 }
 
 #[test]
@@ -240,6 +242,22 @@ fn serves_stale_cache_on_provider_failure_with_warning() {
 }
 
 #[test]
+fn config_set_and_get_provider_round_trip() {
+    let root = test_env_dir("config-provider");
+
+    bin_with_root(&root)
+        .args(["config", "set", "general.provider", "msn"])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .args(["config", "get", "general.provider"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("msn"));
+}
+
+#[test]
 fn technical_serves_stale_cache_on_provider_failure_with_warning() {
     let root = test_env_dir("technical-stale");
     let cache_home = root.join("cache");
@@ -264,6 +282,43 @@ fn technical_serves_stale_cache_on_provider_failure_with_warning() {
 }
 
 #[test]
+fn cache_namespace_isolated_by_provider() {
+    let root = test_env_dir("provider-cache");
+    let cache_home = root.join("cache");
+
+    // Populate Yahoo cache
+    bin_with_root(&root)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .env("IDX_CACHE_QUOTE_TTL", "0")
+        .args(["stocks", "quote", "BBCA"])
+        .assert()
+        .success();
+
+    // MSN mock succeeds independently (uses MSN fixtures, not Yahoo's cache)
+    bin_with_root(&root)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .env("IDX_CACHE_QUOTE_TTL", "0")
+        .args(["stocks", "quote", "BBCA"])
+        .assert()
+        .success();
+
+    // MSN with mock error fails — Yahoo's cached data is NOT reused for MSN
+    bin_with_root(&root)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .env("IDX_CACHE_QUOTE_TTL", "0")
+        .env("IDX_MOCK_ERROR", "1")
+        .args(["stocks", "quote", "BBCA"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning: network failed"));
+}
+
+#[test]
 fn invalid_symbol_returns_non_zero() {
     test_bin("invalid-symbol")
         .env("IDX_USE_MOCK_PROVIDER", "1")
@@ -272,4 +327,14 @@ fn invalid_symbol_returns_non_zero() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("Error:"));
+}
+
+#[test]
+fn invalid_provider_env_returns_non_zero() {
+    test_bin("invalid-provider")
+        .env("IDX_PROVIDER", "bogus")
+        .args(["version"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid provider"));
 }

@@ -1,6 +1,8 @@
+pub mod msn;
 pub mod types;
 pub mod yahoo;
 
+use crate::config::ProviderKind;
 use crate::error::IdxError;
 use types::{Fundamentals, Interval, Ohlc, Period, Quote};
 
@@ -26,11 +28,14 @@ pub fn resolve_symbol(symbol: &str, exchange: &str) -> String {
     format!("{trimmed}.{}", exchange.trim().to_uppercase())
 }
 
-pub fn default_provider(verbose: bool) -> Box<dyn MarketDataProvider> {
+pub fn default_provider(provider: ProviderKind, verbose: bool) -> Box<dyn MarketDataProvider> {
     if std::env::var("IDX_USE_MOCK_PROVIDER").is_ok() {
-        Box::new(MockProvider::from_fixtures())
+        Box::new(MockProvider::from_fixtures(provider))
     } else {
-        Box::new(yahoo::YahooProvider::new(verbose))
+        match provider {
+            ProviderKind::Yahoo => Box::new(yahoo::YahooProvider::new(verbose)),
+            ProviderKind::Msn => Box::new(msn::MsnProvider::new(verbose)),
+        }
     }
 }
 
@@ -41,11 +46,18 @@ pub struct MockProvider {
 }
 
 impl MockProvider {
-    pub fn from_fixtures() -> Self {
+    pub fn from_fixtures(provider: ProviderKind) -> Self {
         if std::env::var("IDX_MOCK_ERROR").is_ok() {
             return Self::with_error(IdxError::ProviderUnavailable);
         }
 
+        match provider {
+            ProviderKind::Yahoo => Self::from_yahoo_fixtures(),
+            ProviderKind::Msn => Self::from_msn_fixtures(),
+        }
+    }
+
+    fn from_yahoo_fixtures() -> Self {
         let quote_raw = std::fs::read_to_string("tests/fixtures/chart_bbca_1d.json")
             .unwrap_or_else(|_| "{}".to_string());
         let history_raw = std::fs::read_to_string("tests/fixtures/chart_bbca_3mo.json")
@@ -58,6 +70,28 @@ impl MockProvider {
         let fundamentals = yahoo::parse_fundamentals_from_str("BBCA.JK", &fundamentals_raw)
             .map_err(|e| IdxError::ParseError(e.to_string()));
         let history = yahoo::parse_history_from_str(&history_raw)
+            .map_err(|e| IdxError::ParseError(e.to_string()));
+
+        Self {
+            quote,
+            fundamentals,
+            history,
+        }
+    }
+
+    fn from_msn_fixtures() -> Self {
+        let quote_raw = std::fs::read_to_string("tests/fixtures/msn_quote_bbca.json")
+            .unwrap_or_else(|_| "[]".to_string());
+        let history_raw = std::fs::read_to_string("tests/fixtures/msn_chart_bbca_3mo.json")
+            .unwrap_or_else(|_| "[]".to_string());
+        let fundamentals_raw = std::fs::read_to_string("tests/fixtures/msn_keyratios_bbca.json")
+            .unwrap_or_else(|_| "[]".to_string());
+
+        let quote = msn::parse_quote_from_str("BBCA.JK", &quote_raw)
+            .map_err(|e| IdxError::ParseError(e.to_string()));
+        let fundamentals = msn::parse_fundamentals_from_str(&fundamentals_raw, Some(&quote_raw))
+            .map_err(|e| IdxError::ParseError(e.to_string()));
+        let history = msn::parse_history_from_str(&crate::api::types::Period::ThreeMonths, &history_raw)
             .map_err(|e| IdxError::ParseError(e.to_string()));
 
         Self {

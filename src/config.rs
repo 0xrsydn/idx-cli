@@ -8,8 +8,37 @@ use crate::cli::Cli;
 use crate::error::IdxError;
 use crate::output::OutputFormat;
 
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderKind {
+    Yahoo,
+    Msn,
+}
+
+impl ProviderKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Yahoo => "yahoo",
+            Self::Msn => "msn",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self, IdxError> {
+        if value.eq_ignore_ascii_case("yahoo") {
+            Ok(Self::Yahoo)
+        } else if value.eq_ignore_ascii_case("msn") {
+            Ok(Self::Msn)
+        } else {
+            Err(IdxError::ConfigError(format!(
+                "invalid provider '{value}' (expected yahoo or msn)"
+            )))
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct IdxConfig {
+    pub provider: ProviderKind,
     pub exchange: String,
     pub output: OutputFormat,
     pub no_color: bool,
@@ -25,6 +54,7 @@ struct FileConfig {
 
 #[derive(Debug, Deserialize, Default)]
 struct FileGeneral {
+    provider: Option<ProviderKind>,
     exchange: Option<String>,
     output: Option<OutputFormat>,
     color: Option<bool>,
@@ -39,6 +69,7 @@ struct FileCache {
 impl Default for IdxConfig {
     fn default() -> Self {
         Self {
+            provider: ProviderKind::Yahoo,
             exchange: "JK".to_string(),
             output: OutputFormat::Table,
             no_color: false,
@@ -52,6 +83,9 @@ impl IdxConfig {
     pub fn load_with_cli(cli: &Cli) -> Result<Self, IdxError> {
         let mut cfg = Self::load()?;
 
+        if let Ok(provider) = std::env::var("IDX_PROVIDER") {
+            cfg.provider = ProviderKind::parse(&provider)?;
+        }
         if let Ok(exchange) = std::env::var("IDX_EXCHANGE") {
             cfg.exchange = exchange;
         }
@@ -92,6 +126,9 @@ impl IdxConfig {
             let parsed: FileConfig =
                 toml::from_str(&raw).map_err(|e| IdxError::ConfigError(e.to_string()))?;
             if let Some(general) = parsed.general {
+                if let Some(provider) = general.provider {
+                    cfg.provider = provider;
+                }
                 if let Some(exchange) = general.exchange {
                     cfg.exchange = exchange;
                 }
@@ -116,7 +153,7 @@ impl IdxConfig {
 }
 
 pub fn default_config_toml() -> String {
-    "[general]\nexchange = \"JK\"\noutput = \"table\"\ncolor = true\n\n[cache]\nquote_ttl = 300\nfundamental_ttl = 3600\n".to_string()
+    "[general]\nprovider = \"yahoo\"\nexchange = \"JK\"\noutput = \"table\"\ncolor = true\n\n[cache]\nquote_ttl = 300\nfundamental_ttl = 3600\n".to_string()
 }
 
 pub fn config_path() -> Result<PathBuf, IdxError> {
@@ -210,7 +247,21 @@ mod tests {
     #[test]
     fn default_values_are_sane() {
         let cfg = IdxConfig::default();
+        assert_eq!(cfg.provider, super::ProviderKind::Yahoo);
         assert_eq!(cfg.exchange, "JK");
         assert_eq!(cfg.quote_ttl, 300);
+    }
+
+    #[test]
+    fn parses_provider_values() {
+        assert_eq!(
+            super::ProviderKind::parse("yahoo").expect("yahoo provider"),
+            super::ProviderKind::Yahoo
+        );
+        assert_eq!(
+            super::ProviderKind::parse("MSN").expect("msn provider"),
+            super::ProviderKind::Msn
+        );
+        assert!(super::ProviderKind::parse("unknown").is_err());
     }
 }

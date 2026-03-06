@@ -677,6 +677,7 @@ impl QuoteSummarySectionExt for QuoteSummarySection {
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
+#[allow(dead_code)]
 enum QuoteSummaryValue {
     Wrapped { raw: Option<YahooNumber> },
     Direct(YahooNumber),
