@@ -7,11 +7,11 @@ use crate::api::types::{Fundamentals, Interval, Ohlc, Period, Quote};
 use crate::error::IdxError;
 
 use client::MsnClient;
-use parse::{
-    ResampleInterval, parse_fundamentals, parse_history_with_verbose, parse_quote, resample_history,
-};
+use parse::{parse_fundamentals, parse_quote};
 
 pub(crate) use parse::{parse_fundamentals_from_str, parse_history_from_str, parse_quote_from_str};
+
+const HISTORY_UNSUPPORTED_REASON: &str = "MSN provider does not currently support history or technical analysis because MSN charts do not consistently expose real OHLCV data";
 
 pub struct MsnProvider {
     client: MsnClient,
@@ -23,17 +23,6 @@ impl MsnProvider {
         Self {
             client: MsnClient::new(),
             verbose,
-        }
-    }
-
-    fn chart_type_for_period(period: &Period) -> &'static str {
-        match period {
-            Period::OneDay => "1D1M",
-            Period::FiveDays | Period::OneMonth => "1M",
-            Period::ThreeMonths => "3M",
-            Period::SixMonths | Period::OneYear => "1Y",
-            Period::TwoYears => "3Y",
-            Period::FiveYears => "5Y",
         }
     }
 }
@@ -62,32 +51,33 @@ impl MarketDataProvider for MsnProvider {
 
     fn history(
         &self,
-        symbol: &str,
-        period: &Period,
-        interval: &Interval,
+        _symbol: &str,
+        _period: &Period,
+        _interval: &Interval,
     ) -> Result<Vec<Ohlc>, IdxError> {
-        let charts = self
-            .client
-            .fetch_charts(symbol, Self::chart_type_for_period(period))?;
-        let rows = parse_history_with_verbose(period, &charts, self.verbose)?;
-        Ok(match interval {
-            Interval::Day => rows,
-            Interval::Week => resample_history(&rows, ResampleInterval::Week),
-            Interval::Month => resample_history(&rows, ResampleInterval::Month),
-        })
+        Err(IdxError::Unsupported(
+            HISTORY_UNSUPPORTED_REASON.to_string(),
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::MsnProvider;
-    use crate::api::types::Period;
+    use crate::api::MarketDataProvider;
+    use crate::api::types::{Interval, Period};
+    use crate::error::IdxError;
 
     #[test]
-    fn maps_periods_to_supported_chart_types() {
-        assert_eq!(MsnProvider::chart_type_for_period(&Period::OneDay), "1D1M");
-        assert_eq!(MsnProvider::chart_type_for_period(&Period::SixMonths), "1Y");
-        assert_eq!(MsnProvider::chart_type_for_period(&Period::TwoYears), "3Y");
-        assert_eq!(MsnProvider::chart_type_for_period(&Period::FiveYears), "5Y");
+    fn history_is_explicitly_unsupported() {
+        let provider = MsnProvider::new(false);
+        let err = provider
+            .history("BBCA.JK", &Period::OneMonth, &Interval::Day)
+            .expect_err("history should be unsupported");
+        assert!(matches!(err, IdxError::Unsupported(_)));
+        assert!(
+            err.to_string()
+                .contains("MSN provider does not currently support history or technical analysis")
+        );
     }
 }

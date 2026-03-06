@@ -351,12 +351,14 @@ fn sanitize_current_ratio(value: Option<f64>) -> Option<f64> {
     })
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub(super) enum ResampleInterval {
     Week,
     Month,
 }
 
+#[allow(dead_code)]
 pub(super) fn resample_history(rows: &[Ohlc], interval: ResampleInterval) -> Vec<Ohlc> {
     let mut grouped: BTreeMap<(i32, u32), Ohlc> = BTreeMap::new();
 

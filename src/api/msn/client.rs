@@ -4,7 +4,7 @@ use serde::de::DeserializeOwned;
 
 use crate::error::IdxError;
 
-use super::parse::{KeyRatios, MsnChart, MsnQuote};
+use super::parse::{KeyRatios, MsnQuote};
 use super::symbols::resolve_msn_id;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
@@ -70,18 +70,5 @@ impl MsnClient {
         let url =
             format!("{MSN_API_BASE_URL}keyratios?apikey={MSN_API_KEY}&ids={id}&wrapodata=false");
         self.get_json(&url, symbol, "keyratios")
-    }
-
-    pub(super) fn fetch_charts(
-        &self,
-        symbol: &str,
-        chart_type: &str,
-    ) -> Result<Vec<MsnChart>, IdxError> {
-        let id =
-            resolve_msn_id(symbol).ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
-        let url = format!(
-            "{MSN_ASSETS_BASE_URL}Finance/Charts?apikey={MSN_API_KEY}&cm=id-id&ids={id}&type={chart_type}&wrapodata=false"
-        );
-        self.get_json(&url, symbol, "chart")
     }
 }

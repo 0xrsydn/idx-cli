@@ -107,6 +107,31 @@ fn technical_with_mock_provider_json_contains_fields() {
 }
 
 #[test]
+fn msn_history_reports_unsupported() {
+    test_bin("msn-history-unsupported")
+        .env("IDX_PROVIDER", "msn")
+        .args(["stocks", "history", "BBCA", "--period", "1mo"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "MSN provider does not currently support history or technical analysis",
+        ));
+}
+
+#[test]
+fn msn_technical_json_reports_unsupported() {
+    test_bin("msn-technical-unsupported")
+        .env("IDX_PROVIDER", "msn")
+        .args(["-o", "json", "stocks", "technical", "BBCA"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("\"code\": \"UNSUPPORTED\""))
+        .stderr(predicate::str::contains(
+            "MSN provider does not currently support history or technical analysis",
+        ));
+}
+
+#[test]
 fn growth_with_mock_provider_table_contains_expected_rows() {
     test_bin("growth-table")
         .env("IDX_USE_MOCK_PROVIDER", "1")
