@@ -23,13 +23,18 @@
 - [x] Colored signal output (green/red/yellow)
 - [x] 1-year lookback for SMA200 coverage
 
+## ✅ Completed (v0.1.1 — fundamental suite)
+- [x] `stocks growth <SYMBOL>` — revenue/earnings growth with signals
+- [x] `stocks valuation <SYMBOL>` — PE, PB, ROE, margins, EV/EBITDA with signals
+- [x] `stocks risk <SYMBOL>` — D/E, current ratio, ROA with signals
+- [x] `stocks fundamental <SYMBOL>` — composite growth + valuation + risk
+- [x] `stocks compare <SYM1,SYM2,...>` — side-by-side multi-symbol comparison
+- [x] `analysis/fundamental.rs` — fundamental analysis module (ported from idx-mcp)
+- [x] Yahoo quoteSummary endpoint parser (/v10/finance/quoteSummary)
+- [x] 41 tests passing (22 unit + 19 integration)
+
 ## 🚧 Next Up
-- [ ] `stocks fundamental <SYMBOL>` — composite growth + valuation + risk
-- [ ] `stocks growth <SYMBOL>` — revenue/earnings growth YoY
-- [ ] `stocks valuation <SYMBOL>` — PE, PB, ROE, margins, EV/EBITDA
-- [ ] `stocks risk <SYMBOL>` — D/E ratio, current ratio, ROA
-- [ ] `stocks compare <SYM1,SYM2,...>` — side-by-side multi-symbol comparison
-- [ ] `analysis/fundamental.rs` — fundamental analysis module
+- [ ] Fix Yahoo crumb auth for quoteSummary (fetch crumb from consent.yahoo.com, pass as cookie/param) — unblocks live fundamental commands
 
 ## 📋 Backlog (per SPEC.md)
 - [ ] `market summary` — IHSG index, market breadth
@@ -46,3 +51,4 @@
 ## 🐛 Known Issues
 - [ ] Yahoo Finance returns 429 from datacenter IPs occasionally
 - [ ] SMA200 trend shows "Insufficient data" if Yahoo returns < 200 candles
+- [ ] Yahoo quoteSummary returns 401 from datacenter IPs — needs crumb/cookie auth (fundamental/growth/valuation/risk/compare commands affected)
