@@ -1,13 +1,15 @@
 mod client;
+mod map;
 mod parse;
+mod raw_types;
 mod symbols;
 
-use crate::api::MarketDataProvider;
-use crate::api::types::{Fundamentals, Interval, Ohlc, Period, Quote};
+use crate::api::types::{Bar, Fundamentals, Interval, Period, Quote};
+use crate::api::{FundamentalsProvider, HistoryProvider, QuoteProvider};
 use crate::error::IdxError;
 
 use client::MsnClient;
-use parse::{parse_fundamentals, parse_quote};
+use map::{parse_fundamentals, parse_quote};
 
 pub(crate) use parse::{parse_fundamentals_from_str, parse_history_from_str, parse_quote_from_str};
 
@@ -15,46 +17,38 @@ const HISTORY_UNSUPPORTED_REASON: &str = "MSN provider does not currently suppor
 
 pub struct MsnProvider {
     client: MsnClient,
-    verbose: bool,
 }
 
 impl MsnProvider {
-    pub fn new(verbose: bool) -> Self {
+    pub fn new(_verbose: bool) -> Self {
         Self {
             client: MsnClient::new(),
-            verbose,
         }
     }
 }
 
-impl MarketDataProvider for MsnProvider {
+impl QuoteProvider for MsnProvider {
     fn quote(&self, symbol: &str) -> Result<Quote, IdxError> {
         let quotes = self.client.fetch_quotes(symbol)?;
         parse_quote(symbol, &quotes)
     }
+}
 
+impl FundamentalsProvider for MsnProvider {
     fn fundamentals(&self, symbol: &str) -> Result<Fundamentals, IdxError> {
         let ratios = self.client.fetch_key_ratios(symbol)?;
-        let quote = self
-            .client
-            .fetch_quotes(symbol)
-            .map_err(|e| {
-                if self.verbose {
-                    eprintln!("warning: quote fetch for fundamentals failed: {e}");
-                }
-                e
-            })
-            .ok()
-            .and_then(|quotes| quotes.into_iter().next());
-        parse_fundamentals(&ratios, quote.as_ref())
+        let quote = self.client.fetch_quotes(symbol)?;
+        parse_fundamentals(&ratios, quote.first())
     }
+}
 
+impl HistoryProvider for MsnProvider {
     fn history(
         &self,
         _symbol: &str,
         _period: &Period,
         _interval: &Interval,
-    ) -> Result<Vec<Ohlc>, IdxError> {
+    ) -> Result<Vec<Bar>, IdxError> {
         Err(IdxError::Unsupported(
             HISTORY_UNSUPPORTED_REASON.to_string(),
         ))
@@ -64,7 +58,7 @@ impl MarketDataProvider for MsnProvider {
 #[cfg(test)]
 mod tests {
     use super::MsnProvider;
-    use crate::api::MarketDataProvider;
+    use crate::api::HistoryProvider;
     use crate::api::types::{Interval, Period};
     use crate::error::IdxError;
 

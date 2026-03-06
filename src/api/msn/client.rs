@@ -4,7 +4,7 @@ use serde::de::DeserializeOwned;
 
 use crate::error::IdxError;
 
-use super::parse::{KeyRatios, MsnQuote};
+use super::raw_types::{KeyRatios, MsnQuote};
 use super::symbols::resolve_msn_id;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
@@ -34,25 +34,48 @@ impl MsnClient {
         symbol: &str,
         endpoint: &str,
     ) -> Result<T, IdxError> {
-        let response = self
-            .agent
-            .get(url)
-            .header("User-Agent", USER_AGENT)
-            .header("Accept", "application/json")
-            .header("Accept-Language", "en-US,en;q=0.9,id;q=0.8")
-            .header("Origin", "https://www.msn.com")
-            .header("Referer", "https://www.msn.com/")
-            .call();
+        let mut wait = Duration::from_millis(500);
+        for attempt in 0..3 {
+            let response = self
+                .agent
+                .get(url)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .header("Accept-Language", "en-US,en;q=0.9,id;q=0.8")
+                .header("Origin", "https://www.msn.com")
+                .header("Referer", "https://www.msn.com/")
+                .call();
 
-        match response {
-            Ok(ok) => ok
-                .into_body()
-                .read_json::<T>()
-                .map_err(|e| IdxError::ParseError(format!("msn {endpoint}: {e}"))),
-            Err(ureq::Error::StatusCode(404)) => Err(IdxError::SymbolNotFound(symbol.to_string())),
-            Err(ureq::Error::StatusCode(429)) => Err(IdxError::RateLimited),
-            Err(err) => Err(IdxError::Http(format!("msn {endpoint}: {err}"))),
+            match response {
+                Ok(ok) => {
+                    return ok
+                        .into_body()
+                        .read_json::<T>()
+                        .map_err(|e| IdxError::ParseError(format!("msn {endpoint}: {e}")));
+                }
+                Err(ureq::Error::StatusCode(404)) => {
+                    return Err(IdxError::SymbolNotFound(symbol.to_string()));
+                }
+                Err(ureq::Error::StatusCode(429)) => {
+                    if attempt < 2 {
+                        std::thread::sleep(wait);
+                        wait *= 2;
+                        continue;
+                    }
+                    return Err(IdxError::RateLimited);
+                }
+                Err(ureq::Error::StatusCode(code)) if code >= 500 => {
+                    if attempt < 2 {
+                        std::thread::sleep(wait);
+                        wait *= 2;
+                        continue;
+                    }
+                    return Err(IdxError::Http(format!("msn {endpoint}: status {code}")));
+                }
+                Err(err) => return Err(IdxError::Http(format!("msn {endpoint}: {err}"))),
+            }
         }
+        Err(IdxError::RateLimited)
     }
 
     pub(super) fn fetch_quotes(&self, symbol: &str) -> Result<Vec<MsnQuote>, IdxError> {

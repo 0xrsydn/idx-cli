@@ -82,6 +82,125 @@ pub struct Fundamentals {
     pub market_cap: Option<u64>,
 }
 
+pub type Bar = Ohlc;
+
+// Forward-looking types for planned MSN endpoints — used once capability traits are wired to CLI.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompanyProfile {
+    pub id: String,
+    pub symbol: String,
+    pub short_name: String,
+    pub long_name: String,
+    pub description: String,
+    pub sector: String,
+    pub industry: String,
+    pub website: String,
+    pub employees: i64,
+    pub address: String,
+    pub city: String,
+    pub country: String,
+    pub phone: String,
+    pub officers: Vec<Officer>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Officer {
+    pub name: String,
+    pub title: String,
+    pub age: Option<i32>,
+    pub year_born: Option<i32>,
+    pub total_pay: Option<i64>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinancialStatements {
+    pub instrument: InstrumentInfo,
+    pub balance_sheet: Option<StatementSection>,
+    pub cash_flow: Option<StatementSection>,
+    pub income_statement: Option<StatementSection>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstrumentInfo {
+    pub id: String,
+    pub symbol: String,
+    pub name: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatementSection {
+    pub values: std::collections::HashMap<String, f64>,
+    pub currency: String,
+    pub report_date: String,
+    pub end_date: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EarningsReport {
+    pub eps_last_year: f64,
+    pub revenue_last_year: f64,
+    pub forecast: Vec<EarningsData>,
+    pub history: Vec<EarningsData>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EarningsData {
+    pub eps_actual: Option<f64>,
+    pub eps_forecast: Option<f64>,
+    pub eps_surprise: Option<f64>,
+    pub eps_surprise_pct: Option<f64>,
+    pub revenue_actual: Option<f64>,
+    pub revenue_forecast: Option<f64>,
+    pub revenue_surprise: Option<f64>,
+    pub earning_release_date: Option<String>,
+    pub period_type: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SentimentData {
+    pub symbol: String,
+    pub statistics: Vec<SentimentPeriod>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SentimentPeriod {
+    pub time_range: String,
+    pub bullish: i32,
+    pub bearish: i32,
+    pub neutral: i32,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InsightData {
+    pub id: String,
+    pub summary: String,
+    pub highlights: Vec<String>,
+    pub risks: Vec<String>,
+    pub last_updated: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewsItem {
+    pub id: String,
+    pub title: String,
+    pub url: String,
+    pub description: String,
+    pub provider: String,
+    pub published_at: String,
+    pub read_time_min: Option<i32>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum NumberLike {

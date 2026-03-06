@@ -4,17 +4,59 @@ pub mod yahoo;
 
 use crate::config::ProviderKind;
 use crate::error::IdxError;
-use types::{Fundamentals, Interval, Ohlc, Period, Quote};
+use types::{
+    Bar, CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, Interval,
+    NewsItem, Period, Quote, SentimentData,
+};
 
-pub trait MarketDataProvider {
+pub trait QuoteProvider {
     fn quote(&self, symbol: &str) -> Result<Quote, IdxError>;
-    fn fundamentals(&self, symbol: &str) -> Result<Fundamentals, IdxError>;
+}
+
+pub trait HistoryProvider {
     fn history(
         &self,
         symbol: &str,
         period: &Period,
         interval: &Interval,
-    ) -> Result<Vec<Ohlc>, IdxError>;
+    ) -> Result<Vec<Bar>, IdxError>;
+}
+
+pub trait FundamentalsProvider {
+    fn fundamentals(&self, symbol: &str) -> Result<Fundamentals, IdxError>;
+}
+
+pub trait MarketDataProvider: QuoteProvider + FundamentalsProvider + HistoryProvider {}
+impl<T> MarketDataProvider for T where T: QuoteProvider + FundamentalsProvider + HistoryProvider {}
+
+#[allow(dead_code)]
+pub trait ProfileProvider {
+    fn profile(&self, symbol: &str) -> Result<CompanyProfile, IdxError>;
+}
+
+#[allow(dead_code)]
+pub trait EarningsProvider {
+    fn earnings(&self, symbol: &str) -> Result<EarningsReport, IdxError>;
+}
+
+#[allow(dead_code)]
+pub trait FinancialsProvider {
+    fn financials(&self, symbol: &str) -> Result<FinancialStatements, IdxError>;
+}
+
+#[allow(dead_code)]
+pub trait SentimentProvider {
+    fn sentiment(&self, symbol: &str) -> Result<SentimentData, IdxError>;
+}
+
+#[allow(dead_code)]
+pub trait InsightsProvider {
+    fn insights(&self, symbol: &str) -> Result<InsightData, IdxError>;
+}
+
+#[allow(dead_code)]
+pub trait NewsProvider {
+    fn news(&self, symbol: &str, limit: usize) -> Result<Vec<NewsItem>, IdxError>;
 }
 
 pub fn resolve_symbol(symbol: &str, exchange: &str) -> String {
@@ -42,7 +84,7 @@ pub fn default_provider(provider: ProviderKind, verbose: bool) -> Box<dyn Market
 pub struct MockProvider {
     quote: Result<Quote, IdxError>,
     fundamentals: Result<Fundamentals, IdxError>,
-    history: Result<Vec<Ohlc>, IdxError>,
+    history: Result<Vec<Bar>, IdxError>,
 }
 
 impl MockProvider {
@@ -69,7 +111,7 @@ impl MockProvider {
             .map_err(|e| IdxError::ParseError(e.to_string()));
         let fundamentals = yahoo::parse_fundamentals_from_str("BBCA.JK", &fundamentals_raw)
             .map_err(|e| IdxError::ParseError(e.to_string()));
-        let history = yahoo::parse_history_from_str(&history_raw)
+        let history = yahoo::parse_history_from_str("BBCA.JK", &history_raw)
             .map_err(|e| IdxError::ParseError(e.to_string()));
 
         Self {
@@ -111,23 +153,27 @@ impl MockProvider {
     }
 }
 
-impl MarketDataProvider for MockProvider {
+impl QuoteProvider for MockProvider {
     fn quote(&self, symbol: &str) -> Result<Quote, IdxError> {
         let mut q = self.quote.clone()?;
         q.symbol = symbol.to_string();
         Ok(q)
     }
+}
 
+impl FundamentalsProvider for MockProvider {
     fn fundamentals(&self, _symbol: &str) -> Result<Fundamentals, IdxError> {
         self.fundamentals.clone()
     }
+}
 
+impl HistoryProvider for MockProvider {
     fn history(
         &self,
         _symbol: &str,
         _period: &Period,
         _interval: &Interval,
-    ) -> Result<Vec<Ohlc>, IdxError> {
+    ) -> Result<Vec<Bar>, IdxError> {
         self.history.clone()
     }
 }

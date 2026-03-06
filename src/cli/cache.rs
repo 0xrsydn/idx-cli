@@ -40,8 +40,11 @@ pub fn handle(cmd: &CacheCmd) -> Result<(), IdxError> {
             );
         }
         CacheSubcommand::Clear => {
-            let removed = cache.clear()?;
+            let (removed, failed) = cache.clear()?;
             println!("cleared {removed} files");
+            if !failed.is_empty() {
+                eprintln!("warning: failed to remove {} file(s)", failed.len());
+            }
         }
     }
     Ok(())

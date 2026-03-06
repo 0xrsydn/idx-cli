@@ -345,6 +345,40 @@ pub fn handle(
     }
 }
 
+#[allow(dead_code)] // wired up once per-subcommand handlers are fully split
+pub(crate) fn fetch_with_cache<T, F>(
+    cache: &Cache,
+    bucket: &str,
+    key: &str,
+    ttl_secs: u64,
+    offline: bool,
+    no_cache: bool,
+    fetch_fn: F,
+) -> Result<T, IdxError>
+where
+    T: Serialize + DeserializeOwned,
+    F: FnOnce() -> Result<T, IdxError>,
+{
+    if !no_cache
+        && !offline
+        && let Some(cached) = cache.get::<T>(bucket, key)?
+    {
+        return Ok(cached);
+    }
+
+    if offline {
+        return cache
+            .get_stale::<T>(bucket, key)?
+            .ok_or_else(|| IdxError::Offline("no cached data available".to_string()));
+    }
+
+    let data = fetch_fn()?;
+    if !no_cache {
+        let _ = cache.put(bucket, key, &data, ttl_secs);
+    }
+    Ok(data)
+}
+
 fn fetch_fundamental_analysis_report<T, F>(
     cache: &Cache,
     provider: &dyn MarketDataProvider,
