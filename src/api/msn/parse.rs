@@ -1,180 +1,12 @@
-use std::collections::{BTreeMap, HashMap};
-use std::sync::OnceLock;
-use std::time::Duration;
+use std::collections::BTreeMap;
 
 use chrono::{Datelike, NaiveDate};
-use serde::de::DeserializeOwned;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 
-use crate::api::MarketDataProvider;
-use crate::api::types::{Fundamentals, Interval, Ohlc, Period, Quote};
+use super::symbols::{normalized_symbol, ticker_from_symbol};
+use crate::api::types::{Fundamentals, Ohlc, Period, Quote};
 use crate::error::IdxError;
-
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-const MSN_ASSETS_BASE_URL: &str = "https://assets.msn.com/service/";
-const MSN_API_BASE_URL: &str = "https://api.msn.com/msn/v0/pages/finance/";
-// Public API key from MSN Money website (embedded in frontend JS)
-const MSN_API_KEY: &str = "0QfOX3Vn51YCzitbLaRkTTBadtWpgTN8NZLW0C1SEM";
-const SYMBOL_IDS_RAW: &str = include_str!("msn_symbol_ids.tsv");
-
-static SYMBOL_IDS: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
-
-pub struct MsnProvider {
-    agent: ureq::Agent,
-    verbose: bool,
-}
-
-impl MsnProvider {
-    pub fn new(verbose: bool) -> Self {
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .timeout_connect(Some(Duration::from_secs(5)))
-            .timeout_recv_body(Some(Duration::from_secs(10)))
-            .build()
-            .into();
-
-        Self { agent, verbose }
-    }
-
-    fn symbol_ids() -> &'static HashMap<&'static str, &'static str> {
-        SYMBOL_IDS.get_or_init(|| {
-            SYMBOL_IDS_RAW
-                .lines()
-                .filter_map(|line| line.split_once('\t'))
-                .collect()
-        })
-    }
-
-    fn ticker_from_symbol(symbol: &str) -> Option<String> {
-        let trimmed = symbol.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-        Some(
-            trimmed
-                .split('.')
-                .next()
-                .unwrap_or(trimmed)
-                .trim()
-                .to_uppercase(),
-        )
-    }
-
-    fn resolve_msn_id(symbol: &str) -> Option<&'static str> {
-        let ticker = Self::ticker_from_symbol(symbol)?;
-        Self::symbol_ids().get(ticker.as_str()).copied()
-    }
-
-    fn normalized_symbol(requested: &str, fallback_ticker: &str) -> String {
-        let trimmed = requested.trim().to_uppercase();
-        if trimmed.contains('.') || fallback_ticker.is_empty() {
-            trimmed
-        } else {
-            format!("{}.JK", fallback_ticker.trim().to_uppercase())
-        }
-    }
-
-    fn get_json<T: DeserializeOwned>(
-        &self,
-        url: &str,
-        symbol: &str,
-        endpoint: &str,
-    ) -> Result<T, IdxError> {
-        let response = self
-            .agent
-            .get(url)
-            .header("User-Agent", USER_AGENT)
-            .header("Accept", "application/json")
-            .header("Accept-Language", "en-US,en;q=0.9,id;q=0.8")
-            .header("Origin", "https://www.msn.com")
-            .header("Referer", "https://www.msn.com/")
-            .call();
-
-        match response {
-            Ok(ok) => ok
-                .into_body()
-                .read_json::<T>()
-                .map_err(|e| IdxError::ParseError(format!("msn {endpoint}: {e}"))),
-            Err(ureq::Error::StatusCode(404)) => Err(IdxError::SymbolNotFound(symbol.to_string())),
-            Err(ureq::Error::StatusCode(429)) => Err(IdxError::RateLimited),
-            Err(err) => Err(IdxError::Http(format!("msn {endpoint}: {err}"))),
-        }
-    }
-
-    fn fetch_quotes(&self, symbol: &str) -> Result<Vec<MsnQuote>, IdxError> {
-        let id = Self::resolve_msn_id(symbol)
-            .ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
-        let url = format!(
-            "{MSN_ASSETS_BASE_URL}Finance/Quotes?apikey={MSN_API_KEY}&ids={id}&wrapodata=false"
-        );
-        self.get_json(&url, symbol, "quote")
-    }
-
-    fn fetch_key_ratios(&self, symbol: &str) -> Result<Vec<KeyRatios>, IdxError> {
-        let id = Self::resolve_msn_id(symbol)
-            .ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
-        let url =
-            format!("{MSN_API_BASE_URL}keyratios?apikey={MSN_API_KEY}&ids={id}&wrapodata=false");
-        self.get_json(&url, symbol, "keyratios")
-    }
-
-    fn fetch_charts(&self, symbol: &str, chart_type: &str) -> Result<Vec<MsnChart>, IdxError> {
-        let id = Self::resolve_msn_id(symbol)
-            .ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
-        let url = format!(
-            "{MSN_ASSETS_BASE_URL}Finance/Charts?apikey={MSN_API_KEY}&cm=id-id&ids={id}&type={chart_type}&wrapodata=false"
-        );
-        self.get_json(&url, symbol, "chart")
-    }
-
-    fn chart_type_for_period(period: &Period) -> &'static str {
-        match period {
-            Period::OneDay => "1D1M",
-            Period::FiveDays | Period::OneMonth => "1M",
-            Period::ThreeMonths => "3M",
-            Period::SixMonths | Period::OneYear => "1Y",
-            Period::TwoYears => "3Y",
-            Period::FiveYears => "5Y",
-        }
-    }
-}
-
-impl MarketDataProvider for MsnProvider {
-    fn quote(&self, symbol: &str) -> Result<Quote, IdxError> {
-        let quotes = self.fetch_quotes(symbol)?;
-        parse_quote(symbol, &quotes)
-    }
-
-    fn fundamentals(&self, symbol: &str) -> Result<Fundamentals, IdxError> {
-        let ratios = self.fetch_key_ratios(symbol)?;
-        let quote = self
-            .fetch_quotes(symbol)
-            .map_err(|e| {
-                if self.verbose {
-                    eprintln!("warning: quote fetch for fundamentals failed: {e}");
-                }
-                e
-            })
-            .ok()
-            .and_then(|quotes| quotes.into_iter().next());
-        parse_fundamentals(&ratios, quote.as_ref())
-    }
-
-    fn history(
-        &self,
-        symbol: &str,
-        period: &Period,
-        interval: &Interval,
-    ) -> Result<Vec<Ohlc>, IdxError> {
-        let charts = self.fetch_charts(symbol, Self::chart_type_for_period(period))?;
-        let rows = parse_history_with_verbose(period, &charts, self.verbose)?;
-        Ok(match interval {
-            Interval::Day => rows,
-            Interval::Week => resample_history(&rows, ResampleInterval::Week),
-            Interval::Month => resample_history(&rows, ResampleInterval::Month),
-        })
-    }
-}
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn parse_quote_from_str(symbol: &str, raw: &str) -> Result<Quote, IdxError> {
@@ -183,7 +15,7 @@ pub(crate) fn parse_quote_from_str(symbol: &str, raw: &str) -> Result<Quote, Idx
     parse_quote(symbol, &quotes)
 }
 
-fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, IdxError> {
+pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, IdxError> {
     let quote = quotes.first().ok_or(IdxError::ProviderUnavailable)?;
     let raw_price = quote
         .price
@@ -198,8 +30,8 @@ fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, IdxError> {
     let ticker = quote
         .symbol
         .as_deref()
-        .and_then(MsnProvider::ticker_from_symbol)
-        .unwrap_or_else(|| MsnProvider::ticker_from_symbol(symbol).unwrap_or_default());
+        .and_then(ticker_from_symbol)
+        .unwrap_or_else(|| ticker_from_symbol(symbol).unwrap_or_default());
 
     let (week52_position, range_signal) = match (quote.price_52w_low, quote.price_52w_high) {
         (Some(low), Some(high)) if high > low => {
@@ -217,7 +49,7 @@ fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, IdxError> {
     };
 
     Ok(Quote {
-        symbol: MsnProvider::normalized_symbol(symbol, &ticker),
+        symbol: normalized_symbol(symbol, &ticker),
         price,
         change,
         change_pct: quote.price_change_percent.unwrap_or(0.0),
@@ -247,7 +79,7 @@ pub(crate) fn parse_fundamentals_from_str(
     parse_fundamentals(&ratios, quote.as_ref())
 }
 
-fn parse_fundamentals(
+pub(super) fn parse_fundamentals(
     ratios: &[KeyRatios],
     quote: Option<&MsnQuote>,
 ) -> Result<Fundamentals, IdxError> {
@@ -309,7 +141,7 @@ fn parse_close_only_history_from_str(
     parse_close_only_history(period, &charts)
 }
 
-fn parse_history_with_verbose(
+pub(super) fn parse_history_with_verbose(
     period: &Period,
     charts: &[MsnChart],
     verbose: bool,
@@ -520,12 +352,12 @@ fn sanitize_current_ratio(value: Option<f64>) -> Option<f64> {
 }
 
 #[derive(Clone, Copy)]
-enum ResampleInterval {
+pub(super) enum ResampleInterval {
     Week,
     Month,
 }
 
-fn resample_history(rows: &[Ohlc], interval: ResampleInterval) -> Vec<Ohlc> {
+pub(super) fn resample_history(rows: &[Ohlc], interval: ResampleInterval) -> Vec<Ohlc> {
     let mut grouped: BTreeMap<(i32, u32), Ohlc> = BTreeMap::new();
 
     for row in rows {
@@ -605,7 +437,7 @@ where
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct MsnQuote {
+pub(crate) struct MsnQuote {
     #[serde(default)]
     symbol: Option<String>,
     price: Option<f64>,
@@ -629,7 +461,7 @@ struct MsnQuote {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct KeyRatios {
+pub(crate) struct KeyRatios {
     #[serde(default)]
     industry_metrics: Vec<IndustryMetric>,
     #[serde(default)]
@@ -672,7 +504,7 @@ struct IndustryMetric {
 }
 
 #[derive(Debug, Deserialize)]
-struct MsnChart {
+pub(crate) struct MsnChart {
     series: ChartSeries,
 }
 
@@ -713,18 +545,10 @@ struct ClosePoint {
 #[cfg(test)]
 mod tests {
     use super::{
-        MsnProvider, ResampleInterval, parse_close_only_history_from_str,
-        parse_fundamentals_from_str, parse_history_from_str, parse_quote_from_str,
-        resample_history,
+        ResampleInterval, parse_close_only_history_from_str, parse_fundamentals_from_str,
+        parse_history_from_str, parse_quote_from_str, resample_history,
     };
     use crate::api::types::{Ohlc, Period};
-
-    #[test]
-    fn resolves_symbol_variants() {
-        assert_eq!(MsnProvider::resolve_msn_id("BBCA"), Some("bn91jc"));
-        assert_eq!(MsnProvider::resolve_msn_id("bbca.jk"), Some("bn91jc"));
-        assert_eq!(MsnProvider::resolve_msn_id("INVALID"), None);
-    }
 
     #[test]
     fn parses_quote_fixture_json() {
@@ -837,14 +661,6 @@ mod tests {
         assert_eq!(weekly[0].close, 109);
         assert_eq!(weekly[0].volume, 21);
         assert_eq!(weekly[1].close, 114);
-    }
-
-    #[test]
-    fn maps_periods_to_supported_chart_types() {
-        assert_eq!(MsnProvider::chart_type_for_period(&Period::OneDay), "1D1M");
-        assert_eq!(MsnProvider::chart_type_for_period(&Period::SixMonths), "1Y");
-        assert_eq!(MsnProvider::chart_type_for_period(&Period::TwoYears), "3Y");
-        assert_eq!(MsnProvider::chart_type_for_period(&Period::FiveYears), "5Y");
     }
 
     #[test]
