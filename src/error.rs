@@ -26,6 +26,10 @@ pub enum IdxError {
     Http(String),
     #[error("auth error: {0}")]
     AuthError(String),
+    #[error("database error: {0}")]
+    DatabaseError(String),
+    #[error("PDF parse error: {0}")]
+    PdfParseError(String),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -41,6 +45,8 @@ pub enum ErrorCode {
     Io,
     Http,
     AuthError,
+    DatabaseError,
+    PdfParseError,
 }
 
 impl IdxError {
@@ -57,6 +63,8 @@ impl IdxError {
             Self::Io(_) => ErrorCode::Io,
             Self::Http(_) => ErrorCode::Http,
             Self::AuthError(_) => ErrorCode::AuthError,
+            Self::DatabaseError(_) => ErrorCode::DatabaseError,
+            Self::PdfParseError(_) => ErrorCode::PdfParseError,
         }
     }
 

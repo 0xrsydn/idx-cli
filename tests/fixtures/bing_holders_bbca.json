@@ -1,0 +1,56 @@
+[
+  {
+    "investorName": "PT Dwimuria Investama Andalan",
+    "investorType": "Corporate",
+    "sharesHeld": 13533682440.0,
+    "sharesChanged": 0.0,
+    "percentageOfSharesOutstanding": 54.94,
+    "value": 13380524934600.0,
+    "reportDate": "2024-12-31"
+  },
+  {
+    "investorName": "Vanguard Group Inc",
+    "investorType": "Institutional",
+    "sharesHeld": 621438200.0,
+    "sharesChanged": -12000000.0,
+    "percentageOfSharesOutstanding": 2.52,
+    "value": 614321778000.0,
+    "reportDate": "2024-12-31"
+  },
+  {
+    "investorName": "BlackRock Inc",
+    "investorType": "Institutional",
+    "sharesHeld": 498112750.0,
+    "sharesChanged": 5600000.0,
+    "percentageOfSharesOutstanding": 2.02,
+    "value": 492523521250.0,
+    "reportDate": "2024-12-31"
+  },
+  {
+    "investorName": "Government Pension Investment Fund (Japan)",
+    "investorType": "Government / Sovereign Wealth",
+    "sharesHeld": 312045000.0,
+    "sharesChanged": 0.0,
+    "percentageOfSharesOutstanding": 1.27,
+    "value": 308564505000.0,
+    "reportDate": "2024-12-31"
+  },
+  {
+    "investorName": "Norges Bank Investment Management",
+    "investorType": "Government / Sovereign Wealth",
+    "sharesHeld": 278330000.0,
+    "sharesChanged": 3200000.0,
+    "percentageOfSharesOutstanding": 1.13,
+    "value": 275196270000.0,
+    "reportDate": "2024-12-31"
+  },
+  {
+    "investorName": "Capital Research and Management",
+    "investorType": "Institutional",
+    "sharesHeld": 248760000.0,
+    "sharesChanged": -8000000.0,
+    "percentageOfSharesOutstanding": 1.01,
+    "value": 245971800000.0,
+    "reportDate": "2024-12-31"
+  }
+]

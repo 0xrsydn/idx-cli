@@ -9,6 +9,10 @@ homepage = "https://github.com/0xrsydn/idx-cli"
 keywords = ["idx", "stocks", "indonesia", "cli", "finance"]
 categories = ["command-line-utilities", "finance"]
 
+[features]
+default = ["ownership"]
+ownership = ["dep:rusqlite", "dep:quick-xml", "dep:sha2"]
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
@@ -22,6 +26,9 @@ directories = "5"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 fastrand = "2"
+rusqlite = { version = "0.32", features = ["bundled-full"], optional = true }
+quick-xml = { version = "0.37", optional = true }
+sha2 = { version = "0.10", optional = true }
 
 [dev-dependencies]
 assert_cmd = "2"

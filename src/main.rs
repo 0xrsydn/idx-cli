@@ -5,6 +5,8 @@ mod cli;
 mod config;
 mod error;
 mod output;
+#[cfg(feature = "ownership")]
+pub mod ownership;
 
 use clap::CommandFactory;
 use clap::Parser;
@@ -66,6 +68,13 @@ fn run() -> Result<(), IdxError> {
         }
         Commands::Cache(cache) => {
             if let Err(err) = cli::cache::handle(cache) {
+                emit_error(&err, &config.output);
+                return Err(err);
+            }
+        }
+        #[cfg(feature = "ownership")]
+        Commands::Ownership(cmd) => {
+            if let Err(err) = cli::ownership::handle(&cmd.command, &config) {
                 emit_error(&err, &config.output);
                 return Err(err);
             }

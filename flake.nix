@@ -29,6 +29,7 @@
             cargo-nextest
             prek
             curl-impersonate  # required for Yahoo Finance auth (curl_chrome* binaries for TLS fingerprinting)
+            mupdf             # mutool for KSEI PDF parsing (ownership module)
           ];
 
           env = {

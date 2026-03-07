@@ -13,3 +13,4 @@ research/
 # Added by cargo
 
 /target
+out.txt
