@@ -1,3 +1,5 @@
+#[allow(dead_code, clippy::enum_variant_names)]
+pub mod bing;
 mod client;
 mod map;
 mod parse;

@@ -1,0 +1,47 @@
+[
+  {
+    "investorName": "Norges Bank Investment Management",
+    "investorType": "Government / Sovereign Wealth",
+    "sharesHeld": 278330000.0,
+    "sharesChanged": 3200000.0,
+    "percentageOfSharesOutstanding": 1.13,
+    "value": 275196270000.0,
+    "reportDate": "2024-12-31"
+  },
+  {
+    "investorName": "Dimensional Fund Advisors LP",
+    "investorType": "Institutional",
+    "sharesHeld": 156920000.0,
+    "sharesChanged": 14750000.0,
+    "percentageOfSharesOutstanding": 0.64,
+    "value": 155110680000.0,
+    "reportDate": "2024-12-31"
+  },
+  {
+    "investorName": "Baillie Gifford & Co",
+    "investorType": "Institutional",
+    "sharesHeld": 132450000.0,
+    "sharesChanged": 11200000.0,
+    "percentageOfSharesOutstanding": 0.54,
+    "value": 130965450000.0,
+    "reportDate": "2024-12-31"
+  },
+  {
+    "investorName": "BlackRock Inc",
+    "investorType": "Institutional",
+    "sharesHeld": 498112750.0,
+    "sharesChanged": 5600000.0,
+    "percentageOfSharesOutstanding": 2.02,
+    "value": 492523521250.0,
+    "reportDate": "2024-12-31"
+  },
+  {
+    "investorName": "Fidelity Management & Research",
+    "investorType": "Institutional",
+    "sharesHeld": 89340000.0,
+    "sharesChanged": 4100000.0,
+    "percentageOfSharesOutstanding": 0.36,
+    "value": 88346060000.0,
+    "reportDate": "2024-12-31"
+  }
+]

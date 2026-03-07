@@ -1,5 +1,7 @@
 pub mod cache;
 pub mod config;
+#[cfg(feature = "ownership")]
+pub mod ownership;
 pub mod stocks;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -45,6 +47,9 @@ pub enum Commands {
     Config(config::ConfigCmd),
     #[command(about = "Manage local cache")]
     Cache(cache::CacheCmd),
+    #[cfg(feature = "ownership")]
+    #[command(about = "Ownership intelligence (KSEI + Bing)")]
+    Ownership(ownership::OwnershipCmd),
     #[command(about = "Generate shell completions")]
     Completions { shell: Shell },
     #[command(about = "Show idx-cli version")]
