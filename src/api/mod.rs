@@ -2,7 +2,7 @@ pub mod msn;
 pub mod types;
 pub mod yahoo;
 
-use crate::config::ProviderKind;
+use crate::config::{HistoryProviderKind, ProviderKind};
 use crate::error::IdxError;
 use types::{
     Bar, CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, Interval,
@@ -84,15 +84,41 @@ pub fn default_provider(provider: ProviderKind, verbose: bool) -> Box<dyn Market
     }
 }
 
-/// Returns a history-capable provider, or `None` if the selected provider doesn't
-/// support price history (e.g. MSN Finance/Charts returns 404 for IDX/XIDX stocks).
-pub fn history_provider(provider: ProviderKind, verbose: bool) -> Option<Box<dyn HistoryProvider>> {
+/// Resolves a history provider based on the selected market data provider and
+/// history provider strategy.
+///
+/// `history_mode=auto` means: use the selected provider when it supports history,
+/// otherwise transparently fallback to Yahoo.
+pub fn history_provider(
+    provider: ProviderKind,
+    history_mode: HistoryProviderKind,
+    verbose: bool,
+) -> Result<(ProviderKind, Box<dyn HistoryProvider>), IdxError> {
+    let resolved = match history_mode {
+        HistoryProviderKind::Yahoo => ProviderKind::Yahoo,
+        HistoryProviderKind::Msn => ProviderKind::Msn,
+        HistoryProviderKind::Auto => match provider {
+            ProviderKind::Yahoo => ProviderKind::Yahoo,
+            ProviderKind::Msn => ProviderKind::Yahoo,
+        },
+    };
+
     if std::env::var("IDX_USE_MOCK_PROVIDER").is_ok() {
-        return Some(Box::new(MockProvider::from_fixtures(provider)));
+        if matches!(resolved, ProviderKind::Msn) {
+            return Err(IdxError::Unsupported(
+                "MSN does not provide price history for IDX stocks. Use --history-provider yahoo or auto."
+                    .into(),
+            ));
+        }
+        return Ok((resolved, Box::new(MockProvider::from_fixtures(resolved))));
     }
-    match provider {
-        ProviderKind::Yahoo => Some(Box::new(yahoo::YahooProvider::new(verbose))),
-        ProviderKind::Msn => None,
+
+    match resolved {
+        ProviderKind::Yahoo => Ok((resolved, Box::new(yahoo::YahooProvider::new(verbose)))),
+        ProviderKind::Msn => Err(IdxError::Unsupported(
+            "MSN does not provide price history for IDX stocks. Use --history-provider yahoo or auto."
+                .into(),
+        )),
     }
 }
 
@@ -148,7 +174,7 @@ impl MockProvider {
             .map_err(|e| IdxError::ParseError(e.to_string()));
         // MSN Finance/Charts returns 404 for IDX (XIDX) — history not supported
         let history = Err(IdxError::Unsupported(
-            "MSN does not provide price history for IDX stocks. Use --provider yahoo.".into(),
+            "MSN does not provide price history for IDX stocks. Use --history-provider yahoo or auto.".into(),
         ));
 
         Self {
