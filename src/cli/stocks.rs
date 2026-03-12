@@ -111,23 +111,9 @@ pub enum StocksSubcommand {
     #[command(about = "Get company profile")]
     Profile { symbol: String },
     #[command(about = "Get financial statements")]
-    Financials {
-        symbol: String,
-        #[arg(long, default_value = "income")]
-        statement: String,
-    },
+    Financials { symbol: String },
     #[command(about = "Get earnings report")]
-    Earnings {
-        symbol: String,
-        #[arg(long)]
-        annual: bool,
-        #[arg(long)]
-        quarterly: bool,
-        #[arg(long)]
-        forecast: bool,
-        #[arg(long)]
-        history: bool,
-    },
+    Earnings { symbol: String },
     #[command(about = "Get crowd sentiment")]
     Sentiment { symbol: String },
     #[command(about = "Get AI insights")]
@@ -397,10 +383,7 @@ pub fn handle(
             })?;
             render_profile(&profile, &config.output)
         }
-        StocksSubcommand::Financials {
-            symbol,
-            statement: _,
-        } => {
+        StocksSubcommand::Financials { symbol } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let financials: FinancialStatements =
                 fetch_msn_only(&resolved, config.provider, || {
@@ -408,13 +391,7 @@ pub fn handle(
                 })?;
             render_financials(&financials, &config.output)
         }
-        StocksSubcommand::Earnings {
-            symbol,
-            annual: _,
-            quarterly: _,
-            forecast: _,
-            history: _,
-        } => {
+        StocksSubcommand::Earnings { symbol } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let earnings: EarningsReport = fetch_msn_only(&resolved, config.provider, || {
                 MsnProvider::new(false).earnings(&resolved)
