@@ -171,7 +171,7 @@ pub fn handle(
             let quote_bucket = cache_bucket(config, "quote");
             let mut quotes = Vec::new();
             for sym in symbols.iter().flat_map(|s| s.split(',')) {
-                let resolved = crate::api::resolve_symbol(sym, &config.exchange);
+                let resolved = crate::api::resolve_symbol(sym, &config.exchange)?;
                 if !no_cache && let Some(q) = cache.get(&quote_bucket, &resolved)? {
                     quotes.push(q);
                     continue;
@@ -227,7 +227,7 @@ pub fn handle(
                 );
             }
             let history_bucket = format!("{}-history", history_source.as_str());
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let key = format!("{}-{}", period.as_str(), interval.as_str());
             if !no_cache
                 && let Some(history) = cache.get::<Vec<crate::api::types::Ohlc>>(
@@ -293,7 +293,7 @@ pub fn handle(
                 );
             }
             let technical_bucket = format!("{}-technical", history_source.as_str());
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             if !no_cache
                 && let Some(report) = cache.get::<TechnicalReport>(&technical_bucket, &resolved)?
             {
@@ -327,7 +327,7 @@ pub fn handle(
             }
         }
         StocksSubcommand::Growth { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let report: GrowthReport = fetch_fundamental_analysis_report(
                 &cache,
                 provider,
@@ -343,7 +343,7 @@ pub fn handle(
             render_growth(&resolved, &report, &config.output, config.no_color)
         }
         StocksSubcommand::Valuation { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let report: ValuationReport = fetch_fundamental_analysis_report(
                 &cache,
                 provider,
@@ -359,7 +359,7 @@ pub fn handle(
             render_valuation(&resolved, &report, &config.output, config.no_color)
         }
         StocksSubcommand::Risk { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let report: RiskReport = fetch_fundamental_analysis_report(
                 &cache,
                 provider,
@@ -375,7 +375,7 @@ pub fn handle(
             render_risk(&resolved, &report, &config.output, config.no_color)
         }
         StocksSubcommand::Fundamental { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let report: FundamentalReport = fetch_fundamental_analysis_report(
                 &cache,
                 provider,
@@ -391,7 +391,7 @@ pub fn handle(
             render_fundamental(&report, &config.output, config.no_color)
         }
         StocksSubcommand::Profile { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let profile: CompanyProfile = fetch_msn_only(&resolved, config.provider, || {
                 MsnProvider::new(false).profile(&resolved)
             })?;
@@ -401,7 +401,7 @@ pub fn handle(
             symbol,
             statement: _,
         } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let financials: FinancialStatements =
                 fetch_msn_only(&resolved, config.provider, || {
                     MsnProvider::new(false).financials(&resolved)
@@ -415,28 +415,28 @@ pub fn handle(
             forecast: _,
             history: _,
         } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let earnings: EarningsReport = fetch_msn_only(&resolved, config.provider, || {
                 MsnProvider::new(false).earnings(&resolved)
             })?;
             render_earnings(&earnings, &config.output)
         }
         StocksSubcommand::Sentiment { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let sentiment: SentimentData = fetch_msn_only(&resolved, config.provider, || {
                 MsnProvider::new(false).sentiment(&resolved)
             })?;
             render_sentiment(&sentiment, &config.output)
         }
         StocksSubcommand::Insights { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let insights: InsightData = fetch_msn_only(&resolved, config.provider, || {
                 MsnProvider::new(false).insights(&resolved)
             })?;
             render_insights(&insights, &config.output)
         }
         StocksSubcommand::News { symbol, limit } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange);
+            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let news: Vec<NewsItem> = fetch_msn_only(&resolved, config.provider, || {
                 MsnProvider::new(false).news(&resolved, *limit)
             })?;
@@ -460,7 +460,7 @@ pub fn handle(
             let mut last_error = None;
 
             for sym in symbols.iter().flat_map(|s| s.split(',')) {
-                let resolved = crate::api::resolve_symbol(sym, &config.exchange);
+                let resolved = crate::api::resolve_symbol(sym, &config.exchange)?;
                 match fetch_fundamental_analysis_report(
                     &cache,
                     provider,

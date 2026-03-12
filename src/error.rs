@@ -30,6 +30,8 @@ pub enum IdxError {
     DatabaseError(String),
     #[error("PDF parse error: {0}")]
     PdfParseError(String),
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -47,6 +49,7 @@ pub enum ErrorCode {
     AuthError,
     DatabaseError,
     PdfParseError,
+    InvalidInput,
 }
 
 impl IdxError {
@@ -65,6 +68,7 @@ impl IdxError {
             Self::AuthError(_) => ErrorCode::AuthError,
             Self::DatabaseError(_) => ErrorCode::DatabaseError,
             Self::PdfParseError(_) => ErrorCode::PdfParseError,
+            Self::InvalidInput(_) => ErrorCode::InvalidInput,
         }
     }
 

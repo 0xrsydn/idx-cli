@@ -62,15 +62,20 @@ pub trait NewsProvider {
     fn news(&self, symbol: &str, limit: usize) -> Result<Vec<NewsItem>, IdxError>;
 }
 
-pub fn resolve_symbol(symbol: &str, exchange: &str) -> String {
+pub fn resolve_symbol(symbol: &str, exchange: &str) -> Result<String, IdxError> {
     let trimmed = symbol.trim().to_uppercase();
+    if trimmed.is_empty() {
+        return Err(IdxError::InvalidInput(
+            "ticker symbol cannot be empty".into(),
+        ));
+    }
     if let Some((base, suffix)) = trimmed.rsplit_once('.')
         && !base.is_empty()
         && !suffix.is_empty()
     {
-        return trimmed;
+        return Ok(trimmed);
     }
-    format!("{trimmed}.{}", exchange.trim().to_uppercase())
+    Ok(format!("{trimmed}.{}", exchange.trim().to_uppercase()))
 }
 
 pub fn default_provider(provider: ProviderKind, verbose: bool) -> Box<dyn MarketDataProvider> {
@@ -224,11 +229,16 @@ mod tests {
 
     #[test]
     fn resolves_symbol_variants() {
-        assert_eq!(resolve_symbol("bbca", "JK"), "BBCA.JK");
-        assert_eq!(resolve_symbol("BBCA.JK", "JK"), "BBCA.JK");
-        assert_eq!(resolve_symbol("TLKM.us", "JK"), "TLKM.US");
-        assert_eq!(resolve_symbol("abcd.ef.gh", "JK"), "ABCD.EF.GH");
-        assert_eq!(resolve_symbol(" bbri ", "jk"), "BBRI.JK");
-        assert_eq!(resolve_symbol("", "JK"), ".JK");
+        assert_eq!(resolve_symbol("bbca", "JK").unwrap(), "BBCA.JK");
+        assert_eq!(resolve_symbol("BBCA.JK", "JK").unwrap(), "BBCA.JK");
+        assert_eq!(resolve_symbol("TLKM.us", "JK").unwrap(), "TLKM.US");
+        assert_eq!(resolve_symbol("abcd.ef.gh", "JK").unwrap(), "ABCD.EF.GH");
+        assert_eq!(resolve_symbol(" bbri ", "jk").unwrap(), "BBRI.JK");
+        // Empty ticker should return error
+        assert!(resolve_symbol("", "JK").is_err());
+        // Whitespace-only ticker should also return error
+        assert!(resolve_symbol("  ", "JK").is_err());
+        // Valid ticker returns Ok
+        assert_eq!(resolve_symbol("BBCA", "JK").unwrap(), "BBCA.JK");
     }
 }
