@@ -233,7 +233,74 @@ pub fn get_config_value(key: &str) -> Result<Option<String>, IdxError> {
     Ok(Some(cur.to_string().trim_matches('"').to_string()))
 }
 
+/// Known configuration keys and their valid values
+const KNOWN_CONFIG_KEYS: &[&str] = &[
+    "general.provider",
+    "general.history_provider",
+    "general.exchange",
+    "general.output",
+    "general.color",
+    "cache.quote_ttl",
+    "cache.fundamental_ttl",
+];
+
+/// Validates a config key and value before writing
+fn validate_config_key_value(key: &str, value: &str) -> Result<(), IdxError> {
+    match key {
+        "general.provider" => {
+            ProviderKind::parse(value)?;
+        }
+        "general.history_provider" => {
+            HistoryProviderKind::parse(value)?;
+        }
+        "general.output" => {
+            if !value.eq_ignore_ascii_case("table") && !value.eq_ignore_ascii_case("json") {
+                return Err(IdxError::InvalidInput(format!(
+                    "invalid output format '{}': expected 'table' or 'json'",
+                    value
+                )));
+            }
+        }
+        "cache.quote_ttl" | "cache.fundamental_ttl" => {
+            let parsed: i64 = value.parse().map_err(|_| {
+                IdxError::InvalidInput(format!(
+                    "invalid TTL value '{}': must be a non-negative integer",
+                    value
+                ))
+            })?;
+            if parsed < 0 {
+                return Err(IdxError::InvalidInput(format!(
+                    "invalid TTL value '{}': must be non-negative",
+                    value
+                )));
+            }
+        }
+        "general.exchange" => {
+            // Exchange is free-form (e.g. JK, US, etc.)
+        }
+        "general.color" => {
+            if !value.eq_ignore_ascii_case("true") && !value.eq_ignore_ascii_case("false") {
+                return Err(IdxError::InvalidInput(format!(
+                    "invalid color value '{}': expected 'true' or 'false'",
+                    value
+                )));
+            }
+        }
+        _ => {
+            return Err(IdxError::InvalidInput(format!(
+                "unknown config key '{}'. Valid keys: {}",
+                key,
+                KNOWN_CONFIG_KEYS.join(", ")
+            )));
+        }
+    }
+    Ok(())
+}
+
 pub fn set_config_value(key: &str, value: &str) -> Result<(), IdxError> {
+    // Validate the key and value before writing
+    validate_config_key_value(key, value)?;
+
     let path = ensure_default_config()?;
     let raw = fs::read_to_string(&path).map_err(|e| IdxError::Io(e.to_string()))?;
     let mut root: toml::Value =
@@ -321,5 +388,143 @@ mod tests {
             super::HistoryProviderKind::Msn
         );
         assert!(super::HistoryProviderKind::parse("unknown").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_unknown_keys() {
+        let result = super::validate_config_key_value("unknown.key", "value");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, super::IdxError::InvalidInput(_)));
+        assert!(err.to_string().contains("unknown config key"));
+    }
+
+    #[test]
+    fn validate_rejects_invalid_provider() {
+        let result = super::validate_config_key_value("general.provider", "bogus");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid provider"));
+    }
+
+    #[test]
+    fn validate_accepts_valid_provider_yahoo() {
+        assert!(super::validate_config_key_value("general.provider", "yahoo").is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_valid_provider_msn() {
+        assert!(super::validate_config_key_value("general.provider", "msn").is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_valid_provider_case_insensitive() {
+        assert!(super::validate_config_key_value("general.provider", "YAHOO").is_ok());
+        assert!(super::validate_config_key_value("general.provider", "Msn").is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_invalid_history_provider() {
+        let result = super::validate_config_key_value("general.history_provider", "bogus");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid history provider"));
+    }
+
+    #[test]
+    fn validate_accepts_valid_history_provider_auto() {
+        assert!(
+            super::validate_config_key_value("general.history_provider", "auto").is_ok()
+        );
+    }
+
+    #[test]
+    fn validate_accepts_valid_history_provider_yahoo() {
+        assert!(
+            super::validate_config_key_value("general.history_provider", "yahoo").is_ok()
+        );
+    }
+
+    #[test]
+    fn validate_accepts_valid_history_provider_msn() {
+        assert!(
+            super::validate_config_key_value("general.history_provider", "msn").is_ok()
+        );
+    }
+
+    #[test]
+    fn validate_rejects_invalid_output() {
+        let result = super::validate_config_key_value("general.output", "bogus");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid output format"));
+    }
+
+    #[test]
+    fn validate_accepts_valid_output_table() {
+        assert!(super::validate_config_key_value("general.output", "table").is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_valid_output_json() {
+        assert!(super::validate_config_key_value("general.output", "json").is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_valid_output_case_insensitive() {
+        assert!(super::validate_config_key_value("general.output", "TABLE").is_ok());
+        assert!(super::validate_config_key_value("general.output", "Json").is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_negative_ttl() {
+        let result = super::validate_config_key_value("cache.quote_ttl", "-1");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must be non-negative"));
+    }
+
+    #[test]
+    fn validate_rejects_non_numeric_ttl() {
+        let result = super::validate_config_key_value("cache.quote_ttl", "not-a-number");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must be a non-negative integer"));
+    }
+
+    #[test]
+    fn validate_accepts_valid_ttl() {
+        assert!(super::validate_config_key_value("cache.quote_ttl", "300").is_ok());
+        assert!(super::validate_config_key_value("cache.fundamental_ttl", "3600").is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_zero_ttl() {
+        assert!(super::validate_config_key_value("cache.quote_ttl", "0").is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_exchange_any_value() {
+        assert!(super::validate_config_key_value("general.exchange", "JK").is_ok());
+        assert!(super::validate_config_key_value("general.exchange", "US").is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_valid_color() {
+        assert!(super::validate_config_key_value("general.color", "true").is_ok());
+        assert!(super::validate_config_key_value("general.color", "false").is_ok());
+        assert!(super::validate_config_key_value("general.color", "TRUE").is_ok());
+        assert!(super::validate_config_key_value("general.color", "False").is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_invalid_color() {
+        let result = super::validate_config_key_value("general.color", "foo");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid color value"));
+
+        let result = super::validate_config_key_value("general.color", "123");
+        assert!(result.is_err());
     }
 }
