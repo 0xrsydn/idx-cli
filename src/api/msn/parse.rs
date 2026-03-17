@@ -30,7 +30,6 @@ pub(crate) fn parse_fundamentals_from_str(
 #[cfg(test)]
 mod tests {
     use super::{parse_fundamentals_from_str, parse_quote_from_str};
-    use crate::api::types::Period;
 
     #[test]
     fn parses_quote_fixture_json() {

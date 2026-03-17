@@ -426,38 +426,39 @@ mod tests {
     fn validate_rejects_invalid_history_provider() {
         let result = super::validate_config_key_value("general.history_provider", "bogus");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("invalid history provider"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("invalid history provider")
+        );
     }
 
     #[test]
     fn validate_accepts_valid_history_provider_auto() {
-        assert!(
-            super::validate_config_key_value("general.history_provider", "auto").is_ok()
-        );
+        assert!(super::validate_config_key_value("general.history_provider", "auto").is_ok());
     }
 
     #[test]
     fn validate_accepts_valid_history_provider_yahoo() {
-        assert!(
-            super::validate_config_key_value("general.history_provider", "yahoo").is_ok()
-        );
+        assert!(super::validate_config_key_value("general.history_provider", "yahoo").is_ok());
     }
 
     #[test]
     fn validate_accepts_valid_history_provider_msn() {
-        assert!(
-            super::validate_config_key_value("general.history_provider", "msn").is_ok()
-        );
+        assert!(super::validate_config_key_value("general.history_provider", "msn").is_ok());
     }
 
     #[test]
     fn validate_rejects_invalid_output() {
         let result = super::validate_config_key_value("general.output", "bogus");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("invalid output format"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("invalid output format")
+        );
     }
 
     #[test]
@@ -480,17 +481,24 @@ mod tests {
     fn validate_rejects_negative_ttl() {
         let result = super::validate_config_key_value("cache.quote_ttl", "-1");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("must be non-negative"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("must be non-negative")
+        );
     }
 
     #[test]
     fn validate_rejects_non_numeric_ttl() {
         let result = super::validate_config_key_value("cache.quote_ttl", "not-a-number");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("must be a non-negative integer"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("must be a non-negative integer")
+        );
     }
 
     #[test]
@@ -522,7 +530,12 @@ mod tests {
     fn validate_rejects_invalid_color() {
         let result = super::validate_config_key_value("general.color", "foo");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("invalid color value"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("invalid color value")
+        );
 
         let result = super::validate_config_key_value("general.color", "123");
         assert!(result.is_err());
