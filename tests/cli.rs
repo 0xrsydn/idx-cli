@@ -302,6 +302,54 @@ fn config_set_and_get_provider_round_trip() {
 }
 
 #[test]
+fn config_set_and_get_ownership_db_path_round_trip() {
+    let root = test_env_dir("config-ownership-db-path");
+
+    bin_with_root(&root)
+        .args(["config", "set", "ownership.db_path", "/tmp/ownership.db"])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .args(["config", "get", "ownership.db_path"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("/tmp/ownership.db"));
+}
+
+#[test]
+fn config_set_mixed_case_provider_does_not_break_future_loads() {
+    let root = test_env_dir("config-mixed-case-provider");
+
+    bin_with_root(&root)
+        .args(["config", "init"])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .args(["config", "set", "general.provider", "Msn"])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .args(["version"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
+fn ownership_import_fetch_bing_reports_unsupported() {
+    test_bin("ownership-fetch-bing-unsupported")
+        .args(["ownership", "import", "--fetch-bing", "BBCA"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "--fetch-bing import is not implemented yet",
+        ));
+}
+
+#[test]
 fn technical_serves_stale_cache_on_provider_failure_with_warning() {
     let root = test_env_dir("technical-stale");
     let cache_home = root.join("cache");

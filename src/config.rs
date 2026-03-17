@@ -47,6 +47,14 @@ impl ProviderKind {
 }
 
 impl HistoryProviderKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Yahoo => "yahoo",
+            Self::Msn => "msn",
+        }
+    }
+
     fn parse(value: &str) -> Result<Self, IdxError> {
         if value.eq_ignore_ascii_case("auto") {
             Ok(Self::Auto)
@@ -250,17 +258,22 @@ const KNOWN_CONFIG_KEYS: &[&str] = &[
     "general.color",
     "cache.quote_ttl",
     "cache.fundamental_ttl",
+    "ownership.db_path",
 ];
 
 /// Validates a config key and value before writing
 fn validate_config_key_value(key: &str, value: &str) -> Result<(), IdxError> {
+    normalize_config_value(key, value).map(|_| ())
+}
+
+fn normalize_config_value(key: &str, value: &str) -> Result<toml::Value, IdxError> {
     match key {
-        "general.provider" => {
-            ProviderKind::parse(value)?;
-        }
-        "general.history_provider" => {
-            HistoryProviderKind::parse(value)?;
-        }
+        "general.provider" => Ok(toml::Value::String(
+            ProviderKind::parse(value)?.as_str().to_string(),
+        )),
+        "general.history_provider" => Ok(toml::Value::String(
+            HistoryProviderKind::parse(value)?.as_str().to_string(),
+        )),
         "general.output" => {
             if !value.eq_ignore_ascii_case("table") && !value.eq_ignore_ascii_case("json") {
                 return Err(IdxError::InvalidInput(format!(
@@ -268,6 +281,7 @@ fn validate_config_key_value(key: &str, value: &str) -> Result<(), IdxError> {
                     value
                 )));
             }
+            Ok(toml::Value::String(value.to_ascii_lowercase()))
         }
         "cache.quote_ttl" | "cache.fundamental_ttl" => {
             let parsed: i64 = value.parse().map_err(|_| {
@@ -282,9 +296,15 @@ fn validate_config_key_value(key: &str, value: &str) -> Result<(), IdxError> {
                     value
                 )));
             }
+            Ok(toml::Value::Integer(parsed))
         }
         "general.exchange" => {
             // Exchange is free-form (e.g. JK, US, etc.)
+            Ok(toml::Value::String(value.to_string()))
+        }
+        "ownership.db_path" => {
+            // Ownership DB path is free-form and may be absolute or relative.
+            Ok(toml::Value::String(value.to_string()))
         }
         "general.color" => {
             if !value.eq_ignore_ascii_case("true") && !value.eq_ignore_ascii_case("false") {
@@ -293,21 +313,19 @@ fn validate_config_key_value(key: &str, value: &str) -> Result<(), IdxError> {
                     value
                 )));
             }
+            Ok(toml::Value::Boolean(value.eq_ignore_ascii_case("true")))
         }
-        _ => {
-            return Err(IdxError::InvalidInput(format!(
-                "unknown config key '{}'. Valid keys: {}",
-                key,
-                KNOWN_CONFIG_KEYS.join(", ")
-            )));
-        }
+        _ => Err(IdxError::InvalidInput(format!(
+            "unknown config key '{}'. Valid keys: {}",
+            key,
+            KNOWN_CONFIG_KEYS.join(", ")
+        ))),
     }
-    Ok(())
 }
 
 pub fn set_config_value(key: &str, value: &str) -> Result<(), IdxError> {
-    // Validate the key and value before writing
     validate_config_key_value(key, value)?;
+    let normalized = normalize_config_value(key, value)?;
 
     let path = ensure_default_config()?;
     let raw = fs::read_to_string(&path).map_err(|e| IdxError::Io(e.to_string()))?;
@@ -321,7 +339,7 @@ pub fn set_config_value(key: &str, value: &str) -> Result<(), IdxError> {
 
     while let Some(part) = parts.next() {
         if parts.peek().is_none() {
-            current.insert(part.to_string(), parse_toml_value(value));
+            current.insert(part.to_string(), normalized.clone());
         } else {
             let entry = current
                 .entry(part.to_string())
@@ -340,19 +358,6 @@ pub fn set_config_value(key: &str, value: &str) -> Result<(), IdxError> {
         toml::to_string_pretty(&root).map_err(|e| IdxError::ConfigError(e.to_string()))?,
     )
     .map_err(|e| IdxError::Io(e.to_string()))
-}
-
-fn parse_toml_value(value: &str) -> toml::Value {
-    if let Ok(v) = value.parse::<i64>() {
-        return toml::Value::Integer(v);
-    }
-    if let Ok(v) = value.parse::<f64>() {
-        return toml::Value::Float(v);
-    }
-    if let Ok(v) = value.parse::<bool>() {
-        return toml::Value::Boolean(v);
-    }
-    toml::Value::String(value.to_string())
 }
 
 #[cfg(test)]
@@ -431,6 +436,14 @@ mod tests {
     }
 
     #[test]
+    fn normalize_provider_lowercases_value() {
+        assert_eq!(
+            super::normalize_config_value("general.provider", "Msn").unwrap(),
+            toml::Value::String("msn".to_string())
+        );
+    }
+
+    #[test]
     fn validate_rejects_invalid_history_provider() {
         let result = super::validate_config_key_value("general.history_provider", "bogus");
         assert!(result.is_err());
@@ -455,6 +468,14 @@ mod tests {
     #[test]
     fn validate_accepts_valid_history_provider_msn() {
         assert!(super::validate_config_key_value("general.history_provider", "msn").is_ok());
+    }
+
+    #[test]
+    fn normalize_history_provider_lowercases_value() {
+        assert_eq!(
+            super::normalize_config_value("general.history_provider", "Auto").unwrap(),
+            toml::Value::String("auto".to_string())
+        );
     }
 
     #[test]
@@ -483,6 +504,14 @@ mod tests {
     fn validate_accepts_valid_output_case_insensitive() {
         assert!(super::validate_config_key_value("general.output", "TABLE").is_ok());
         assert!(super::validate_config_key_value("general.output", "Json").is_ok());
+    }
+
+    #[test]
+    fn normalize_output_lowercases_value() {
+        assert_eq!(
+            super::normalize_config_value("general.output", "Json").unwrap(),
+            toml::Value::String("json".to_string())
+        );
     }
 
     #[test]
@@ -527,11 +556,25 @@ mod tests {
     }
 
     #[test]
+    fn validate_accepts_ownership_db_path() {
+        assert!(super::validate_config_key_value("ownership.db_path", "/tmp/ownership.db").is_ok());
+        assert!(super::validate_config_key_value("ownership.db_path", "data/ownership.db").is_ok());
+    }
+
+    #[test]
     fn validate_accepts_valid_color() {
         assert!(super::validate_config_key_value("general.color", "true").is_ok());
         assert!(super::validate_config_key_value("general.color", "false").is_ok());
         assert!(super::validate_config_key_value("general.color", "TRUE").is_ok());
         assert!(super::validate_config_key_value("general.color", "False").is_ok());
+    }
+
+    #[test]
+    fn normalize_color_writes_boolean() {
+        assert_eq!(
+            super::normalize_config_value("general.color", "True").unwrap(),
+            toml::Value::Boolean(true)
+        );
     }
 
     #[test]

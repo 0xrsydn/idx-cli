@@ -657,6 +657,10 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
             for symbol in &clean {
                 eprintln!("  - {symbol}");
             }
+
+            return Err(IdxError::Unsupported(
+                "--fetch-bing import is not implemented yet".to_string(),
+            ));
         }
     }
 
