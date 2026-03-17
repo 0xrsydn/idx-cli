@@ -53,7 +53,7 @@ impl Cache {
         };
         let age = Utc::now().signed_duration_since(entry.fetched_at);
         if age
-            > chrono::Duration::from_std(Duration::from_secs(entry.ttl_secs))
+            >= chrono::Duration::from_std(Duration::from_secs(entry.ttl_secs))
                 .map_err(|e| IdxError::CacheMiss(e.to_string()))?
         {
             return Ok(None);
@@ -163,9 +163,26 @@ impl Cache {
         if !path.exists() {
             return Ok(None);
         }
-        let raw = fs::read_to_string(&path).map_err(|e| IdxError::Io(e.to_string()))?;
-        let entry: CacheEntry<T> =
-            serde_json::from_str(&raw).map_err(|e| IdxError::ParseError(e.to_string()))?;
+        let raw = match fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    return Ok(None);
+                }
+                return Err(IdxError::Io(e.to_string()));
+            }
+        };
+        let entry: CacheEntry<T> = match serde_json::from_str(&raw) {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!(
+                    "warning: corrupted cache entry for {}/{}, treating as miss: {}",
+                    data_type, symbol, e
+                );
+                let _ = fs::remove_file(&path);
+                return Ok(None);
+            }
+        };
         if entry.schema_version != CURRENT_SCHEMA_VERSION {
             eprintln!(
                 "debug: cache schema mismatch for {} (got {}, expected {})",
@@ -185,6 +202,14 @@ impl Cache {
 }
 
 pub fn cache_dir() -> Result<PathBuf, IdxError> {
+    if let Ok(dir) = std::env::var("XDG_CACHE_HOME")
+        && !dir.is_empty()
+    {
+        let path = PathBuf::from(dir);
+        if path.is_absolute() {
+            return Ok(path.join("idx"));
+        }
+    }
     ProjectDirs::from("", "", "idx")
         .map(|d| d.cache_dir().to_path_buf())
         .ok_or_else(|| IdxError::ConfigError("unable to resolve cache dir".to_string()))
@@ -193,10 +218,13 @@ pub fn cache_dir() -> Result<PathBuf, IdxError> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use serde::{Deserialize, Serialize};
 
     use super::{Cache, CacheEntry};
+
+    static TMP_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
     struct T {
@@ -204,7 +232,9 @@ mod tests {
     }
 
     fn tmp() -> std::path::PathBuf {
-        let p = std::env::temp_dir().join(format!("idx-cache-test-{}", std::process::id()));
+        let suffix = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let p =
+            std::env::temp_dir().join(format!("idx-cache-test-{}-{suffix}", std::process::id()));
         let _ = fs::remove_dir_all(&p);
         fs::create_dir_all(&p).expect("create tmp cache dir");
         p
@@ -239,5 +269,59 @@ mod tests {
             .get_stale("quote", "BBCA.JK")
             .expect("cache read stale");
         assert_eq!(stale, Some(T { v: 7 }));
+    }
+
+    #[test]
+    fn corrupted_cache_entry_returns_none_and_deletes_file() {
+        let root = tmp();
+        let cache = Cache::with_root(root.clone());
+
+        // Write invalid JSON to a cache file
+        let path = root.join("quote/CORRUPT.JK.json");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create parent dir");
+        }
+        fs::write(&path, "this is not valid json {{{").expect("write corrupted cache");
+
+        assert!(path.exists(), "corrupted file should exist before get()");
+
+        // get() should return Ok(None), not an error
+        let result: Option<T> = cache
+            .get("quote", "CORRUPT.JK")
+            .expect("get should not error");
+        assert_eq!(result, None, "corrupted entry should be treated as miss");
+
+        // The corrupted file should be deleted
+        assert!(!path.exists(), "corrupted file should be deleted");
+    }
+
+    #[test]
+    fn corrupted_cache_entry_get_stale_returns_none_and_deletes_file() {
+        let root = tmp();
+        let cache = Cache::with_root(root.clone());
+
+        // Write invalid JSON to a cache file
+        let path = root.join("quote/STALE_CORRUPT.JK.json");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create parent dir");
+        }
+        fs::write(&path, "{ not valid json at all").expect("write corrupted cache");
+
+        assert!(
+            path.exists(),
+            "corrupted file should exist before get_stale()"
+        );
+
+        // get_stale() should return Ok(None), not an error
+        let result: Option<T> = cache
+            .get_stale("quote", "STALE_CORRUPT.JK")
+            .expect("get_stale should not error");
+        assert_eq!(
+            result, None,
+            "corrupted entry should be treated as miss in get_stale"
+        );
+
+        // The corrupted file should be deleted
+        assert!(!path.exists(), "corrupted file should be deleted");
     }
 }
