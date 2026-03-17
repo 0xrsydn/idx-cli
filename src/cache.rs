@@ -166,12 +166,10 @@ impl Cache {
         let raw = match fs::read_to_string(&path) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!(
-                    "warning: corrupted cache entry for {}/{}, treating as miss: {}",
-                    data_type, symbol, e
-                );
-                let _ = fs::remove_file(&path);
-                return Ok(None);
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    return Ok(None);
+                }
+                return Err(IdxError::Io(e.to_string()));
             }
         };
         let entry: CacheEntry<T> = match serde_json::from_str(&raw) {
@@ -207,7 +205,10 @@ pub fn cache_dir() -> Result<PathBuf, IdxError> {
     if let Ok(dir) = std::env::var("XDG_CACHE_HOME")
         && !dir.is_empty()
     {
-        return Ok(PathBuf::from(dir).join("idx"));
+        let path = PathBuf::from(dir);
+        if path.is_absolute() {
+            return Ok(path.join("idx"));
+        }
     }
     ProjectDirs::from("", "", "idx")
         .map(|d| d.cache_dir().to_path_buf())

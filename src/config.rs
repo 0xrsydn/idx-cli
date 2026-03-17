@@ -200,7 +200,10 @@ pub fn config_path() -> Result<PathBuf, IdxError> {
     if let Ok(dir) = std::env::var("XDG_CONFIG_HOME")
         && !dir.is_empty()
     {
-        return Ok(PathBuf::from(dir).join("idx").join("config.toml"));
+        let path = PathBuf::from(dir);
+        if path.is_absolute() {
+            return Ok(path.join("idx").join("config.toml"));
+        }
     }
     ProjectDirs::from("", "", "idx")
         .map(|d| d.config_dir().join("config.toml"))
