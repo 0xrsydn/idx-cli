@@ -275,7 +275,9 @@ mod tests {
         assert!(path.exists(), "corrupted file should exist before get()");
 
         // get() should return Ok(None), not an error
-        let result: Option<T> = cache.get("quote", "CORRUPT.JK").expect("get should not error");
+        let result: Option<T> = cache
+            .get("quote", "CORRUPT.JK")
+            .expect("get should not error");
         assert_eq!(result, None, "corrupted entry should be treated as miss");
 
         // The corrupted file should be deleted
@@ -294,7 +296,10 @@ mod tests {
         }
         fs::write(&path, "{ not valid json at all").expect("write corrupted cache");
 
-        assert!(path.exists(), "corrupted file should exist before get_stale()");
+        assert!(
+            path.exists(),
+            "corrupted file should exist before get_stale()"
+        );
 
         // get_stale() should return Ok(None), not an error
         let result: Option<T> = cache
