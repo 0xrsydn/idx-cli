@@ -98,7 +98,7 @@ impl Cache {
         let mut newest: Option<DateTime<Utc>> = None;
 
         if self.root.exists() {
-            self.walk(&self.root, &mut |p| {
+            Self::walk(&self.root, &mut |p| {
                 if let Ok(meta) = fs::metadata(p)
                     && meta.is_file()
                 {
@@ -130,7 +130,7 @@ impl Cache {
         }
         let mut removed = 0usize;
         let mut failed = Vec::new();
-        self.walk(&self.root, &mut |p| {
+        Self::walk(&self.root, &mut |p| {
             if p.is_file() {
                 match fs::remove_file(p) {
                     Ok(_) => removed += 1,
@@ -141,12 +141,12 @@ impl Cache {
         Ok((removed, failed))
     }
 
-    fn walk<F: FnMut(&Path)>(&self, dir: &Path, f: &mut F) -> Result<(), IdxError> {
+    fn walk<F: FnMut(&Path)>(dir: &Path, f: &mut F) -> Result<(), IdxError> {
         for entry in fs::read_dir(dir).map_err(|e| IdxError::Io(e.to_string()))? {
             let entry = entry.map_err(|e| IdxError::Io(e.to_string()))?;
             let path = entry.path();
             if path.is_dir() {
-                self.walk(&path, f)?;
+                Self::walk(&path, f)?;
             } else {
                 f(&path);
             }
@@ -176,8 +176,7 @@ impl Cache {
             Ok(e) => e,
             Err(e) => {
                 eprintln!(
-                    "warning: corrupted cache entry for {}/{}, treating as miss: {}",
-                    data_type, symbol, e
+                    "warning: corrupted cache entry for {data_type}/{symbol}, treating as miss: {e}"
                 );
                 let _ = fs::remove_file(&path);
                 return Ok(None);

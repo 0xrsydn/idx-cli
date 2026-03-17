@@ -136,8 +136,7 @@ impl IdxConfig {
                 OutputFormat::Table
             } else {
                 return Err(IdxError::ConfigError(format!(
-                    "invalid IDX_OUTPUT value: '{}', expected 'json' or 'table'",
-                    output
+                    "invalid IDX_OUTPUT value: '{output}', expected 'json' or 'table'"
                 )));
             };
         }
@@ -277,8 +276,7 @@ fn normalize_config_value(key: &str, value: &str) -> Result<toml::Value, IdxErro
         "general.output" => {
             if !value.eq_ignore_ascii_case("table") && !value.eq_ignore_ascii_case("json") {
                 return Err(IdxError::InvalidInput(format!(
-                    "invalid output format '{}': expected 'table' or 'json'",
-                    value
+                    "invalid output format '{value}': expected 'table' or 'json'"
                 )));
             }
             Ok(toml::Value::String(value.to_ascii_lowercase()))
@@ -286,14 +284,12 @@ fn normalize_config_value(key: &str, value: &str) -> Result<toml::Value, IdxErro
         "cache.quote_ttl" | "cache.fundamental_ttl" => {
             let parsed: i64 = value.parse().map_err(|_| {
                 IdxError::InvalidInput(format!(
-                    "invalid TTL value '{}': must be a non-negative integer",
-                    value
+                    "invalid TTL value '{value}': must be a non-negative integer"
                 ))
             })?;
             if parsed < 0 {
                 return Err(IdxError::InvalidInput(format!(
-                    "invalid TTL value '{}': must be non-negative",
-                    value
+                    "invalid TTL value '{value}': must be non-negative"
                 )));
             }
             Ok(toml::Value::Integer(parsed))
@@ -309,8 +305,7 @@ fn normalize_config_value(key: &str, value: &str) -> Result<toml::Value, IdxErro
         "general.color" => {
             if !value.eq_ignore_ascii_case("true") && !value.eq_ignore_ascii_case("false") {
                 return Err(IdxError::InvalidInput(format!(
-                    "invalid color value '{}': expected 'true' or 'false'",
-                    value
+                    "invalid color value '{value}': expected 'true' or 'false'"
                 )));
             }
             Ok(toml::Value::Boolean(value.eq_ignore_ascii_case("true")))

@@ -423,10 +423,7 @@ fn handle_flow(args: &FlowArgs, config: &IdxConfig) -> Result<(), IdxError> {
 
     let flow = db::query_bing_flow(&conn, ticker_id)?;
     let Some(flow) = flow else {
-        println!(
-            "No institutional flow data. Run: idx ownership import --fetch-bing {}",
-            symbol
-        );
+        println!("No institutional flow data. Run: idx ownership import --fetch-bing {symbol}");
         return Ok(());
     };
 
@@ -590,7 +587,7 @@ fn handle_resolve(args: &ResolveArgs, config: &IdxConfig) -> Result<(), IdxError
         }
         ResolveCommand::Map { alias, entity } => {
             db::manual_map(&conn, alias, entity)?;
-            println!("Mapped alias '{}' -> '{}'.", alias, entity);
+            println!("Mapped alias '{alias}' -> '{entity}'.");
             Ok(())
         }
         ResolveCommand::Merge { keep, merge } => {
@@ -619,8 +616,7 @@ fn handle_resolve(args: &ResolveArgs, config: &IdxConfig) -> Result<(), IdxError
             db::merge_entities(&conn, *keep, *merge)?;
 
             println!(
-                "Merged entity {} into {} (aliases: {}, ksei_holdings: {}, bing_holdings: {}).",
-                merge, keep, alias_updates, ksei_updates, bing_updates
+                "Merged entity {merge} into {keep} (aliases: {alias_updates}, ksei_holdings: {ksei_updates}, bing_holdings: {bing_updates})."
             );
             Ok(())
         }

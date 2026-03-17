@@ -182,7 +182,7 @@ fn detect_root_node(conn: &Connection, root: &str) -> Result<String, IdxError> {
         return Ok(format!("ticker:{code}"));
     }
 
-    let q = format!("%{}%", root);
+    let q = format!("%{root}%");
     let maybe_entity_id = conn
         .query_row(
             "SELECT id

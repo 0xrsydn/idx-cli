@@ -396,7 +396,7 @@ fn format_idr_option(value: Option<f64>) -> String {
 
 fn format_float(value: Option<f64>, precision: usize) -> String {
     value
-        .map(|v| format!("{v:.prec$}", prec = precision))
+        .map(|v| format!("{v:.precision$}"))
         .unwrap_or_else(|| "-".to_string())
 }
 
