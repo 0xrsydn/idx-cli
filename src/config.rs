@@ -197,6 +197,11 @@ pub fn default_config_toml() -> String {
 }
 
 pub fn config_path() -> Result<PathBuf, IdxError> {
+    if let Ok(dir) = std::env::var("XDG_CONFIG_HOME")
+        && !dir.is_empty()
+    {
+        return Ok(PathBuf::from(dir).join("idx").join("config.toml"));
+    }
     ProjectDirs::from("", "", "idx")
         .map(|d| d.config_dir().join("config.toml"))
         .ok_or_else(|| IdxError::ConfigError("unable to resolve config dir".to_string()))

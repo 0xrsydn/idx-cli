@@ -53,7 +53,7 @@ impl Cache {
         };
         let age = Utc::now().signed_duration_since(entry.fetched_at);
         if age
-            > chrono::Duration::from_std(Duration::from_secs(entry.ttl_secs))
+            >= chrono::Duration::from_std(Duration::from_secs(entry.ttl_secs))
                 .map_err(|e| IdxError::CacheMiss(e.to_string()))?
         {
             return Ok(None);
@@ -185,6 +185,11 @@ impl Cache {
 }
 
 pub fn cache_dir() -> Result<PathBuf, IdxError> {
+    if let Ok(dir) = std::env::var("XDG_CACHE_HOME")
+        && !dir.is_empty()
+    {
+        return Ok(PathBuf::from(dir).join("idx"));
+    }
     ProjectDirs::from("", "", "idx")
         .map(|d| d.cache_dir().to_path_buf())
         .ok_or_else(|| IdxError::ConfigError("unable to resolve cache dir".to_string()))
