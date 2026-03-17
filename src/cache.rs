@@ -53,7 +53,7 @@ impl Cache {
         };
         let age = Utc::now().signed_duration_since(entry.fetched_at);
         if age
-            > chrono::Duration::from_std(Duration::from_secs(entry.ttl_secs))
+            >= chrono::Duration::from_std(Duration::from_secs(entry.ttl_secs))
                 .map_err(|e| IdxError::CacheMiss(e.to_string()))?
         {
             return Ok(None);
@@ -204,6 +204,11 @@ impl Cache {
 }
 
 pub fn cache_dir() -> Result<PathBuf, IdxError> {
+    if let Ok(dir) = std::env::var("XDG_CACHE_HOME")
+        && !dir.is_empty()
+    {
+        return Ok(PathBuf::from(dir).join("idx"));
+    }
     ProjectDirs::from("", "", "idx")
         .map(|d| d.cache_dir().to_path_buf())
         .ok_or_else(|| IdxError::ConfigError("unable to resolve cache dir".to_string()))
@@ -212,10 +217,13 @@ pub fn cache_dir() -> Result<PathBuf, IdxError> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use serde::{Deserialize, Serialize};
 
     use super::{Cache, CacheEntry};
+
+    static TMP_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
     struct T {
@@ -223,7 +231,9 @@ mod tests {
     }
 
     fn tmp() -> std::path::PathBuf {
-        let p = std::env::temp_dir().join(format!("idx-cache-test-{}", std::process::id()));
+        let suffix = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let p =
+            std::env::temp_dir().join(format!("idx-cache-test-{}-{suffix}", std::process::id()));
         let _ = fs::remove_dir_all(&p);
         fs::create_dir_all(&p).expect("create tmp cache dir");
         p
