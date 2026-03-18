@@ -23,17 +23,17 @@ pub enum Shell {
     long_about = "idx-cli is a Rust command-line tool for Indonesian stock market (IDX) analysis.\nIt supports quote lookup, historical data, local caching, and output formats for both humans and AI agents."
 )]
 pub struct Cli {
-    #[arg(short, long, value_enum, global = true)]
+    #[arg(short, long, value_enum, global = true, help = "Output format")]
     pub output: Option<OutputFormat>,
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help = "Disable colored output")]
     pub no_color: bool,
-    #[arg(short, long, global = true)]
+    #[arg(short, long, global = true, help = "Suppress non-essential output")]
     pub quiet: bool,
-    #[arg(short, long, global = true, action = clap::ArgAction::Count)]
+    #[arg(short, long, global = true, action = clap::ArgAction::Count, help = "Increase verbosity (-v, -vv)")]
     pub verbose: u8,
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help = "Run without network requests")]
     pub offline: bool,
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help = "Bypass local cache")]
     pub no_cache: bool,
     #[command(subcommand)]
     pub command: Commands,

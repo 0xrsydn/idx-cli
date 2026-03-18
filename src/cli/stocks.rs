@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use clap::{Args, Subcommand};
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -427,9 +429,15 @@ pub fn handle(
             let msn = MsnProvider::new(false);
             let filter_key = screener_filter_key(filter);
             let region_key = screener_region_key(region);
-            let quotes: Vec<Quote> = fetch_msn_only("screen", config.provider, || {
-                msn.screener(filter_key, region_key, *limit)
+            // For filters that fall back to topperfs, fetch all stocks so
+            // client-side sorting picks the correct top N.
+            let needs_full_fetch = matches!(filter.as_str(), "high-volume" | "large-cap");
+            let fetch_limit = if needs_full_fetch { 500 } else { *limit };
+            let mut quotes: Vec<Quote> = fetch_msn_only("screen", config.provider, || {
+                msn.screener(filter_key, region_key, fetch_limit)
             })?;
+            sort_screener_quotes(&mut quotes, filter);
+            quotes.truncate(*limit);
             render_screener(&quotes, &config.output, config.no_color)
         }
         StocksSubcommand::Compare { symbols } => {
@@ -644,8 +652,8 @@ fn screener_filter_key(filter: &str) -> &'static str {
         "low-pe" => "st_list_lowpe",
         "52w-high" => "st_list_52wkhi",
         "52w-low" => "st_list_52wklow",
-        "high-volume" => "st_list_highvol",
-        "large-cap" => "st_list_largecap",
+        "high-volume" => "st_list_topperfs",
+        "large-cap" => "st_list_topperfs",
         _ => "st_list_topperfs",
     }
 }
@@ -658,6 +666,46 @@ fn screener_region_key(region: &str) -> &'static str {
         "hk" => "st_reg_hk",
         "jp" => "st_reg_jp",
         _ => "st_reg_id",
+    }
+}
+
+fn sort_screener_quotes(quotes: &mut [Quote], filter: &str) {
+    match filter {
+        "top-performers" => {
+            quotes.sort_by(|a, b| {
+                b.change_pct
+                    .partial_cmp(&a.change_pct)
+                    .unwrap_or(Ordering::Equal)
+            });
+        }
+        "worst-performers" => {
+            quotes.sort_by(|a, b| {
+                a.change_pct
+                    .partial_cmp(&b.change_pct)
+                    .unwrap_or(Ordering::Equal)
+            });
+        }
+        "52w-high" => {
+            quotes.sort_by(|a, b| {
+                let pa = a.week52_position.unwrap_or(f64::MIN);
+                let pb = b.week52_position.unwrap_or(f64::MIN);
+                pb.partial_cmp(&pa).unwrap_or(Ordering::Equal)
+            });
+        }
+        "52w-low" => {
+            quotes.sort_by(|a, b| {
+                let pa = a.week52_position.unwrap_or(f64::MAX);
+                let pb = b.week52_position.unwrap_or(f64::MAX);
+                pa.partial_cmp(&pb).unwrap_or(Ordering::Equal)
+            });
+        }
+        "high-volume" => {
+            quotes.sort_by(|a, b| b.volume.cmp(&a.volume));
+        }
+        "large-cap" => {
+            quotes.sort_by(|a, b| b.market_cap.unwrap_or(0).cmp(&a.market_cap.unwrap_or(0)));
+        }
+        _ => {}
     }
 }
 
@@ -695,5 +743,113 @@ mod tests {
         assert!(report.rsi14.is_some());
         assert!(report.volume.ratio20.is_some());
         assert_eq!(report.signals.trend, Signal::Neutral);
+    }
+
+    #[test]
+    fn sort_screener_top_performers_descending() {
+        use crate::api::types::Quote;
+
+        let mut quotes = vec![
+            Quote {
+                symbol: "A".into(),
+                price: 100,
+                change: 1,
+                change_pct: 1.0,
+                volume: 100,
+                market_cap: None,
+                week52_high: None,
+                week52_low: None,
+                week52_position: None,
+                range_signal: None,
+                prev_close: None,
+                avg_volume: None,
+            },
+            Quote {
+                symbol: "B".into(),
+                price: 200,
+                change: 10,
+                change_pct: 5.0,
+                volume: 200,
+                market_cap: None,
+                week52_high: None,
+                week52_low: None,
+                week52_position: None,
+                range_signal: None,
+                prev_close: None,
+                avg_volume: None,
+            },
+            Quote {
+                symbol: "C".into(),
+                price: 150,
+                change: 5,
+                change_pct: 3.0,
+                volume: 150,
+                market_cap: None,
+                week52_high: None,
+                week52_low: None,
+                week52_position: None,
+                range_signal: None,
+                prev_close: None,
+                avg_volume: None,
+            },
+        ];
+
+        super::sort_screener_quotes(&mut quotes, "top-performers");
+        let pcts: Vec<f64> = quotes.iter().map(|q| q.change_pct).collect();
+        assert_eq!(pcts, vec![5.0, 3.0, 1.0]);
+    }
+
+    #[test]
+    fn sort_screener_worst_performers_ascending() {
+        use crate::api::types::Quote;
+
+        let mut quotes = vec![
+            Quote {
+                symbol: "A".into(),
+                price: 100,
+                change: 1,
+                change_pct: 1.0,
+                volume: 100,
+                market_cap: None,
+                week52_high: None,
+                week52_low: None,
+                week52_position: None,
+                range_signal: None,
+                prev_close: None,
+                avg_volume: None,
+            },
+            Quote {
+                symbol: "B".into(),
+                price: 200,
+                change: -10,
+                change_pct: -5.0,
+                volume: 200,
+                market_cap: None,
+                week52_high: None,
+                week52_low: None,
+                week52_position: None,
+                range_signal: None,
+                prev_close: None,
+                avg_volume: None,
+            },
+            Quote {
+                symbol: "C".into(),
+                price: 150,
+                change: -3,
+                change_pct: -2.0,
+                volume: 150,
+                market_cap: None,
+                week52_high: None,
+                week52_low: None,
+                week52_position: None,
+                range_signal: None,
+                prev_close: None,
+                avg_volume: None,
+            },
+        ];
+
+        super::sort_screener_quotes(&mut quotes, "worst-performers");
+        let pcts: Vec<f64> = quotes.iter().map(|q| q.change_pct).collect();
+        assert_eq!(pcts, vec![-5.0, -2.0, 1.0]);
     }
 }

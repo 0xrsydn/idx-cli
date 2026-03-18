@@ -394,12 +394,12 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
         .as_ref()
         .ok_or_else(|| IdxError::ParseError("no screener data".into()))?;
 
-    // Build Quote directly from screener MsnQuote data; skip stocks with no price
+    // Build Quote directly from screener MsnQuote data; default price to 0 if missing
     // (do not route through parse_quote which errors on missing price)
     let results: Vec<Quote> = quotes
         .iter()
-        .filter_map(|q| {
-            let raw_price = q.price?; // skip if no price
+        .map(|q| {
+            let raw_price = q.price.unwrap_or(0.0);
             let price = round_price(raw_price);
             let prev_close = q.price_previous_close.map(round_price);
             let change = prev_close
@@ -425,7 +425,7 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
                 }
                 _ => (None, None),
             };
-            Some(Quote {
+            Quote {
                 symbol: normalized_symbol(&ticker, &ticker),
                 price,
                 change,
@@ -438,7 +438,7 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
                 range_signal,
                 prev_close,
                 avg_volume: round_u64(q.average_volume),
-            })
+            }
         })
         .collect();
 
