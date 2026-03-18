@@ -9,6 +9,10 @@ homepage = "https://github.com/0xrsydn/idx-cli"
 keywords = ["idx", "stocks", "indonesia", "cli", "finance"]
 categories = ["command-line-utilities", "finance"]
 
+[[bin]]
+name = "idx"
+path = "src/main.rs"
+
 [features]
 default = ["ownership"]
 ownership = ["dep:rusqlite", "dep:quick-xml", "dep:sha2"]
