@@ -32,6 +32,10 @@
             mupdf             # mutool for KSEI PDF parsing (ownership module)
           ];
 
+          shellHook = ''
+            export PATH="$PWD/target/debug:$PATH"
+          '';
+
           env = {
             RUST_BACKTRACE = "1";
           };
