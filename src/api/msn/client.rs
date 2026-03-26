@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 use crate::error::IdxError;
 
@@ -32,12 +32,47 @@ impl MsnClient {
         Self { agent }
     }
 
+    fn mock_body(endpoint: &str) -> Option<&'static str> {
+        if std::env::var("IDX_USE_MOCK_PROVIDER").is_err() {
+            return None;
+        }
+
+        Some(match endpoint {
+            "quote" => include_str!("../../../tests/fixtures/msn_quote_bbca.json"),
+            "keyratios" => include_str!("../../../tests/fixtures/msn_keyratios_bbca.json"),
+            "equities" => include_str!("../../../tests/fixtures/msn_profile_bbca.json"),
+            "financialstatements" => {
+                include_str!("../../../tests/fixtures/msn_financials_bbca.json")
+            }
+            "earnings" => include_str!("../../../tests/fixtures/msn_earnings_bbca.json"),
+            "sentiment" => include_str!("../../../tests/fixtures/msn_sentiment_bbca.json"),
+            "insights" => include_str!("../../../tests/fixtures/msn_insights_bbca.json"),
+            "news" => include_str!("../../../tests/fixtures/msn_news_bbca.json"),
+            "screener" => include_str!("../../../tests/fixtures/msn_screener_id_topperfs.json"),
+            _ => return None,
+        })
+    }
+
+    fn mock_json<T: DeserializeOwned>(endpoint: &str) -> Result<Option<T>, IdxError> {
+        let Some(body) = Self::mock_body(endpoint) else {
+            return Ok(None);
+        };
+
+        serde_json::from_str(body)
+            .map(Some)
+            .map_err(|e| IdxError::ParseError(format!("msn {endpoint}: {e}")))
+    }
+
     fn get_json<T: DeserializeOwned>(
         &self,
         url: &str,
         symbol: &str,
         endpoint: &str,
     ) -> Result<T, IdxError> {
+        if let Some(mocked) = Self::mock_json(endpoint)? {
+            return Ok(mocked);
+        }
+
         let mut wait = Duration::from_millis(500);
         for attempt in 0..3 {
             let response = self
@@ -89,6 +124,10 @@ impl MsnClient {
         symbol: &str,
         endpoint: &str,
     ) -> Result<T, IdxError> {
+        if let Some(mocked) = Self::mock_json(endpoint)? {
+            return Ok(mocked);
+        }
+
         let mut wait = Duration::from_millis(500);
         for attempt in 0..3 {
             let response = self
