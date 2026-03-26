@@ -5,7 +5,13 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 fn bin() -> Command {
-    Command::new(assert_cmd::cargo::cargo_bin!("idx-cli"))
+    let current = std::env::current_exe().expect("current test executable path");
+    let debug_dir = current
+        .parent()
+        .and_then(|path| path.parent())
+        .expect("target debug directory");
+    let exe = debug_dir.join(format!("idx{}", std::env::consts::EXE_SUFFIX));
+    Command::new(exe)
 }
 
 fn test_env_dir(name: &str) -> PathBuf {
@@ -147,6 +153,115 @@ fn explicit_msn_history_provider_returns_unsupported() {
         .stderr(predicate::str::contains(
             "MSN does not provide price history",
         ));
+}
+
+#[test]
+fn profile_requires_msn_provider_in_json_mode() {
+    test_bin("profile-json-provider-gate")
+        .env("IDX_PROVIDER", "yahoo")
+        .args(["-o", "json", "stocks", "profile", "BBCA"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("\"error\": true"))
+        .stderr(predicate::str::contains("requires --provider msn"));
+}
+
+#[test]
+fn msn_profile_with_mock_fixture_table_contains_expected_fields() {
+    test_bin("msn-profile-table")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["stocks", "profile", "BBCA"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Symbol"))
+        .stdout(predicate::str::contains("Bank Central Asia Tbk PT"));
+}
+
+#[test]
+fn msn_financials_with_mock_fixture_table_contains_sections() {
+    test_bin("msn-financials-table")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["stocks", "financials", "BBCA"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Income Statement"))
+        .stdout(predicate::str::contains("netIncome"))
+        .stdout(predicate::str::contains("Cash Flow"));
+}
+
+#[test]
+fn msn_earnings_with_mock_fixture_json_contains_forecast_and_history() {
+    test_bin("msn-earnings-json")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["-o", "json", "stocks", "earnings", "BBCA"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"forecast\""))
+        .stdout(predicate::str::contains("\"history\""))
+        .stdout(predicate::str::contains("Q12026"));
+}
+
+#[test]
+fn msn_sentiment_with_mock_fixture_table_contains_ranges() {
+    test_bin("msn-sentiment-table")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["stocks", "sentiment", "BBCA"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("RANGE"))
+        .stdout(predicate::str::contains("1D"))
+        .stdout(predicate::str::contains("BULLISH"));
+}
+
+#[test]
+fn msn_insights_with_mock_fixture_table_contains_highlights_and_risks() {
+    test_bin("msn-insights-table")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["stocks", "insights", "BBCA"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Highlights:"))
+        .stdout(predicate::str::contains(
+            "Shares trade near historical averages.",
+        ))
+        .stdout(predicate::str::contains("Risks:"));
+}
+
+#[test]
+fn msn_news_with_mock_fixture_table_contains_provider_and_title() {
+    test_bin("msn-news-table")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["stocks", "news", "BBCA", "--limit", "5"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("BCA reports steady growth"))
+        .stdout(predicate::str::contains("Contoso News"));
+}
+
+#[test]
+fn msn_screen_with_mock_fixture_table_contains_quotes() {
+    test_bin("msn-screen-table")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args([
+            "stocks",
+            "screen",
+            "--filter",
+            "top-performers",
+            "--limit",
+            "10",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("SYMBOL"))
+        .stdout(predicate::str::contains("BBCA.JK"))
+        .stdout(predicate::str::contains("BBRI.JK"));
 }
 
 #[test]
