@@ -1,0 +1,20 @@
+[
+  {
+    "symbol": "BBCA.JK",
+    "displayName": "Bank Central Asia Tbk PT",
+    "sentimentStatistics": [
+      {
+        "timeRangeName": "1D",
+        "bullish": 10,
+        "bearish": 2,
+        "neutral": 3
+      },
+      {
+        "timeRangeName": "1W",
+        "bullish": 25,
+        "bearish": 5,
+        "neutral": 7
+      }
+    ]
+  }
+]

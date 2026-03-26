@@ -1,0 +1,15 @@
+{
+  "value": [
+    {
+      "id": "news-1",
+      "title": "BCA reports steady growth",
+      "url": "https://example.com/news/bca-growth",
+      "abstract": "BCA delivered steady quarterly growth across lending and deposits.",
+      "provider": {
+        "name": "Contoso News"
+      },
+      "publishedDateTime": "2026-03-20T10:00:00Z",
+      "readTimeMin": 3
+    }
+  ]
+}

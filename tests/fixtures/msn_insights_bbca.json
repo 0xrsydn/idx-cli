@@ -1,0 +1,18 @@
+[
+  {
+    "instrumentId": "bn91jc",
+    "displayName": "Bank Central Asia Tbk PT",
+    "insights": [
+      {
+        "insightName": "Valuation",
+        "category": "Valuation",
+        "insightStatement": "Shares trade near historical averages."
+      },
+      {
+        "insightName": "Asset Quality",
+        "category": "Risk",
+        "insightStatement": "Loan quality remains stable."
+      }
+    ]
+  }
+]

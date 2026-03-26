@@ -1,0 +1,31 @@
+{
+  "count": 2,
+  "quote": [
+    {
+      "symbol": "BBCA.XIDX",
+      "shortName": "BBCA",
+      "price": 9875,
+      "priceChange": 117,
+      "priceChangePercent": 1.2,
+      "pricePreviousClose": 9758,
+      "price52wHigh": 10500,
+      "price52wLow": 8000,
+      "accumulatedVolume": 12300000,
+      "averageVolume": 10000000,
+      "marketCap": 1215200000000000
+    },
+    {
+      "symbol": "BBRI.XIDX",
+      "shortName": "BBRI",
+      "price": 5100,
+      "priceChange": 210,
+      "priceChangePercent": 4.3,
+      "pricePreviousClose": 4890,
+      "price52wHigh": 5400,
+      "price52wLow": 3900,
+      "accumulatedVolume": 22200000,
+      "averageVolume": 18000000,
+      "marketCap": 780000000000000
+    }
+  ]
+}

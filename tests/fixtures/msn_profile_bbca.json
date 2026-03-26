@@ -1,0 +1,26 @@
+[
+  {
+    "id": "bn91jc",
+    "symbol": "BBCA.JK",
+    "shortName": "BBCA",
+    "longName": "Bank Central Asia Tbk PT",
+    "description": "PT Bank Central Asia Tbk provides commercial banking services in Indonesia.",
+    "sector": "Financial Services",
+    "industry": "Banks",
+    "website": "https://www.bca.co.id",
+    "fullTimeEmployees": 24100,
+    "address": "Menara BCA, Grand Indonesia",
+    "city": "Jakarta",
+    "country": "Indonesia",
+    "phone": "+62-21-23588000",
+    "officers": [
+      {
+        "name": "Jahja Setiaatmadja",
+        "title": "President Director",
+        "age": 69,
+        "yearBorn": 1955,
+        "totalPay": 12000000000
+      }
+    ]
+  }
+]

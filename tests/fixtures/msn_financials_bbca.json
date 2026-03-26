@@ -1,0 +1,40 @@
+[
+  {
+    "underlyingInstrument": {
+      "instrumentId": "bn91jc",
+      "displayName": "Bank Central Asia Tbk PT",
+      "shortName": "BBCA",
+      "symbol": "BBCA.JK"
+    },
+    "balanceSheets": {
+      "currency": "IDR",
+      "reportDate": "2025-12-31",
+      "endDate": "2025-12-31",
+      "currentAssets": {
+        "cashAndShortTermInvestments": 500000000
+      },
+      "equity": {
+        "totalEquity": 900000000
+      }
+    },
+    "cashFlow": {
+      "currency": "IDR",
+      "reportDate": "2025-12-31",
+      "endDate": "2025-12-31",
+      "operating": {
+        "operatingCashFlow": 600000000
+      }
+    },
+    "incomeStatement": {
+      "currency": "IDR",
+      "reportDate": "2025-12-31",
+      "endDate": "2025-12-31",
+      "revenue": {
+        "totalRevenue": 1000000000
+      },
+      "income": {
+        "netIncome": 400000000
+      }
+    }
+  }
+]

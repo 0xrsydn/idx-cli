@@ -1,0 +1,46 @@
+{
+  "EpsLastYear": 1200.0,
+  "RevenueLastYear": 100000000000.0,
+  "Forecast": {
+    "annual": {
+      "2026": {
+        "EpsForecast": 1300.0,
+        "RevenueForecast": 110000000000.0,
+        "EarningReleaseDate": "2026-03-15",
+        "CiqFiscalPeriodType": "2026"
+      }
+    },
+    "quarterly": {
+      "Q12026": {
+        "EpsForecast": 330.0,
+        "RevenueForecast": 28000000000.0,
+        "EarningReleaseDate": "2026-04-20",
+        "CiqFiscalPeriodType": "Q12026"
+      }
+    }
+  },
+  "History": {
+    "annual": {
+      "2025": {
+        "EpsActual": 1250.0,
+        "EpsSurprise": 20.0,
+        "EpsSurprisePercent": 1.6,
+        "RevenueActual": 105000000000.0,
+        "RevenueSurprise": 500000000.0,
+        "EarningReleaseDate": "2025-03-15",
+        "CiqFiscalPeriodType": "2025"
+      }
+    },
+    "quarterly": {
+      "Q42025": {
+        "EpsActual": 320.0,
+        "EpsSurprise": 5.0,
+        "EpsSurprisePercent": 1.5,
+        "RevenueActual": 27000000000.0,
+        "RevenueSurprise": 200000000.0,
+        "EarningReleaseDate": "2025-11-20",
+        "CiqFiscalPeriodType": "Q42025"
+      }
+    }
+  }
+}
