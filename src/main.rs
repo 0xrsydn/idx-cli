@@ -16,7 +16,7 @@ use crate::api::default_provider;
 use crate::cli::{Cli, Commands};
 use crate::config::IdxConfig;
 use crate::error::IdxError;
-use crate::output::emit_error;
+use crate::output::{OutputFormat, emit_error};
 
 fn main() {
     if let Err(err) = run() {
@@ -29,7 +29,7 @@ fn run() -> Result<(), IdxError> {
     let config = match IdxConfig::load_with_cli(&cli) {
         Ok(config) => config,
         Err(err) => {
-            eprintln!("Error: {err}");
+            emit_error(&err, &bootstrap_output_format(&cli));
             return Err(err);
         }
     };
@@ -82,4 +82,15 @@ fn run() -> Result<(), IdxError> {
     }
 
     Ok(())
+}
+
+fn bootstrap_output_format(cli: &Cli) -> OutputFormat {
+    if let Some(output) = cli.output {
+        return output;
+    }
+
+    match std::env::var("IDX_OUTPUT") {
+        Ok(value) if value.eq_ignore_ascii_case("json") => OutputFormat::Json,
+        _ => OutputFormat::Table,
+    }
 }

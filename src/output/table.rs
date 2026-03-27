@@ -11,7 +11,8 @@ use crate::error::IdxError;
 use crate::output::TechnicalReport;
 
 pub fn format_idr(value: i64) -> String {
-    let chars: Vec<char> = value.to_string().chars().rev().collect();
+    let sign = if value.is_negative() { "-" } else { "" };
+    let chars: Vec<char> = value.unsigned_abs().to_string().chars().rev().collect();
     let mut out = String::new();
     for (i, ch) in chars.iter().enumerate() {
         if i > 0 && i % 3 == 0 {
@@ -19,7 +20,7 @@ pub fn format_idr(value: i64) -> String {
         }
         out.push(*ch);
     }
-    out.chars().rev().collect()
+    format!("{sign}{}", out.chars().rev().collect::<String>())
 }
 
 pub fn format_u64(value: u64) -> String {
@@ -400,6 +401,110 @@ fn format_float(value: Option<f64>, precision: usize) -> String {
         .unwrap_or_else(|| "-".to_string())
 }
 
+fn format_idr_option_from_f64(value: Option<f64>) -> String {
+    value
+        .map(|v| format_idr(v.round() as i64))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_table_date(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "-".to_string();
+    }
+
+    trimmed.split('T').next().unwrap_or(trimmed).to_string()
+}
+
+fn format_table_date_option(value: Option<&str>) -> String {
+    value
+        .filter(|raw| !raw.trim().is_empty())
+        .map(format_table_date)
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn humanize_metric_key(key: &str) -> String {
+    let trimmed = key.trim();
+    if trimmed.is_empty() {
+        return "-".to_string();
+    }
+
+    let chars: Vec<char> = trimmed.chars().collect();
+    let mut words = Vec::new();
+    let mut current = String::new();
+
+    for (idx, ch) in chars.iter().enumerate() {
+        if matches!(ch, '_' | '-' | ' ') {
+            if !current.is_empty() {
+                words.push(current);
+                current = String::new();
+            }
+            continue;
+        }
+
+        let next = chars.get(idx + 1).copied();
+        let boundary = current.chars().last().is_some_and(|prev| {
+            (prev.is_ascii_lowercase() && ch.is_ascii_uppercase())
+                || (prev.is_ascii_alphabetic() && ch.is_ascii_digit())
+                || (prev.is_ascii_digit() && ch.is_ascii_alphabetic())
+                || (prev.is_ascii_uppercase()
+                    && ch.is_ascii_uppercase()
+                    && next.is_some_and(|next_ch| next_ch.is_ascii_lowercase()))
+        });
+
+        if boundary {
+            words.push(current);
+            current = String::new();
+        }
+
+        current.push(*ch);
+    }
+
+    if !current.is_empty() {
+        words.push(current);
+    }
+
+    words
+        .iter()
+        .map(|word| humanize_metric_word(word))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn humanize_metric_word(word: &str) -> String {
+    let upper = word.to_ascii_uppercase();
+    match upper.as_str() {
+        "EPS" | "DPS" | "EBIT" | "EBITDA" | "GAAP" | "IDR" | "CIQ" => upper,
+        _ if word.chars().all(|ch| ch.is_ascii_uppercase()) && word.len() <= 4 => word.to_string(),
+        _ => {
+            let mut chars = word.chars();
+            let first = chars.next().unwrap_or_default().to_ascii_uppercase();
+            format!("{first}{}", chars.as_str().to_ascii_lowercase())
+        }
+    }
+}
+
+fn format_earnings_period(period: &str) -> String {
+    let trimmed = period.trim();
+    if trimmed.is_empty() {
+        return "-".to_string();
+    }
+
+    if trimmed.len() == 4 && trimmed.chars().all(|ch| ch.is_ascii_digit()) {
+        return format!("FY{trimmed}");
+    }
+
+    if trimmed.len() == 6
+        && trimmed.starts_with('Q')
+        && trimmed[1..2].chars().all(|ch| ch.is_ascii_digit())
+        && trimmed[2..].chars().all(|ch| ch.is_ascii_digit())
+    {
+        return format!("{} {}", &trimmed[..2], &trimmed[2..]);
+    }
+
+    trimmed.to_string()
+}
+
 fn format_opt_f64(value: Option<f64>, precision: usize) -> String {
     format_float(value, precision)
 }
@@ -581,16 +686,22 @@ pub fn print_profile(profile: &CompanyProfile) -> Result<(), IdxError> {
 
 pub fn print_financials(fin: &FinancialStatements) -> Result<(), IdxError> {
     let print_section = |label: &str, section: &crate::api::types::StatementSection| {
-        println!("\n── {label} ({}) ──", section.end_date);
+        println!("\n── {label} ({}) ──", format_table_date(&section.end_date));
         let mut t = Table::new();
         let value_header = format!("VALUE ({})", section.currency);
         t.load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
             .set_header(vec!["LINE ITEM", value_header.as_str()]);
-        // Sort keys for deterministic output
-        let mut entries: Vec<(&String, &f64)> = section.values.iter().collect();
-        entries.sort_by_key(|(k, _)| k.as_str());
-        for (k, v) in entries {
-            t.add_row(vec![Cell::new(k), Cell::new(format_idr(*v as i64))]);
+
+        let mut entries: Vec<(String, &f64)> = section
+            .values
+            .iter()
+            .map(|(key, value)| (humanize_metric_key(key), value))
+            .collect();
+        entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+        for (label, value) in entries {
+            t.add_row(vec![Cell::new(label), Cell::new(format_idr(*value as i64))]);
         }
         println!("{t}");
     };
@@ -612,23 +723,47 @@ pub fn print_financials(fin: &FinancialStatements) -> Result<(), IdxError> {
 }
 
 pub fn print_earnings(report: &EarningsReport) -> Result<(), IdxError> {
-    let mut table = Table::new();
-    table.load_preset(UTF8_FULL).set_header(vec![
-        "PERIOD",
-        "EPS ACT",
-        "EPS FC",
-        "SURPRISE",
-        "SURPRISE%",
-        "REVENUE",
-        "DATE",
-    ]);
-    for row in &report.history {
-        add_earnings_row(&mut table, row);
+    if report.history.is_empty() && report.forecast.is_empty() {
+        println!("No earnings data available for this stock.");
+        return Ok(());
     }
-    for row in &report.forecast {
-        add_earnings_row(&mut table, row);
+
+    if !report.history.is_empty() {
+        println!("── Earnings History ──");
+        let mut history_table = Table::new();
+        history_table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_header(vec![
+                "PERIOD",
+                "EPS ACT",
+                "EPS FC",
+                "SURPRISE",
+                "SURPRISE%",
+                "REV ACT",
+                "DATE",
+            ]);
+
+        for row in &report.history {
+            add_earnings_history_row(&mut history_table, row);
+        }
+        println!("{history_table}");
     }
-    println!("{table}");
+
+    if !report.forecast.is_empty() {
+        println!("\n── Earnings Forecast ──");
+        let mut forecast_table = Table::new();
+        forecast_table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_header(vec!["PERIOD", "EPS FC", "REV FC", "DATE"]);
+
+        for row in &report.forecast {
+            add_earnings_forecast_row(&mut forecast_table, row);
+        }
+        println!("{forecast_table}");
+    }
+
     Ok(())
 }
 
@@ -651,6 +786,9 @@ pub fn print_sentiment(data: &SentimentData) -> Result<(), IdxError> {
 
 pub fn print_insights(data: &InsightData) -> Result<(), IdxError> {
     println!("{}", data.summary);
+    if !data.last_updated.is_empty() {
+        println!("Last updated: {}", data.last_updated);
+    }
     if !data.highlights.is_empty() {
         println!("Highlights:");
         for h in &data.highlights {
@@ -683,19 +821,28 @@ pub fn print_news(items: &[NewsItem]) -> Result<(), IdxError> {
     Ok(())
 }
 
-fn add_earnings_row(table: &mut Table, row: &EarningsData) {
+fn add_earnings_history_row(table: &mut Table, row: &EarningsData) {
     table.add_row(vec![
-        Cell::new(&row.period_type),
+        Cell::new(format_earnings_period(&row.period_type)),
         Cell::new(format_float(row.eps_actual, 2)),
         Cell::new(format_float(row.eps_forecast, 2)),
         Cell::new(format_float(row.eps_surprise, 2)),
         Cell::new(format_float(row.eps_surprise_pct, 2)),
-        Cell::new(format_float(row.revenue_actual, 2)),
-        Cell::new(
-            row.earning_release_date
-                .clone()
-                .unwrap_or_else(|| "-".to_string()),
-        ),
+        Cell::new(format_idr_option_from_f64(row.revenue_actual)),
+        Cell::new(format_table_date_option(
+            row.earning_release_date.as_deref(),
+        )),
+    ]);
+}
+
+fn add_earnings_forecast_row(table: &mut Table, row: &EarningsData) {
+    table.add_row(vec![
+        Cell::new(format_earnings_period(&row.period_type)),
+        Cell::new(format_float(row.eps_forecast, 2)),
+        Cell::new(format_idr_option_from_f64(row.revenue_forecast)),
+        Cell::new(format_table_date_option(
+            row.earning_release_date.as_deref(),
+        )),
     ]);
 }
 
@@ -709,12 +856,16 @@ fn truncate_url(url: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_idr, format_signal, format_u64};
+    use super::{
+        format_earnings_period, format_idr, format_signal, format_table_date, format_u64,
+        humanize_metric_key,
+    };
     use crate::analysis::signals::Signal;
 
     #[test]
     fn formats_idr_numbers() {
         assert_eq!(format_idr(9875), "9,875");
+        assert_eq!(format_idr(-433_471_000_000), "-433,471,000,000");
         assert_eq!(format_u64(1_215_200_000_000_000), "1,215,200,000,000,000");
     }
 
@@ -722,5 +873,31 @@ mod tests {
     fn formats_plain_signal_labels() {
         assert_eq!(format_signal(Signal::Bullish, true, false), "Bullish");
         assert_eq!(format_signal(Signal::Bearish, true, true), "BEARISH");
+    }
+
+    #[test]
+    fn humanizes_metric_keys_for_table_output() {
+        assert_eq!(humanize_metric_key("netIncome"), "Net Income");
+        assert_eq!(
+            humanize_metric_key("basicEPSExcludingExtraordinaryItems"),
+            "Basic EPS Excluding Extraordinary Items"
+        );
+        assert_eq!(
+            humanize_metric_key("cashAndShortTermInvestments"),
+            "Cash And Short Term Investments"
+        );
+    }
+
+    #[test]
+    fn formats_table_dates_without_timestamps() {
+        assert_eq!(format_table_date("2025-03-31T00:00:00Z"), "2025-03-31");
+        assert_eq!(format_table_date("2025-12-31"), "2025-12-31");
+    }
+
+    #[test]
+    fn formats_earnings_periods_for_display() {
+        assert_eq!(format_earnings_period("2025"), "FY2025");
+        assert_eq!(format_earnings_period("Q12026"), "Q1 2026");
+        assert_eq!(format_earnings_period(""), "-");
     }
 }
