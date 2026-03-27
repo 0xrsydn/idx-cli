@@ -33,6 +33,26 @@ struct FundamentalCacheSpec {
     ttl_secs: u64,
 }
 
+struct CacheFetchSpec<'a> {
+    bucket: &'a str,
+    key: &'a str,
+    ttl_secs: u64,
+    subject: &'a str,
+}
+
+const SCREENER_FILTERS: &[&str] = &[
+    "top-performers",
+    "worst-performers",
+    "high-dividend",
+    "low-pe",
+    "52w-high",
+    "52w-low",
+    "high-volume",
+    "large-cap",
+];
+
+const SCREENER_REGIONS: &[&str] = &["id", "us", "sg", "hk", "jp"];
+
 fn cache_bucket(config: &IdxConfig, key: &str) -> String {
     format!("{}-{key}", config.provider.as_str())
 }
@@ -152,6 +172,12 @@ pub fn handle(
     offline: bool,
     no_cache: bool,
 ) -> Result<(), IdxError> {
+    if offline && no_cache {
+        return Err(IdxError::InvalidInput(
+            "cannot combine --offline with --no-cache".to_string(),
+        ));
+    }
+
     let cache = Cache::new()?;
 
     match &cmd.command {
@@ -380,45 +406,111 @@ pub fn handle(
         }
         StocksSubcommand::Profile { symbol } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
-            let profile: CompanyProfile = fetch_msn_only(&resolved, config.provider, || {
-                MsnProvider::new(false).profile(&resolved)
-            })?;
+            let bucket = cache_bucket(config, "profile-v2");
+            let profile: CompanyProfile = fetch_msn_with_cache(
+                &cache,
+                config.provider,
+                CacheFetchSpec {
+                    bucket: &bucket,
+                    key: &resolved,
+                    ttl_secs: config.fundamental_ttl,
+                    subject: &resolved,
+                },
+                offline,
+                no_cache,
+                || MsnProvider::new(false).profile(&resolved),
+            )?;
             render_profile(&profile, &config.output)
         }
         StocksSubcommand::Financials { symbol } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
-            let financials: FinancialStatements =
-                fetch_msn_only(&resolved, config.provider, || {
-                    MsnProvider::new(false).financials(&resolved)
-                })?;
+            let bucket = cache_bucket(config, "financials");
+            let financials: FinancialStatements = fetch_msn_with_cache(
+                &cache,
+                config.provider,
+                CacheFetchSpec {
+                    bucket: &bucket,
+                    key: &resolved,
+                    ttl_secs: config.fundamental_ttl,
+                    subject: &resolved,
+                },
+                offline,
+                no_cache,
+                || MsnProvider::new(false).financials(&resolved),
+            )?;
             render_financials(&financials, &config.output)
         }
         StocksSubcommand::Earnings { symbol } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
-            let earnings: EarningsReport = fetch_msn_only(&resolved, config.provider, || {
-                MsnProvider::new(false).earnings(&resolved)
-            })?;
+            let bucket = cache_bucket(config, "earnings");
+            let earnings: EarningsReport = fetch_msn_with_cache(
+                &cache,
+                config.provider,
+                CacheFetchSpec {
+                    bucket: &bucket,
+                    key: &resolved,
+                    ttl_secs: config.fundamental_ttl,
+                    subject: &resolved,
+                },
+                offline,
+                no_cache,
+                || MsnProvider::new(false).earnings(&resolved),
+            )?;
             render_earnings(&earnings, &config.output)
         }
         StocksSubcommand::Sentiment { symbol } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
-            let sentiment: SentimentData = fetch_msn_only(&resolved, config.provider, || {
-                MsnProvider::new(false).sentiment(&resolved)
-            })?;
+            let bucket = cache_bucket(config, "sentiment");
+            let sentiment: SentimentData = fetch_msn_with_cache(
+                &cache,
+                config.provider,
+                CacheFetchSpec {
+                    bucket: &bucket,
+                    key: &resolved,
+                    ttl_secs: config.fundamental_ttl,
+                    subject: &resolved,
+                },
+                offline,
+                no_cache,
+                || MsnProvider::new(false).sentiment(&resolved),
+            )?;
             render_sentiment(&sentiment, &config.output)
         }
         StocksSubcommand::Insights { symbol } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
-            let insights: InsightData = fetch_msn_only(&resolved, config.provider, || {
-                MsnProvider::new(false).insights(&resolved)
-            })?;
+            let bucket = cache_bucket(config, "insights-v2");
+            let insights: InsightData = fetch_msn_with_cache(
+                &cache,
+                config.provider,
+                CacheFetchSpec {
+                    bucket: &bucket,
+                    key: &resolved,
+                    ttl_secs: config.fundamental_ttl,
+                    subject: &resolved,
+                },
+                offline,
+                no_cache,
+                || MsnProvider::new(false).insights(&resolved),
+            )?;
             render_insights(&insights, &config.output)
         }
         StocksSubcommand::News { symbol, limit } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
-            let news: Vec<NewsItem> = fetch_msn_only(&resolved, config.provider, || {
-                MsnProvider::new(false).news(&resolved, *limit)
-            })?;
+            let bucket = cache_bucket(config, "news");
+            let key = format!("{resolved}-{limit}");
+            let news: Vec<NewsItem> = fetch_msn_with_cache(
+                &cache,
+                config.provider,
+                CacheFetchSpec {
+                    bucket: &bucket,
+                    key: &key,
+                    ttl_secs: config.quote_ttl,
+                    subject: &resolved,
+                },
+                offline,
+                no_cache,
+                || MsnProvider::new(false).news(&resolved, *limit),
+            )?;
             render_news(&news, &config.output)
         }
         StocksSubcommand::Screen {
@@ -426,16 +518,27 @@ pub fn handle(
             region,
             limit,
         } => {
-            let msn = MsnProvider::new(false);
-            let filter_key = screener_filter_key(filter);
-            let region_key = screener_region_key(region);
+            let filter_key = screener_filter_key(filter)?;
+            let region_key = screener_region_key(region)?;
             // For filters that fall back to topperfs, fetch all stocks so
             // client-side sorting picks the correct top N.
             let needs_full_fetch = matches!(filter.as_str(), "high-volume" | "large-cap");
             let fetch_limit = if needs_full_fetch { 500 } else { *limit };
-            let mut quotes: Vec<Quote> = fetch_msn_only("screen", config.provider, || {
-                msn.screener(filter_key, region_key, fetch_limit)
-            })?;
+            let bucket = cache_bucket(config, "screen");
+            let key = format!("{filter}:{region}:{fetch_limit}");
+            let mut quotes: Vec<Quote> = fetch_msn_with_cache(
+                &cache,
+                config.provider,
+                CacheFetchSpec {
+                    bucket: &bucket,
+                    key: &key,
+                    ttl_secs: config.quote_ttl,
+                    subject: "screen",
+                },
+                offline,
+                no_cache,
+                || MsnProvider::new(false).screener(filter_key, region_key, fetch_limit),
+            )?;
             sort_screener_quotes(&mut quotes, filter);
             quotes.truncate(*limit);
             render_screener(&quotes, &config.output, config.no_color)
@@ -477,12 +580,9 @@ pub fn handle(
     }
 }
 
-#[allow(dead_code)] // wired up once per-subcommand handlers are fully split
-pub(crate) fn fetch_with_cache<T, F>(
+fn fetch_with_cache<T, F>(
     cache: &Cache,
-    bucket: &str,
-    key: &str,
-    ttl_secs: u64,
+    cache_spec: CacheFetchSpec<'_>,
     offline: bool,
     no_cache: bool,
     fetch_fn: F,
@@ -491,24 +591,52 @@ where
     T: Serialize + DeserializeOwned,
     F: FnOnce() -> Result<T, IdxError>,
 {
-    if !no_cache
-        && !offline
-        && let Some(cached) = cache.get::<T>(bucket, key)?
+    if !offline
+        && !no_cache
+        && let Some(cached) = cache.get::<T>(cache_spec.bucket, cache_spec.key)?
     {
         return Ok(cached);
     }
 
     if offline {
+        if no_cache {
+            return Err(IdxError::InvalidInput(
+                "cannot combine --offline with --no-cache".to_string(),
+            ));
+        }
+
         return cache
-            .get_stale::<T>(bucket, key)?
-            .ok_or_else(|| IdxError::Offline("no cached data available".to_string()));
+            .get_stale::<T>(cache_spec.bucket, cache_spec.key)?
+            .ok_or_else(|| {
+                IdxError::CacheMiss(format!("{}/{}", cache_spec.bucket, cache_spec.key))
+            });
     }
 
-    let data = fetch_fn()?;
-    if !no_cache {
-        let _ = cache.put(bucket, key, &data, ttl_secs);
+    match fetch_fn() {
+        Ok(data) => {
+            if !no_cache {
+                cache.put(
+                    cache_spec.bucket,
+                    cache_spec.key,
+                    &data,
+                    cache_spec.ttl_secs,
+                )?;
+            }
+            Ok(data)
+        }
+        Err(err) => {
+            if !no_cache
+                && let Some(stale) = cache.get_stale::<T>(cache_spec.bucket, cache_spec.key)?
+            {
+                eprintln!(
+                    "warning: network failed, serving stale cache for {}",
+                    cache_spec.subject
+                );
+                return Ok(stale);
+            }
+            Err(err)
+        }
     }
-    Ok(data)
 }
 
 fn fetch_fundamental_analysis_report<T, F>(
@@ -631,41 +759,62 @@ fn average_last(values: &[f64], period: usize) -> Option<f64> {
     Some(values[start..].iter().sum::<f64>() / period as f64)
 }
 
-fn fetch_msn_only<T>(
-    symbol: &str,
+fn fetch_msn_with_cache<T, F>(
+    cache: &Cache,
     provider: crate::config::ProviderKind,
-    f: impl FnOnce() -> Result<T, IdxError>,
-) -> Result<T, IdxError> {
+    cache_spec: CacheFetchSpec<'_>,
+    offline: bool,
+    no_cache: bool,
+    fetch_fn: F,
+) -> Result<T, IdxError>
+where
+    T: Serialize + DeserializeOwned,
+    F: FnOnce() -> Result<T, IdxError>,
+{
+    ensure_msn_provider(cache_spec.subject, provider)?;
+    fetch_with_cache(cache, cache_spec, offline, no_cache, fetch_fn)
+}
+
+fn ensure_msn_provider(
+    subject: &str,
+    provider: crate::config::ProviderKind,
+) -> Result<(), IdxError> {
     if !matches!(provider, crate::config::ProviderKind::Msn) {
         return Err(IdxError::Unsupported(format!(
-            "{symbol}: command requires --provider msn"
+            "{subject}: command requires --provider msn"
         )));
     }
-    f()
+    Ok(())
 }
 
-fn screener_filter_key(filter: &str) -> &'static str {
+fn screener_filter_key(filter: &str) -> Result<&'static str, IdxError> {
     match filter {
-        "top-performers" => "st_list_topperfs",
-        "worst-performers" => "st_list_poorperfs",
-        "high-dividend" => "st_list_highdividend",
-        "low-pe" => "st_list_lowpe",
-        "52w-high" => "st_list_52wkhi",
-        "52w-low" => "st_list_52wklow",
-        "high-volume" => "st_list_topperfs",
-        "large-cap" => "st_list_topperfs",
-        _ => "st_list_topperfs",
+        "top-performers" => Ok("st_list_topperfs"),
+        "worst-performers" => Ok("st_list_poorperfs"),
+        "high-dividend" => Ok("st_list_highdividend"),
+        "low-pe" => Ok("st_list_lowpe"),
+        "52w-high" => Ok("st_list_52wkhi"),
+        "52w-low" => Ok("st_list_52wklow"),
+        "high-volume" => Ok("st_list_topperfs"),
+        "large-cap" => Ok("st_list_topperfs"),
+        _ => Err(IdxError::InvalidInput(format!(
+            "invalid screener filter '{filter}' (expected one of: {})",
+            SCREENER_FILTERS.join(", ")
+        ))),
     }
 }
 
-fn screener_region_key(region: &str) -> &'static str {
+fn screener_region_key(region: &str) -> Result<&'static str, IdxError> {
     match region {
-        "id" => "st_reg_id",
-        "us" => "st_reg_us",
-        "sg" => "st_reg_sg",
-        "hk" => "st_reg_hk",
-        "jp" => "st_reg_jp",
-        _ => "st_reg_id",
+        "id" => Ok("st_reg_id"),
+        "us" => Ok("st_reg_us"),
+        "sg" => Ok("st_reg_sg"),
+        "hk" => Ok("st_reg_hk"),
+        "jp" => Ok("st_reg_jp"),
+        _ => Err(IdxError::InvalidInput(format!(
+            "invalid screener region '{region}' (expected one of: {})",
+            SCREENER_REGIONS.join(", ")
+        ))),
     }
 }
 
@@ -716,6 +865,7 @@ mod tests {
     use super::build_technical_report;
     use crate::analysis::signals::Signal;
     use crate::api::types::Ohlc;
+    use crate::error::IdxError;
 
     #[test]
     fn technical_report_uses_latest_values() {
@@ -851,5 +1001,19 @@ mod tests {
         super::sort_screener_quotes(&mut quotes, "worst-performers");
         let pcts: Vec<f64> = quotes.iter().map(|q| q.change_pct).collect();
         assert_eq!(pcts, vec![-5.0, -2.0, 1.0]);
+    }
+
+    #[test]
+    fn invalid_screener_filter_returns_error() {
+        let err = super::screener_filter_key("bogus").expect_err("invalid filter should fail");
+        assert!(matches!(err, IdxError::InvalidInput(_)));
+        assert!(err.to_string().contains("invalid screener filter"));
+    }
+
+    #[test]
+    fn invalid_screener_region_returns_error() {
+        let err = super::screener_region_key("eu").expect_err("invalid region should fail");
+        assert!(matches!(err, IdxError::InvalidInput(_)));
+        assert!(err.to_string().contains("invalid screener region"));
     }
 }
