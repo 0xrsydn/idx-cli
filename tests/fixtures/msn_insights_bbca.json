@@ -2,16 +2,37 @@
   {
     "instrumentId": "bn91jc",
     "displayName": "Bank Central Asia Tbk PT",
+    "timeLastUpdated": "2026-03-26T04:14:57.9197955Z",
     "insights": [
       {
-        "insightName": "Valuation",
+        "insightName": "P/E ratio",
         "category": "Valuation",
-        "insightStatement": "Shares trade near historical averages."
+        "insightStatement": "Unable to compare with peers due to missing earnings data",
+        "shortInsightStatement": "Earnings data unavailable, can't compare P/E ratio with peers",
+        "details": {
+          "evaluationStatus": "NA"
+        },
+        "timeLastUpdated": "0001-01-01T00:00:00"
       },
       {
-        "insightName": "Asset Quality",
-        "category": "Risk",
-        "insightStatement": "Loan quality remains stable."
+        "insightName": "Analyst price target",
+        "category": "Valuation",
+        "insightStatement": "BBCA target price is more than 20% higher than the current share price based on analyst forecast",
+        "shortInsightStatement": "Analysts forecast more than 20% upside for 12-month price target",
+        "details": {
+          "evaluationStatus": "good"
+        },
+        "timeLastUpdated": "0001-01-01T00:00:00"
+      },
+      {
+        "insightName": "Quarterly Revenue YoY Growth",
+        "category": "Earnings",
+        "insightStatement": "BBCA revenue declined by 6.09% YoY, which is 31.46% worse than its peers (25.37%)",
+        "shortInsightStatement": "Revenue grew worse than peers",
+        "details": {
+          "evaluationStatus": "bad"
+        },
+        "timeLastUpdated": "0001-01-01T00:00:00"
       }
     ]
   }

@@ -1,18 +1,29 @@
 [
   {
-    "id": "bn91jc",
-    "symbol": "BBCA.JK",
-    "shortName": "BBCA",
-    "longName": "Bank Central Asia Tbk PT",
-    "description": "PT Bank Central Asia Tbk provides commercial banking services in Indonesia.",
-    "sector": "Financial Services",
-    "industry": "Banks",
-    "website": "https://www.bca.co.id",
-    "fullTimeEmployees": 24100,
-    "address": "Menara BCA, Grand Indonesia",
-    "city": "Jakarta",
-    "country": "Indonesia",
-    "phone": "+62-21-23588000",
+    "id": "feee16af-c94c-465d-a59d-a9727c22bd0e",
+    "symbol": "BBCA",
+    "shortName": "Bank Cntrl Asia",
+    "displayName": "Bank Central Asia Tbk PT",
+    "country": "ID",
+    "company": {
+      "address": {
+        "street": "Menara BCA, Grand, Jl. MH Thamrin No. 1",
+        "city": "JAKARTA PUSAT",
+        "country": "Indonesia",
+        "phone": "+62 21 23588000"
+      },
+      "description": "PT Bank Central Asia Tbk (the Bank) is an Indonesia-based commercial bank.",
+      "employees": 27937,
+      "industry": "Banking Services",
+      "sector": "Financials",
+      "website": "https://www.bca.co.id/"
+    },
+    "localizedAttributes": {
+      "en-us": {
+        "displayName": "PT Bank Central Asia Tbk",
+        "description": "PT Bank Central Asia Tbk (the Bank) is an Indonesia-based commercial bank."
+      }
+    },
     "officers": [
       {
         "name": "Jahja Setiaatmadja",
