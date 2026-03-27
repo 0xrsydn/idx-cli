@@ -175,7 +175,27 @@ fn msn_profile_with_mock_fixture_table_contains_expected_fields() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Symbol"))
-        .stdout(predicate::str::contains("Bank Central Asia Tbk PT"));
+        .stdout(predicate::str::contains("PT Bank Central Asia Tbk"))
+        .stdout(predicate::str::contains("Financials"))
+        .stdout(predicate::str::contains("https://www.bca.co.id/"));
+}
+
+#[test]
+fn msn_profile_with_mock_fixture_json_prefers_company_and_localized_fields() {
+    test_bin("msn-profile-json")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["-o", "json", "stocks", "profile", "BBCA"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"long_name\": \"PT Bank Central Asia Tbk\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"industry\": \"Banking Services\"",
+        ))
+        .stdout(predicate::str::contains("\"country\": \"Indonesia\""))
+        .stdout(predicate::str::contains("Indonesia-based commercial bank"));
 }
 
 #[test]
@@ -186,9 +206,26 @@ fn msn_financials_with_mock_fixture_table_contains_sections() {
         .args(["stocks", "financials", "BBCA"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Income Statement"))
-        .stdout(predicate::str::contains("netIncome"))
+        .stdout(predicate::str::contains("Income Statement (2025-12-31)"))
+        .stdout(predicate::str::contains("Net Income"))
+        .stdout(predicate::str::contains("Operating Cash Flow"))
         .stdout(predicate::str::contains("Cash Flow"));
+}
+
+#[test]
+fn msn_earnings_with_mock_fixture_table_is_sectioned_and_formatted() {
+    test_bin("msn-earnings-table")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["stocks", "earnings", "BBCA"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Earnings History"))
+        .stdout(predicate::str::contains("Earnings Forecast"))
+        .stdout(predicate::str::contains("FY2025"))
+        .stdout(predicate::str::contains("Q1 2026"))
+        .stdout(predicate::str::contains("110,000,000,000"))
+        .stdout(predicate::str::contains("2026-03-15"));
 }
 
 #[test]
@@ -218,6 +255,20 @@ fn msn_sentiment_with_mock_fixture_table_contains_ranges() {
 }
 
 #[test]
+fn msn_sentiment_with_mock_fixture_json_contains_symbol_and_counts() {
+    test_bin("msn-sentiment-json")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["-o", "json", "stocks", "sentiment", "BBCA"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
+        .stdout(predicate::str::contains("\"time_range\": \"1D\""))
+        .stdout(predicate::str::contains("\"bullish\": 10"))
+        .stdout(predicate::str::contains("\"neutral\": 3"));
+}
+
+#[test]
 fn msn_insights_with_mock_fixture_table_contains_highlights_and_risks() {
     test_bin("msn-insights-table")
         .env("IDX_PROVIDER", "msn")
@@ -225,11 +276,35 @@ fn msn_insights_with_mock_fixture_table_contains_highlights_and_risks() {
         .args(["stocks", "insights", "BBCA"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("Mixed analyst signals"))
+        .stdout(predicate::str::contains(
+            "Last updated: 2026-03-26T04:14:57.9197955Z",
+        ))
         .stdout(predicate::str::contains("Highlights:"))
         .stdout(predicate::str::contains(
-            "Shares trade near historical averages.",
+            "Analyst price target: Analysts forecast more than 20% upside",
         ))
-        .stdout(predicate::str::contains("Risks:"));
+        .stdout(predicate::str::contains("Risks:"))
+        .stdout(predicate::str::contains(
+            "Quarterly Revenue YoY Growth: Revenue grew worse than peers",
+        ));
+}
+
+#[test]
+fn msn_insights_with_mock_fixture_json_contains_summary_and_last_updated() {
+    test_bin("msn-insights-json")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["-o", "json", "stocks", "insights", "BBCA"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"summary\": \"Mixed analyst signals",
+        ))
+        .stdout(predicate::str::contains(
+            "\"last_updated\": \"2026-03-26T04:14:57.9197955Z\"",
+        ))
+        .stdout(predicate::str::contains("Revenue grew worse than peers"));
 }
 
 #[test]
@@ -242,6 +317,24 @@ fn msn_news_with_mock_fixture_table_contains_provider_and_title() {
         .success()
         .stdout(predicate::str::contains("BCA reports steady growth"))
         .stdout(predicate::str::contains("Contoso News"));
+}
+
+#[test]
+fn msn_news_with_mock_fixture_json_contains_provider_and_timestamp() {
+    test_bin("msn-news-json")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["-o", "json", "stocks", "news", "BBCA", "--limit", "5"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"id\": \"news-1\""))
+        .stdout(predicate::str::contains(
+            "\"title\": \"BCA reports steady growth\"",
+        ))
+        .stdout(predicate::str::contains("\"provider\": \"Contoso News\""))
+        .stdout(predicate::str::contains(
+            "\"published_at\": \"2026-03-20T10:00:00Z\"",
+        ));
 }
 
 #[test]
@@ -262,6 +355,29 @@ fn msn_screen_with_mock_fixture_table_contains_quotes() {
         .stdout(predicate::str::contains("SYMBOL"))
         .stdout(predicate::str::contains("BBCA.JK"))
         .stdout(predicate::str::contains("BBRI.JK"));
+}
+
+#[test]
+fn msn_screen_with_mock_fixture_json_contains_normalized_symbols_and_ranges() {
+    test_bin("msn-screen-json")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args([
+            "-o",
+            "json",
+            "stocks",
+            "screen",
+            "--filter",
+            "top-performers",
+            "--limit",
+            "10",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
+        .stdout(predicate::str::contains("\"symbol\": \"BBRI.JK\""))
+        .stdout(predicate::str::contains("\"change\": 117"))
+        .stdout(predicate::str::contains("\"range_signal\": \"upper\""));
 }
 
 #[test]
@@ -544,4 +660,99 @@ fn invalid_provider_env_returns_non_zero() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid provider"));
+}
+
+#[test]
+fn invalid_provider_env_honors_json_output() {
+    test_bin("invalid-provider-json")
+        .env("IDX_PROVIDER", "bogus")
+        .args(["-o", "json", "version"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("\"error\": true"))
+        .stderr(predicate::str::contains("invalid provider"));
+}
+
+#[test]
+fn offline_and_no_cache_flags_are_rejected() {
+    test_bin("offline-no-cache")
+        .args(["--offline", "--no-cache", "stocks", "quote", "BBCA"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "cannot combine --offline with --no-cache",
+        ));
+}
+
+#[test]
+fn msn_profile_supports_offline_cache_reads() {
+    let root = test_env_dir("msn-profile-offline");
+    let cache_home = root.join("cache");
+
+    bin_with_root(&root)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["stocks", "profile", "BBCA"])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["--offline", "stocks", "profile", "BBCA"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("PT Bank Central Asia Tbk"));
+}
+
+#[test]
+fn msn_profile_serves_stale_cache_on_provider_failure_with_warning() {
+    let root = test_env_dir("msn-profile-stale");
+    let cache_home = root.join("cache");
+
+    bin_with_root(&root)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .env("IDX_CACHE_FUNDAMENTAL_TTL", "0")
+        .args(["stocks", "profile", "BBCA"])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .env("IDX_CACHE_FUNDAMENTAL_TTL", "0")
+        .env("IDX_MOCK_ERROR", "1")
+        .args(["stocks", "profile", "BBCA"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning: network failed"))
+        .stdout(predicate::str::contains("PT Bank Central Asia Tbk"));
+}
+
+#[test]
+fn msn_screen_rejects_invalid_filter() {
+    test_bin("msn-screen-invalid-filter")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["stocks", "screen", "--filter", "bogus"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid screener filter"));
+}
+
+#[test]
+fn msn_screen_rejects_invalid_region_in_json_mode() {
+    test_bin("msn-screen-invalid-region-json")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["-o", "json", "stocks", "screen", "--region", "eu"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("\"error\": true"))
+        .stderr(predicate::str::contains("invalid screener region"));
 }
