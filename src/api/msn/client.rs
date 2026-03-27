@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use crate::error::IdxError;
 
@@ -30,6 +30,15 @@ impl MsnClient {
             .into();
 
         Self { agent }
+    }
+
+    fn mock_error() -> Option<IdxError> {
+        if std::env::var("IDX_USE_MOCK_PROVIDER").is_ok() && std::env::var("IDX_MOCK_ERROR").is_ok()
+        {
+            Some(IdxError::ProviderUnavailable)
+        } else {
+            None
+        }
     }
 
     fn mock_body(endpoint: &str) -> Option<&'static str> {
@@ -69,6 +78,10 @@ impl MsnClient {
         symbol: &str,
         endpoint: &str,
     ) -> Result<T, IdxError> {
+        if let Some(err) = Self::mock_error() {
+            return Err(err);
+        }
+
         if let Some(mocked) = Self::mock_json(endpoint)? {
             return Ok(mocked);
         }
@@ -124,6 +137,10 @@ impl MsnClient {
         symbol: &str,
         endpoint: &str,
     ) -> Result<T, IdxError> {
+        if let Some(err) = Self::mock_error() {
+            return Err(err);
+        }
+
         if let Some(mocked) = Self::mock_json(endpoint)? {
             return Ok(mocked);
         }

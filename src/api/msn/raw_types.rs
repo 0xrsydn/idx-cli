@@ -83,6 +83,7 @@ pub(super) struct RawEquity {
     pub(super) symbol: Option<String>,
     pub(super) short_name: Option<String>,
     pub(super) long_name: Option<String>,
+    pub(super) display_name: Option<String>,
     pub(super) description: Option<String>,
     pub(super) sector: Option<String>,
     pub(super) industry: Option<String>,
@@ -93,6 +94,8 @@ pub(super) struct RawEquity {
     pub(super) country: Option<String>,
     pub(super) phone: Option<String>,
     pub(super) officers: Option<Vec<RawOfficer>>,
+    pub(super) company: Option<RawCompany>,
+    pub(super) localized_attributes: Option<HashMap<String, RawLocalizedAttribute>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -103,6 +106,36 @@ pub(super) struct RawOfficer {
     pub(super) age: Option<i32>,
     pub(super) year_born: Option<i32>,
     pub(super) total_pay: Option<i64>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawCompany {
+    pub(super) address: Option<RawCompanyAddress>,
+    pub(super) description: Option<String>,
+    pub(super) employees: Option<i64>,
+    pub(super) industry: Option<String>,
+    pub(super) sector: Option<String>,
+    pub(super) website: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawCompanyAddress {
+    pub(super) street: Option<String>,
+    pub(super) city: Option<String>,
+    pub(super) country: Option<String>,
+    pub(super) phone: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawLocalizedAttribute {
+    pub(super) display_name: Option<String>,
+    pub(super) description: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -194,6 +227,7 @@ pub(super) struct RawInsight {
     pub(super) instrument_id: Option<String>,
     pub(super) display_name: Option<String>,
     pub(super) insights: Option<Vec<RawInsightItem>>,
+    pub(super) time_last_updated: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -202,6 +236,16 @@ pub(super) struct RawInsightItem {
     pub(super) insight_name: Option<String>,
     pub(super) category: Option<String>,
     pub(super) insight_statement: Option<String>,
+    pub(super) short_insight_statement: Option<String>,
+    pub(super) details: Option<RawInsightDetails>,
+    pub(super) time_last_updated: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawInsightDetails {
+    pub(super) evaluation_status: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

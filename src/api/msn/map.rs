@@ -1,7 +1,7 @@
 use super::raw_types::{
     IndustryMetric, KeyRatios, MsnQuote, RawEarningsData, RawEarningsResponse, RawEquity,
-    RawFinancialStatement, RawInsight, RawNewsFeed, RawScreenerResponse, RawSentiment,
-    RawStatementSection,
+    RawFinancialStatement, RawInsight, RawInsightItem, RawLocalizedAttribute, RawNewsFeed,
+    RawScreenerResponse, RawSentiment, RawStatementSection,
 };
 use super::symbols::{normalized_symbol, ticker_from_symbol};
 use crate::api::types::{
@@ -9,6 +9,7 @@ use crate::api::types::{
     InstrumentInfo, NewsItem, Officer, Quote, SentimentData, SentimentPeriod, StatementSection,
 };
 use crate::error::IdxError;
+use std::collections::HashMap;
 
 pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, IdxError> {
     let quote = quotes.first().ok_or(IdxError::ProviderUnavailable)?;
@@ -185,24 +186,185 @@ fn round_u64(value: Option<f64>) -> Option<u64> {
     })
 }
 
+fn localized_display_name(
+    localized_attributes: Option<&HashMap<String, RawLocalizedAttribute>>,
+) -> Option<&str> {
+    preferred_localized_value(localized_attributes, |item| item.display_name.as_deref())
+}
+
+fn localized_description(
+    localized_attributes: Option<&HashMap<String, RawLocalizedAttribute>>,
+) -> Option<&str> {
+    preferred_localized_value(localized_attributes, |item| item.description.as_deref())
+}
+
+fn preferred_localized_value<'a>(
+    localized_attributes: Option<&'a HashMap<String, RawLocalizedAttribute>>,
+    field: impl Fn(&'a RawLocalizedAttribute) -> Option<&'a str>,
+) -> Option<&'a str> {
+    let localized_attributes = localized_attributes?;
+
+    ["en-us", "id-id"]
+        .into_iter()
+        .filter_map(|locale| localized_attributes.get(locale).and_then(&field))
+        .find(|value| !value.trim().is_empty())
+        .or_else(|| {
+            localized_attributes
+                .values()
+                .filter_map(field)
+                .find(|value| !value.trim().is_empty())
+        })
+}
+
+fn first_non_empty<'a>(candidates: impl IntoIterator<Item = Option<&'a str>>) -> Option<&'a str> {
+    candidates
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+}
+
+fn insight_summary_line(item: &RawInsightItem) -> Option<String> {
+    let statement = first_non_empty([
+        item.short_insight_statement.as_deref(),
+        item.insight_statement.as_deref(),
+    ])?;
+
+    let name = first_non_empty([item.insight_name.as_deref()]);
+    Some(match name {
+        Some(name) => format!("{name}: {statement}"),
+        None => statement.to_string(),
+    })
+}
+
+fn insight_status(item: &RawInsightItem) -> Option<&str> {
+    item.details
+        .as_ref()
+        .and_then(|details| details.evaluation_status.as_deref())
+        .or_else(|| {
+            item.category
+                .as_deref()
+                .filter(|category| category.eq_ignore_ascii_case("risk"))
+                .map(|_| "bad")
+        })
+        .and_then(|status| {
+            let normalized = status.trim();
+            if normalized.is_empty() {
+                None
+            } else {
+                Some(normalized)
+            }
+        })
+}
+
+fn insight_overview(
+    display_name: Option<&str>,
+    positive: usize,
+    negative: usize,
+    neutral: usize,
+) -> String {
+    if positive == 0 && negative == 0 && neutral == 0 {
+        return first_non_empty([display_name])
+            .unwrap_or_default()
+            .to_string();
+    }
+
+    let tone = if positive > 0 && negative > 0 {
+        "Mixed analyst signals"
+    } else if negative > 0 {
+        "Mostly negative analyst signals"
+    } else if positive > 0 {
+        "Mostly positive analyst signals"
+    } else {
+        "Neutral analyst signals"
+    };
+
+    let target = first_non_empty([display_name])
+        .map(|name| format!(" for {name}"))
+        .unwrap_or_default();
+    format!("{tone}{target}: {positive} positive, {negative} negative, {neutral} neutral.")
+}
+
+fn normalize_timestamp(value: Option<&str>) -> Option<String> {
+    let value = first_non_empty([value])?;
+    if value.starts_with("0001-01-01") {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
 pub(super) fn parse_profile(symbol: &str, raw: &[RawEquity]) -> Result<CompanyProfile, IdxError> {
     let equity = raw
         .first()
         .ok_or_else(|| IdxError::ParseError("no profile data".into()))?;
+    let company = equity.company.as_ref();
+    let company_address = company.and_then(|item| item.address.as_ref());
+
     Ok(CompanyProfile {
         id: equity.id.clone().unwrap_or_default(),
         symbol: equity.symbol.clone().unwrap_or_else(|| symbol.to_string()),
         short_name: equity.short_name.clone().unwrap_or_default(),
-        long_name: equity.long_name.clone().unwrap_or_default(),
-        description: equity.description.clone().unwrap_or_default(),
-        sector: equity.sector.clone().unwrap_or_default(),
-        industry: equity.industry.clone().unwrap_or_default(),
-        website: equity.website.clone().unwrap_or_default(),
-        employees: equity.full_time_employees.unwrap_or_default(),
-        address: equity.address.clone().unwrap_or_default(),
-        city: equity.city.clone().unwrap_or_default(),
-        country: equity.country.clone().unwrap_or_default(),
-        phone: equity.phone.clone().unwrap_or_default(),
+        long_name: first_non_empty([
+            localized_display_name(equity.localized_attributes.as_ref()),
+            equity.display_name.as_deref(),
+            equity.long_name.as_deref(),
+        ])
+        .unwrap_or_default()
+        .to_string(),
+        description: first_non_empty([
+            company.and_then(|item| item.description.as_deref()),
+            localized_description(equity.localized_attributes.as_ref()),
+            equity.description.as_deref(),
+        ])
+        .unwrap_or_default()
+        .to_string(),
+        sector: first_non_empty([
+            company.and_then(|item| item.sector.as_deref()),
+            equity.sector.as_deref(),
+        ])
+        .unwrap_or_default()
+        .to_string(),
+        industry: first_non_empty([
+            company.and_then(|item| item.industry.as_deref()),
+            equity.industry.as_deref(),
+        ])
+        .unwrap_or_default()
+        .to_string(),
+        website: first_non_empty([
+            company.and_then(|item| item.website.as_deref()),
+            equity.website.as_deref(),
+        ])
+        .unwrap_or_default()
+        .to_string(),
+        employees: company
+            .and_then(|item| item.employees)
+            .or(equity.full_time_employees)
+            .unwrap_or_default(),
+        address: first_non_empty([
+            company_address.and_then(|item| item.street.as_deref()),
+            equity.address.as_deref(),
+        ])
+        .unwrap_or_default()
+        .to_string(),
+        city: first_non_empty([
+            company_address.and_then(|item| item.city.as_deref()),
+            equity.city.as_deref(),
+        ])
+        .unwrap_or_default()
+        .to_string(),
+        country: first_non_empty([
+            company_address.and_then(|item| item.country.as_deref()),
+            equity.country.as_deref(),
+        ])
+        .unwrap_or_default()
+        .to_string(),
+        phone: first_non_empty([
+            company_address.and_then(|item| item.phone.as_deref()),
+            equity.phone.as_deref(),
+        ])
+        .unwrap_or_default()
+        .to_string(),
         officers: equity
             .officers
             .as_ref()
@@ -310,56 +472,49 @@ pub(super) fn parse_insights(symbol: &str, raw: &[RawInsight]) -> Result<Insight
         .ok_or_else(|| IdxError::ParseError("no insights data".into()))?;
 
     let insights = item.insights.as_deref().unwrap_or(&[]);
+    let mut positive = 0usize;
+    let mut negative = 0usize;
+    let mut neutral = 0usize;
+    let mut highlights = Vec::new();
+    let mut risks = Vec::new();
 
-    // Group insight statements into highlights (non-risk) and risks by category
-    let highlights: Vec<String> = insights
-        .iter()
-        .filter(|i| {
-            i.category
-                .as_deref()
-                .map(|c| !c.eq_ignore_ascii_case("risk"))
-                .unwrap_or(true)
-        })
-        .filter_map(|i| {
-            let name = i.insight_name.as_deref().unwrap_or("");
-            let stmt = i.insight_statement.as_deref().unwrap_or("");
-            if stmt.is_empty() {
-                None
-            } else if name.is_empty() {
-                Some(stmt.to_string())
-            } else {
-                Some(format!("{name}: {stmt}"))
-            }
-        })
-        .collect();
+    for insight in insights {
+        let Some(statement) = insight_summary_line(insight) else {
+            continue;
+        };
 
-    let risks: Vec<String> = insights
-        .iter()
-        .filter(|i| {
-            i.category
-                .as_deref()
-                .map(|c| c.eq_ignore_ascii_case("risk"))
-                .unwrap_or(false)
-        })
-        .filter_map(|i| {
-            let stmt = i.insight_statement.as_deref().unwrap_or("");
-            if stmt.is_empty() {
-                None
-            } else {
-                Some(stmt.to_string())
+        match insight_status(insight) {
+            Some("bad") => {
+                negative += 1;
+                risks.push(statement);
             }
-        })
-        .collect();
+            Some("good") => {
+                positive += 1;
+                highlights.push(statement);
+            }
+            _ => {
+                neutral += 1;
+                highlights.push(statement);
+            }
+        }
+    }
 
     Ok(InsightData {
         id: item
             .instrument_id
             .clone()
             .unwrap_or_else(|| symbol.to_string()),
-        summary: item.display_name.clone().unwrap_or_default(),
+        summary: insight_overview(item.display_name.as_deref(), positive, negative, neutral),
         highlights,
         risks,
-        last_updated: String::new(),
+        last_updated: normalize_timestamp(item.time_last_updated.as_deref())
+            .or_else(|| {
+                insights
+                    .iter()
+                    .filter_map(|insight| normalize_timestamp(insight.time_last_updated.as_deref()))
+                    .max()
+            })
+            .unwrap_or_default(),
     })
 }
 
@@ -505,7 +660,7 @@ fn collect_earnings(
     };
     let mut rows: Vec<(&String, &RawEarningsData)> = values.iter().collect();
     rows.sort_by_key(|(k, _)| (*k).clone());
-    for (_, v) in rows {
+    for (key, v) in rows {
         out.push(EarningsData {
             eps_actual: v.eps_actual,
             eps_forecast: v.eps_forecast,
@@ -515,7 +670,70 @@ fn collect_earnings(
             revenue_forecast: v.revenue_forecast,
             revenue_surprise: v.revenue_surprise,
             earning_release_date: v.earning_release_date.clone(),
-            period_type: v.ciq_fiscal_period_type.clone().unwrap_or_default(),
+            period_type: v
+                .ciq_fiscal_period_type
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| key.to_string()),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        RawNewsFeed, RawScreenerResponse, RawSentiment, parse_news, parse_screener_results,
+        parse_sentiment,
+    };
+
+    #[test]
+    fn parses_sentiment_fixture_statistics() {
+        let raw: Vec<RawSentiment> = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/msn_sentiment_bbca.json"
+        ))
+        .expect("sentiment fixture should deserialize");
+
+        let sentiment = parse_sentiment("BBCA", &raw).expect("sentiment should parse");
+
+        assert_eq!(sentiment.symbol, "BBCA.JK");
+        assert_eq!(sentiment.statistics.len(), 2);
+        assert_eq!(sentiment.statistics[0].time_range, "1D");
+        assert_eq!(sentiment.statistics[0].bullish, 10);
+        assert_eq!(sentiment.statistics[0].bearish, 2);
+        assert_eq!(sentiment.statistics[0].neutral, 3);
+    }
+
+    #[test]
+    fn parses_news_fixture_items() {
+        let raw: RawNewsFeed =
+            serde_json::from_str(include_str!("../../../tests/fixtures/msn_news_bbca.json"))
+                .expect("news fixture should deserialize");
+
+        let items = parse_news(&raw).expect("news should parse");
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, "news-1");
+        assert_eq!(items[0].title, "BCA reports steady growth");
+        assert_eq!(items[0].provider, "Contoso News");
+        assert_eq!(items[0].published_at, "2026-03-20T10:00:00Z");
+        assert_eq!(items[0].read_time_min, Some(3));
+    }
+
+    #[test]
+    fn parses_screener_fixture_quotes() {
+        let raw: RawScreenerResponse = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/msn_screener_id_topperfs.json"
+        ))
+        .expect("screener fixture should deserialize");
+
+        let quotes = parse_screener_results(&raw).expect("screener should parse");
+
+        assert_eq!(quotes.len(), 2);
+        assert_eq!(quotes[0].symbol, "BBCA.JK");
+        assert_eq!(quotes[0].price, 9_875);
+        assert_eq!(quotes[0].change, 117);
+        assert_eq!(quotes[0].market_cap, Some(1_215_200_000_000_000));
+        assert_eq!(quotes[0].range_signal.as_deref(), Some("upper"));
+        assert_eq!(quotes[0].avg_volume, Some(10_000_000));
     }
 }
