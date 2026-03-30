@@ -400,6 +400,21 @@ prepare_environment() {
     bootstrap_case "ownership-db" config set ownership.db_path "$OWNERSHIP_DB"
 }
 
+cache_case_starts_fresh() {
+    local group="$1"
+    local label="$2"
+
+    [[ "$group" == "cache" && "$label" == *"-warm" ]]
+}
+
+reset_cache_for_case() {
+    local label="$1"
+
+    # Cache checks need a clean starting point so the warm/offline/stale trio
+    # validates TTL-sensitive fallback behavior instead of reusing prior group state.
+    bootstrap_case "cache-reset-${label}" cache clear
+}
+
 sanitize_name() {
     printf '%s' "$1" | tr -cs 'A-Za-z0-9._-' '_'
 }
@@ -432,6 +447,10 @@ run_case_line() {
     log_file="$(printf '%s/%03d_%s.log' "$LOG_DIR" "$TOTAL_CASES" "$safe_name")"
 
     printf '[%02d] %-10s %s\n' "$TOTAL_CASES" "$group" "$label"
+
+    if cache_case_starts_fresh "$group" "$label"; then
+        reset_cache_for_case "$label"
+    fi
 
     if (( DRY_RUN )); then
         printf '     %s\n' "$(command_display "$env_spec" "$cmd_spec")"
