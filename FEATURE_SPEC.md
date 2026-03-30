@@ -1,320 +1,249 @@
-# Feature Spec: MSN Finance Full Coverage
+# Feature Spec: Current Coverage and Remaining Core Work
 
-**Branch:** `feat/msn-full`
-**Status:** Draft — pending review
-**Reference:** `origin/dev/rubick` (Go implementation by rubick)
+**Status:** Active - updated against the current repo state on 2026-03-28
+**Current focus:** Close the remaining core gaps before expanding into new market and watchlist surfaces
+**Reference:** `origin/dev/rubick` (endpoint reference only, not the current implementation plan)
 
 ---
 
-## Background
+## Purpose
 
-The Rust CLI currently supports two MSN endpoints:
-- `Finance/Quotes` → `quote()`
-- `api.msn.com/keyratios` → `fundamentals()`
+This is no longer a "port MSN from zero" spec.
 
-The rubick Go project (friend's scraper) demonstrates a much wider set of MSN Finance endpoints covering equities, financials, earnings, charts, sentiment, insights, and news — all using the same public API key. This spec defines the full porting roadmap from Go → Rust.
+The CLI already ships MSN-backed support for:
+- `profile`
+- `financials`
+- `earnings`
+- `sentiment`
+- `insights`
+- `news`
+- `screen`
+
+Use this document to track what is still open in core functionality.
+Use `TODO.md` as the execution log and smoke-history record.
+
+---
+
+## Verified Current State
+
+- Current automated coverage is `153` tests: `102` unit and `51` integration.
+- Reusable smoke coverage exists via `scripts/live-smoke.sh`; command groups are documented in `docs/SMOKE.md`.
+- The latest smoke notes in `TODO.md` report passing live table and JSON checks for all shipped `stocks` commands.
+- Cache/offline parity, JSON startup-error handling, screener input validation, and the recent MSN output cleanups have already been completed.
+- KSEI ownership import/query is now verified end-to-end from a local March 2026 PDF file into SQLite, with direct CLI reads through `ownership releases` and `ownership ticker`.
+- Remote ownership ingestion should now be treated as an IDX PDF discovery-and-fetch problem first, not a hardcoded KSEI PDF URL problem: direct IDX announcement PDFs exist, but the hashed asset URL must be discovered from an IDX listing/announcement surface and fetched with browser-like behavior.
+- The CLI now has an explicit `idx ownership discover` surface that enumerates the latest hashed BEI ownership report URLs.
+- Live verification on `2026-03-29` confirmed that the parser-compatible discovered source is currently the `Pemegang Saham di atas 1% (KSEI)` `lamp1` attachment, and `idx ownership import --url` now works end to end for that discovered BEI PDF.
+- The currently discoverable `above 5%` and `investor-type` BEI families remain different schemas and should now be treated as legacy / unsupported input outside the current holder-register parser contract.
+
+This means the main gap is no longer endpoint coverage.
+The remaining work is architecture cleanup, a few correctness edge cases, and selective UX expansion on top of already-shipped commands.
+
+---
+
+## Coverage Snapshot
+
+| Area | CLI | Status | Notes |
+| --- | --- | --- | --- |
+| Quotes | `idx stocks quote` | Implemented | Cached, smoke-tested, and covered by integration tests |
+| History | `idx stocks history` | Partial | Works today via Yahoo/history-provider routing; explicit MSN history remains unsupported for IDX |
+| Technical | `idx stocks technical` | Implemented | Uses the cached history path |
+| Growth | `idx stocks growth` | Implemented | Shipped and exercised |
+| Valuation | `idx stocks valuation` | Implemented | Shipped and exercised |
+| Risk | `idx stocks risk` | Implemented | Shipped and exercised |
+| Fundamental | `idx stocks fundamental` | Implemented | Shipped and exercised |
+| Compare | `idx stocks compare` | Implemented | Shipped and exercised |
+| Company profile | `idx stocks profile` | Implemented | Cache/offline parity and fixture-backed coverage are in place |
+| Financial statements | `idx stocks financials` | Implemented with gaps | Output cleanup landed; statement filter flags and richer period controls are still missing |
+| Earnings | `idx stocks earnings` | Implemented with gaps | History/forecast split is rendered; filter flags are still missing |
+| Sentiment | `idx stocks sentiment` | Implemented | Fixture-backed CLI coverage exists |
+| Insights | `idx stocks insights` | Implemented | Summary/highlights/risks/`last_updated` mapping was corrected and tested |
+| News | `idx stocks news` | Implemented | Fixture-backed CLI coverage exists |
+| Screener | `idx stocks screen` | Implemented with gaps | Validation landed; expression/preset workflow is still future work |
+| MSN charts | `idx stocks history --history-provider msn` | Missing | Explicit MSN history still returns unsupported for IDX |
+| KSEI ownership import/query | `idx ownership import --file`, `idx ownership import --url`, `idx ownership releases`, `idx ownership ticker` | Implemented with gaps | Local PDF import and SQLite-backed query flow are verified against the March 2026 KSEI release; remote IDX import now works for the discovered `above 1%` `lamp1` BEI attachment, while legacy `above 5%` and `investor-type` BEI report families still need explicit unsupported-input handling |
+| Bing ownership CLI | `idx ownership import --fetch-bing` | Not implemented | Client groundwork exists, CLI import path is still deferred |
+
+---
+
+## Resolved Since The Previous Revision
+
+The following items should no longer be treated as active backlog in this spec:
+
+- CLI truth-pass baseline for shipped `stocks` commands
+- Unified cache, offline, stale-cache, and `--no-cache` handling across the core and MSN-only stock commands
+- Rejection of the conflicting `--offline --no-cache` flag combination
+- JSON-aware startup/config failures, not just runtime failures
+- Validation for `stocks screen --filter` and `--region`
+- `profile` output remapping to prefer company/localized fields
+- `insights` output remapping for summary, highlights, risks, and `last_updated`
+- Signed-number and table-label cleanup for `financials`
+- Table-mode cleanup for `earnings`
+- Baseline parser and CLI regression coverage for the shipped MSN-only command set
+- KSEI ownership parser hardening for the March 2026 live PDF layout, including the merged `DATE + SHARE_CODE` segment and `D`/`A` locality markers
+- Real KSEI ownership CLI verification from local file import into SQLite (`7261` rows across `955` tickers on `2026-03-28`)
+
+If any of the above regress, capture that in `TODO.md` as a new finding rather than reopening the old section here wholesale.
+
+---
+
+## Remaining Core Gaps
+
+### P0 - Correctness and architecture
+
+#### 1. Unify provider and capability flow
+
+Current state:
+- `src/cli/stocks.rs` still directly constructs `MsnProvider::new(false)` for `profile`, `financials`, `earnings`, `sentiment`, `insights`, `news`, and `screen`.
+- This keeps a split execution path alive even though cache/offline behavior is now mostly unified around `fetch_msn_with_cache`.
+
+Why it matters:
+- The architecture doc describes provider/capability-based flow, but the CLI still special-cases MSN-only commands at the handler layer.
+- Future features will be harder to extend cleanly if this split remains.
+
+Done when:
+- Normal command handlers stop constructing `MsnProvider` directly.
+- Provider selection and capability checks are centralized and consistent with `docs/ARCHITECTURE.md`.
+
+#### 2. Fix screener row hygiene for incomplete data
+
+Current state:
+- `src/api/msn/map.rs` still defaults missing screener price data to `0.0` when constructing `Quote` rows.
+
+Why it matters:
+- A zero-priced row is not the same thing as a valid priced stock.
+- This can silently admit incomplete market rows instead of rejecting or filtering them.
+
+Done when:
+- Screener rows without usable price data are filtered or rejected explicitly.
+- Regression tests cover the chosen behavior.
+
+#### 3. Decide the fundamentals fallback policy
+
+Current state:
+- Fundamentals can still fall back to industry-level metrics when company metrics are absent.
+
+Why it matters:
+- This can produce analysis that looks precise but is actually based on peer or category data.
+
+Decision needed:
+- Allow the fallback and annotate it clearly, or
+- reject the fallback and surface missing company data explicitly.
+
+Done when:
+- The policy is explicit in code and reflected in output semantics.
+
+#### 4. Harden Yahoo reliability edge cases
+
+Open issues:
+- Yahoo can still return `429` from datacenter IPs intermittently.
+- SMA200 trend output can still show "Insufficient data" when fewer than `200` candles are returned.
+
+Done when:
+- The retry/fallback story for Yahoo failures is deliberate and documented.
+- SMA200 behavior is either improved or clearly documented as expected.
+
+#### 5. Automate IDX ownership source discovery and fetch
+
+Current state:
+- `idx ownership import --file <local-pdf>` is now working and verified against the March 2026 KSEI release.
+- Direct IDX announcement PDFs exist, but the monthly file path is not safely hardcodable because the asset filename is hashed.
+- The official BEI listing page for this feed is `https://www.idx.co.id/id/berita/pengumuman/`, and the page’s own Nuxt client fetches announcement data from `GET /primary/NewsAnnouncement/GetAllAnnouncement`.
+- The BEI endpoint is now reverse-engineered enough for `idx ownership discover` to locate the current `Pemegang Saham di atas 1% (KSEI)`, `Pemegang Saham di atas 5% (KSEI)`, and `Kepemilikan Saham Perusahaan Tercatat Berdasarkan Tipe Investor` hashed PDFs.
+- Live verification on `2026-03-29` shows that the discoverable `above 1%` `lamp1` attachment matches the raw KSEI holder-register shape that the current parser imports successfully.
+- Live verification on `2026-03-29` also shows that the currently discoverable `above 5%` and `investor-type` BEI families do not match the holder-register schema the current parser imports.
+- Product direction as of `2026-03-30` is to standardize on the `above 1%` holder-register structure for remote import; the other discovered families are legacy inputs that should be rejected clearly rather than parsed.
+- Plain `curl`/`ureq` requests to IDX-hosted PDFs still get `403` from Cloudflare, while `curl-impersonate` inside the project `nix develop` environment has already been verified to return a real PDF for a March 2026 ownership source URL.
+- The KSEI archive remains a secondary upstream and currently exposes monthly ZIP files that can be used later as fallback or cross-check input, but it is no longer the primary roadmap target.
+
+Why it matters:
+- The ownership feature now parses and stores live ownership data correctly from both local files and the currently discoverable `above 1%` BEI `lamp1` attachment.
+- The remaining gap is not basic remote import anymore; it is hardening the supported `above 1%` path and clearly rejecting other discovered BEI schemas that do not match the holder-register contract.
+
+Done when:
+- The CLI can discover the latest parser-compatible IDX ownership PDF URL from an IDX listing/announcement surface without hardcoded monthly paths.
+- Remote fetches use the same browser-impersonation strategy already established elsewhere in the repo instead of the current bare `ureq` path.
+- `idx ownership import --url` can fetch and parse the current `above 1%` IDX-hosted PDF reliably.
+- Unsupported BEI report families are classified and rejected explicitly instead of failing later with a generic zero-row parse error.
+
+Roadmap:
+1. Keep discovery and import flows centered on the parser-compatible `above 1%` family and its `lamp1` attachment.
+2. Reuse the existing `curl-impersonate` pattern for browser-like PDF fetches.
+3. Add schema classification / unsupported-input UX for the legacy `above 5%` and `investor-type` BEI PDFs.
+4. Decide whether the default discover output should be `above1`-first, with legacy families retained only for diagnostic use.
+5. Publish maintained SQLite snapshot artifacts and add `idx ownership sync` after remote IDX import is stable.
+6. Optionally add KSEI ZIP/TXT ingest later as fallback or cross-check input.
+
+### P1 - UX and output contract cleanup
+
+Tasks:
+- Add `financials` filters such as `--statement income|balance|cashflow`.
+- Add `earnings` filters such as `--forecast|--history` and `--annual|--quarterly`.
+- Review JSON payload consistency where symbol or context fields are still sparse.
+- Decide whether `screen` stays under `stocks` long term or graduates into a richer dedicated surface later.
+
+Done when:
+- Existing shipped commands are easier to drive without changing product scope.
+
+### P2 - Next feature work after the above is green
+
+Priority order:
+
+1. MSN Charts / `Finance/Charts`
+   - Reuse the existing `idx stocks history` command.
+   - Decide how to handle price-only timeframes safely.
+
+2. Bing ownership CLI integration
+   - Reuse the existing client groundwork in `src/api/msn/bing.rs`.
+   - Define the import shape and output contract for `idx ownership import --fetch-bing`.
+
+3. Ownership sync and snapshot distribution
+   - Keep IDX PDF discovery/fetch as the first milestone before starting this work.
+   - Publish maintained SQLite snapshot artifacts and add `idx ownership sync`.
+   - Treat the KSEI archive (`https://web.ksei.co.id/archive_download/holding_composition`) as fallback/backstop input, not the primary product ingest path.
+
+4. Richer financial statements
+   - Decide whether to stay with the current single-period model or add multi-period fetch support.
+
+5. New user-facing surfaces from `TODO.md`
+   - `market summary`
+   - `market movers`
+   - `market sectors`
+   - `screen query`
+   - `screen presets`
+   - `watchlist`
+   - `alerts`
+
+---
+
+## Verification Gate
+
+Do not treat a core refactor or new provider feature as complete until all of the following are true:
+
+- `cargo build` passes
+- `cargo clippy -- -D warnings` passes
+- `cargo test` passes
+- `scripts/live-smoke.sh --mode mock` passes
+- the relevant live smoke groups pass for changed user-facing behavior
+- `TODO.md` is updated with any new smoke finding, regression, or behavior change
+
+Keep the detailed reusable smoke commands in `docs/SMOKE.md`.
+Do not duplicate per-run results in this spec.
+
+---
+
+## Endpoint Reference Appendix
 
 MSN API key (public, embedded in MSN Money website):
+
 ```
 0QfOX3Vn51YCzitbLaRkTTBadtWpgTN8NZLW0C1SEM
 ```
 
 Base URLs:
-- `https://assets.msn.com/service/` — core market data (Quotes, Charts, Equities, Earnings, Sentiment, Screener)
-- `https://api.msn.com/msn/v0/pages/finance/` — extended data (keyratios, insights, newsfeed)
-- `https://services.bingapis.com/contentservices-finance.hedgefunddataprovider/api/v1/` — Bing ownership data
+- `https://assets.msn.com/service/` - core market data (Quotes, Charts, Equities, Earnings, Sentiment, Screener)
+- `https://api.msn.com/msn/v0/pages/finance/` - extended data (key ratios, insights, news feed)
+- `https://services.bingapis.com/contentservices-finance.hedgefunddataprovider/api/v1/` - Bing ownership data
 
----
-
-## Endpoints to Implement
-
-### P0 — Core Completeness
-
-#### 1. `Finance/Equities` — Company Profile
-- **Method:** GET
-- **URL:** `{MSN_ASSETS_BASE_URL}Finance/Equities?apikey={key}&ids={id}&wrapodata=false`
-- **Returns:** `EquityData` — company name, description, sector, industry, website, employees, address, officers/executives
-- **CLI use:** `idx stock profile BBCA` or folded into `info` subcommand
-- **Rust struct:**
-```rust
-pub struct EquityData {
-    pub id: String,
-    pub symbol: String,
-    pub short_name: String,
-    pub long_name: String,
-    pub description: String,
-    pub sector: String,
-    pub industry: String,
-    pub website: String,
-    pub employees: i64,
-    pub address: String,
-    pub city: String,
-    pub country: String,
-    pub phone: String,
-    pub officers: Vec<Officer>,
-}
-
-pub struct Officer {
-    pub name: String,
-    pub title: String,
-    pub age: Option<i32>,
-    pub year_born: Option<i32>,
-    pub total_pay: Option<i64>,
-}
-```
-- **Complexity:** Low
-
----
-
-#### 2. `Finance/Equities/financialstatements` — Financial Statements
-- **Method:** GET
-- **URL:** `{MSN_ASSETS_BASE_URL}Finance/Equities/financialstatements?apikey={key}&ids={id}&wrapodata=false`
-- **Returns:** Balance sheet, cash flow, income statement — each as a map of `{field: value}` keyed by line item name, with period metadata (reportDate, endDate, currency, source)
-- **CLI use:** `idx stock financials BBCA [--statement income|balance|cashflow]`
-- **Note:** Fields are dynamic (map-based), not fixed columns — render as table with row=line item, col=period if multiple periods returned
-- **Rust struct:**
-```rust
-pub struct FinancialStatements {
-    pub instrument: InstrumentInfo,
-    pub balance_sheet: Option<BalanceSheet>,
-    pub cash_flow: Option<CashFlow>,
-    pub income_statement: Option<IncomeStatement>,
-}
-
-pub struct BalanceSheet {
-    pub current_assets: HashMap<String, f64>,
-    pub long_term_assets: HashMap<String, f64>,
-    pub current_liabilities: HashMap<String, f64>,
-    pub equity: HashMap<String, f64>,
-    pub currency: String,
-    pub report_date: String,
-    pub end_date: String,
-}
-
-// Similar pattern for CashFlow (financing/investing/operating) and IncomeStatement
-```
-- **Complexity:** Medium (dynamic maps → table rendering)
-
----
-
-### P1 — High Analyst Value
-
-#### 3. `Finance/Events/Earnings` — Earnings History & Forecast
-- **Method:** GET
-- **URL:** `{MSN_ASSETS_BASE_URL}Finance/Events/Earnings?apikey={key}&ids={id}&wrapodata=false`
-- **Returns:**
-  - `EpsLastYear`, `RevenueLastYear`
-  - `Forecast.annual` — 2 forward years: EpsForecast, RevenueForecast, GAAP/Normalized consensus
-  - `Forecast.quarterly` — next 4 quarters with same fields + EarningReleaseDate
-  - `History.annual` — 5 years: EpsActual, EpsSurprise, EpsSurprisePercent, RevenueActual, RevenueSurprise
-  - `History.quarterly` — ~12 quarters of actuals + surprises
-- **CLI use:** `idx stock earnings BBCA [--forecast|--history] [--annual|--quarterly]`
-- **Rust struct:**
-```rust
-pub struct EarningsReport {
-    pub eps_last_year: f64,
-    pub revenue_last_year: f64,
-    pub forecast: EarningsForecast,
-    pub history: EarningsHistory,
-}
-
-pub struct EarningsData {
-    pub eps_actual: Option<f64>,
-    pub eps_forecast: Option<f64>,
-    pub eps_surprise: Option<f64>,
-    pub eps_surprise_pct: Option<f64>,
-    pub revenue_actual: Option<f64>,
-    pub revenue_forecast: Option<f64>,
-    pub revenue_surprise: Option<f64>,
-    pub earning_release_date: Option<String>,
-    pub period_type: String, // e.g. "Q42025", "2025"
-}
-```
-- **Complexity:** Medium (nested map keyed by period string)
-
----
-
-#### 4. `Finance/Charts` — Price Chart / OHLCV History
-- **Method:** GET
-- **URL:** `{MSN_ASSETS_BASE_URL}Finance/Charts?apikey={key}&ids={id}&chartType={type}&wrapodata=false`
-- **Chart types:** `1D`, `1W`, `1M`, `3M`, `6M`, `1Y`, `3Y`, `5Y`, `MAX`
-- **Returns:** Series of `ChartPoint { time, open, high, low, close, price, volume }`
-- **Note:** This unblocks the `history()` provider method — current implementation explicitly returns `Unsupported`. MSN charts don't guarantee OHLCV on all timeframes (1D is often price-only), so parse defensively.
-- **CLI use:** `idx stock history BBCA --period 3M` (existing command, just needs this wired up)
-- **Rust struct:**
-```rust
-pub struct ChartPoint {
-    pub time: String,
-    pub open: Option<f64>,
-    pub high: Option<f64>,
-    pub low: Option<f64>,
-    pub close: Option<f64>,
-    pub price: f64,
-    pub volume: Option<i64>,
-}
-```
-- **Complexity:** Medium (parse series array, handle missing OHLCV gracefully)
-
----
-
-### P2 — Enrichment Layer
-
-#### 5. `Finance/SentimentBrowser` — Crowd Sentiment
-- **Method:** GET
-- **URL:** `{MSN_ASSETS_BASE_URL}Finance/SentimentBrowser?apikey={key}&ids={id}&wrapodata=false`
-- **Returns:** Per-period sentiment stats: bullish/bearish/neutral counts, time range name (e.g., "1D", "1W", "1M")
-- **CLI use:** `idx stock sentiment BBCA`
-- **Rust struct:**
-```rust
-pub struct SentimentData {
-    pub symbol: String,
-    pub statistics: Vec<SentimentPeriod>,
-}
-
-pub struct SentimentPeriod {
-    pub time_range: String,   // "1D", "1W", "1M"
-    pub bullish: i32,
-    pub bearish: i32,
-    pub neutral: i32,
-}
-```
-- **Complexity:** Low
-
----
-
-#### 6. `api.msn.com/insights` — AI-Generated Insights
-- **Method:** GET
-- **URL:** `{MSN_API_BASE_URL}insights?apikey={key}&ids={id}&wrapodata=false`
-- **Returns:** Summary text, highlights array, risks array, last updated timestamp
-- **CLI use:** `idx stock insights BBCA`
-- **Rust struct:**
-```rust
-pub struct InsightData {
-    pub id: String,
-    pub summary: String,
-    pub highlights: Vec<String>,
-    pub risks: Vec<String>,
-    pub last_updated: String,
-}
-```
-- **Complexity:** Low
-
----
-
-#### 7. `MSN/Feed/me` — Stock News Feed
-- **Method:** GET
-- **URL:** `{MSN_API_BASE_URL}` + entity feed params with stock ID
-- **Returns:** News cards: title, URL, abstract, provider name, publish time, read time
-- **CLI use:** `idx stock news BBCA [--limit 10]`
-- **Rust struct:**
-```rust
-pub struct NewsItem {
-    pub id: String,
-    pub title: String,
-    pub url: String,
-    pub description: String,
-    pub provider: String,
-    pub published_at: String,
-    pub read_time_min: Option<i32>,
-}
-```
-- **Complexity:** Medium (URL construction + response parsing needs rubick reference)
-
----
-
-#### 8. `Finance/Screener` — IDX Universe Screener
-- **Method:** POST
-- **URL:** `{MSN_ASSETS_BASE_URL}Finance/Screener?apikey={key}&wrapodata=false`
-- **Body:** `{ filter: [{key, keyGroup, isRange}], order: {key, dir}, returnValueType: [...], screenerType: "...", limit: 50 }`
-- **Returns:** List of stocks with quote data (price, change, market cap, volume, 52w hi/lo, YTD return)
-- **CLI use:** `idx screen [--preset top-gainers|top-losers|most-active|...]`
-- **Complexity:** Medium (POST body construction, preset filter definitions)
-
----
-
-### P3 — Optional / Future
-
-#### 9. Bing Ownership API — Institutional Holders
-- **Base:** `https://services.bingapis.com/contentservices-finance.hedgefunddataprovider/api/v1/`
-- **Endpoints:**
-  - `GetSecurityTopShareHolders`
-  - `GetSecurityTopBuyers` / `GetSecurityTopSellers`
-  - `GetSecurityTopNewShareHolders` / `GetSecurityTopExitedShareHolders`
-- **CLI use:** `idx stock holders BBCA [--buyers|--sellers|--new|--exited]`
-- **Note:** Separate base URL, may need different auth/headers than MSN. Validate working before implementing.
-- **Complexity:** Low-Medium
-
----
-
-## Implementation Plan
-
-### Phase 1 — Extend `src/api/msn/`
-1. Add `fetch_equities(symbol)` to `client.rs`
-2. Add `fetch_financial_statements(symbol)` to `client.rs`
-3. Add `fetch_earnings(symbol)` to `client.rs`
-4. Add `fetch_charts(symbol, period)` to `client.rs`
-5. Add corresponding parse functions to `parse.rs`
-6. Expose via new methods on `MsnProvider` in `mod.rs`
-
-### Phase 2 — New Rust structs in `src/api/msn/types.rs` (new file)
-- Extract shared types (currently inline in `parse.rs`) into dedicated `types.rs`
-- Add all new structs listed above
-
-### Phase 3 — Wire CLI commands in `src/cli/stocks.rs`
-New subcommands to add:
-```
-idx stock profile <SYMBOL>        # Company info + officers
-idx stock financials <SYMBOL>     # Income / balance / cashflow
-idx stock earnings <SYMBOL>       # EPS history + forecast
-idx stock sentiment <SYMBOL>      # Crowd sentiment
-idx stock insights <SYMBOL>       # AI highlights + risks
-idx stock news <SYMBOL>           # News feed
-idx screen                        # IDX screener (separate top-level command)
-```
-
-And unblock existing:
-```
-idx stock history <SYMBOL>        # Wire MSN charts (currently Unsupported)
-```
-
-### Phase 4 — Output formatting
-- Table output for financials (line item rows, period columns)
-- Compact output for earnings (actual vs forecast vs surprise %)
-- JSON output flag `--json` should work for all new commands
-
----
-
-## Open Questions
-
-1. **Chart OHLCV completeness** — rubick notes that MSN charts don't always return full OHLCV on short timeframes (e.g., 1D is price-only). Do we want to keep `history()` returning `Unsupported` for MSN and add a separate `charts()` method, or silently map price → close for compatibility?
-
-2. **Financial statements period count** — The API returns one period per call (most recent). Do we want to add a bulk-fetch loop (e.g., fetch last 4 quarters separately) or just expose single-period for now?
-
-3. **News feed URL construction** — needs exact param structure from rubick's `GetNewsFeed()` Go implementation. Worth a closer look before implementing.
-
-4. **Screener presets** — rubick defines filter key constants (e.g., `"st_list_topperfs"`, `"st_reg_id"`). Need to decide which presets to expose as CLI flags and what the default screener view looks like.
-
-5. **Provider trait extension** — `quote()`, `fundamentals()`, `history()` are currently defined on `Provider` trait. New methods (earnings, profile, etc.) are MSN-specific — do we extend the trait or expose them as inherent methods on `MsnProvider` only?
-
----
-
-## Files to Touch
-
-```
-src/api/msn/
-  client.rs      — add fetch_* methods
-  mod.rs         — expose new provider methods
-  parse.rs       — add parse_* functions
-  types.rs       — NEW: shared type definitions
-
-src/cli/
-  stocks.rs      — add new subcommands + output formatting
-
-tests/
-  cli.rs         — integration tests for new commands
-  fixtures/      — add response fixtures for new endpoints
-```
-
----
-
-*Drafted by Ciphercat based on rubick Go implementation analysis + live MSN API verification.*
+Keep this appendix for endpoint discovery and future work.
+Use the sections above as the actual implementation plan.

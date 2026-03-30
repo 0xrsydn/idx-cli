@@ -2,6 +2,7 @@ node_modules/
 target/
 .direnv/
 result
+tmp/
 
 # Internal docs (specs, research, business strategy)
 docs-internal/
