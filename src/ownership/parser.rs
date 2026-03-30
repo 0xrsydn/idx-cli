@@ -26,6 +26,49 @@ const HEADER_LABELS: &[&str] = &[
     "PERCENTAGE",
 ];
 
+const HOLDER_REGISTER_SCHEMA_MARKERS: &[&str] = &[
+    "TEXT=\"DATE\"",
+    "TEXT=\"SHARE_CODE\"",
+    "TEXT=\"INVESTOR_NAME\"",
+    "TEXT=\"INVESTOR_TYPE\"",
+    "TEXT=\"LOCAL_FOREIGN\"",
+    "TEXT=\"TOTAL_HOLDING_SHARES\"",
+    "TEXT=\"PERCENTAGE\"",
+];
+const ANNOUNCEMENT_WRAPPER_SCHEMA_MARKERS: &[&str] =
+    &["TEXT=\"PENGUMUMAN\"", "PT BURSA EFEK INDONESIA (BEI)"];
+const ABOVE_FIVE_SCHEMA_MARKERS: &[&str] = &[
+    "TEXT=\"INVS\"",
+    "REKENING TAMPUNGAN KSEI",
+    "CLOSED MEMBER-",
+];
+const INVESTOR_TYPE_SCHEMA_MARKERS: &[&str] = &[
+    "TEXT=\"STOCK_CODE\"",
+    "TEXT=\"NUMBER_OF_SHARES\"",
+    "TEXT=\"FOREIGN\"",
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnershipPdfSchema {
+    HolderRegister,
+    AnnouncementWrapper,
+    LegacyAboveFivePercent,
+    LegacyInvestorType,
+    Unknown,
+}
+
+impl OwnershipPdfSchema {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::HolderRegister => "holder_register",
+            Self::AnnouncementWrapper => "announcement_wrapper",
+            Self::LegacyAboveFivePercent => "legacy_above5",
+            Self::LegacyInvestorType => "legacy_investor_type",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct PageLine {
     x: f32,
@@ -33,9 +76,8 @@ struct PageLine {
     text: String,
 }
 
-/// Parse a KSEI ownership PDF into raw rows.
-/// Shells out to `mutool` for XML extraction, then parses with quick-xml.
-pub fn parse_ksei_pdf(path: &Path) -> Result<Vec<KseiRawRow>, IdxError> {
+/// Extract mutool stext XML from a PDF file.
+pub fn extract_pdf_stext(path: &Path) -> Result<String, IdxError> {
     check_mutool()?;
 
     let output = Command::new("mutool")
@@ -59,6 +101,35 @@ pub fn parse_ksei_pdf(path: &Path) -> Result<Vec<KseiRawRow>, IdxError> {
     let xml = String::from_utf8(output.stdout)
         .map_err(|e| IdxError::PdfParseError(format!("invalid utf-8 stext output: {e}")))?;
 
+    Ok(xml)
+}
+
+/// Classify a PDF schema from mutool stext XML before the row parser runs.
+pub fn classify_stext_xml(xml: &str) -> OwnershipPdfSchema {
+    let normalized = xml.to_ascii_uppercase();
+
+    if count_schema_markers(&normalized, HOLDER_REGISTER_SCHEMA_MARKERS) >= 5 {
+        return OwnershipPdfSchema::HolderRegister;
+    }
+    if count_schema_markers(&normalized, ABOVE_FIVE_SCHEMA_MARKERS) >= 2 {
+        return OwnershipPdfSchema::LegacyAboveFivePercent;
+    }
+    if count_schema_markers(&normalized, INVESTOR_TYPE_SCHEMA_MARKERS) >= 3 {
+        return OwnershipPdfSchema::LegacyInvestorType;
+    }
+    if count_schema_markers(&normalized, ANNOUNCEMENT_WRAPPER_SCHEMA_MARKERS) >= 2 {
+        return OwnershipPdfSchema::AnnouncementWrapper;
+    }
+
+    OwnershipPdfSchema::Unknown
+}
+
+/// Parse a KSEI ownership PDF into raw rows.
+/// Shells out to `mutool` for XML extraction, classifies the schema,
+/// and only parses the supported holder-register layout.
+pub fn parse_ksei_pdf(path: &Path) -> Result<Vec<KseiRawRow>, IdxError> {
+    let xml = extract_pdf_stext(path)?;
+    ensure_supported_schema(classify_stext_xml(&xml))?;
     parse_stext_xml(&xml)
 }
 
@@ -114,6 +185,31 @@ pub fn check_mutool() -> Result<(), IdxError> {
         .status()
         .map_err(|e| IdxError::PdfParseError(format!("mutool not found in PATH: {e}")))?;
     Ok(())
+}
+
+fn ensure_supported_schema(schema: OwnershipPdfSchema) -> Result<(), IdxError> {
+    match schema {
+        OwnershipPdfSchema::HolderRegister => Ok(()),
+        OwnershipPdfSchema::AnnouncementWrapper => Err(IdxError::Unsupported(
+            "IDX announcement wrapper PDFs are not importable; run `idx ownership discover` and use the `lamp1` attachment URL".to_string(),
+        )),
+        OwnershipPdfSchema::LegacyAboveFivePercent => Err(IdxError::Unsupported(
+            "legacy IDX `above5` ownership PDFs are not supported for import; only the `above1` holder-register `lamp1` attachment is supported".to_string(),
+        )),
+        OwnershipPdfSchema::LegacyInvestorType => Err(IdxError::Unsupported(
+            "legacy IDX `investor-type` ownership PDFs are not supported for import; only the `above1` holder-register `lamp1` attachment is supported".to_string(),
+        )),
+        OwnershipPdfSchema::Unknown => Err(IdxError::ParseError(
+            "PDF did not match the supported KSEI holder-register layout".to_string(),
+        )),
+    }
+}
+
+fn count_schema_markers(haystack: &str, markers: &[&str]) -> usize {
+    markers
+        .iter()
+        .filter(|marker| haystack.contains(**marker))
+        .count()
 }
 
 fn parse_line_attrs(
@@ -461,7 +557,9 @@ fn is_percentage_like(s: &str) -> bool {
 mod tests {
     use std::path::Path;
 
-    use super::{check_mutool, parse_ksei_pdf, parse_stext_xml};
+    use super::{
+        OwnershipPdfSchema, check_mutool, classify_stext_xml, parse_ksei_pdf, parse_stext_xml,
+    };
 
     #[test]
     fn test_parse_stext_xml_live_like_lines_extract_rows() {
@@ -511,6 +609,39 @@ mod tests {
         assert_eq!(row.holdings_scrip, "0");
         assert_eq!(row.total_holding_shares, "3.200.142.830");
         assert_eq!(row.percentage, "41,10");
+    }
+
+    #[test]
+    fn classify_stext_xml_detects_supported_holder_register_schema() {
+        let xml = include_str!("../../tests/fixtures/ksei_above1_stext_excerpt.xml");
+        assert_eq!(classify_stext_xml(xml), OwnershipPdfSchema::HolderRegister);
+    }
+
+    #[test]
+    fn classify_stext_xml_detects_announcement_wrapper_schema() {
+        let xml = include_str!("../../tests/fixtures/ksei_announcement_wrapper_stext_excerpt.xml");
+        assert_eq!(
+            classify_stext_xml(xml),
+            OwnershipPdfSchema::AnnouncementWrapper
+        );
+    }
+
+    #[test]
+    fn classify_stext_xml_detects_legacy_above5_schema() {
+        let xml = include_str!("../../tests/fixtures/ksei_above5_stext_excerpt.xml");
+        assert_eq!(
+            classify_stext_xml(xml),
+            OwnershipPdfSchema::LegacyAboveFivePercent
+        );
+    }
+
+    #[test]
+    fn classify_stext_xml_detects_legacy_investor_type_schema() {
+        let xml = include_str!("../../tests/fixtures/ksei_investor_type_stext_excerpt.xml");
+        assert_eq!(
+            classify_stext_xml(xml),
+            OwnershipPdfSchema::LegacyInvestorType
+        );
     }
 
     #[test]

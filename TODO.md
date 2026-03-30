@@ -78,17 +78,17 @@
     - the `above 5%` and `investor-type` BEI families remain different schemas; as of `2026-03-30`, they should be treated as legacy / unsupported input rather than new parser targets
 
 ### Batch 2 — Above-1 hardening and unsupported-input UX
-- [ ] Standardize the supported remote-import contract on the `Pemegang Saham di atas 1% (KSEI)` holder-register layout and its `lamp1` attachment shape
-- [ ] Add BEI PDF schema classification before parse/import so `ownership import --url` can reject non-holder-register PDFs before the parser runs
-- [ ] Improve CLI error messages and fallback behavior for discovery failure, fetch failure, invalid remote content, and known-but-unsupported legacy BEI schema variants
-- [ ] Capture live-like fixtures for the current discoverable `investor-type` and `above 5%` BEI attachments (or their `mutool` `stext` extracts) so unsupported-input detection and failure UX are regression-tested
-- [ ] Decide and document whether `ownership discover` should default to `above1` output while keeping legacy families available only for diagnostic use
-- [ ] Decide and document whether `ownership import --url` accepts only direct PDF URLs or can also accept an IDX listing page as input
-- [ ] Add regression coverage for Cloudflare/HTML responses, missing announcement links, duplicate release imports, and unsupported BEI schema detections
-- [ ] Batch 2 verification: `cargo build`
-- [ ] Batch 2 verification: `cargo clippy -- -D warnings`
-- [ ] Batch 2 verification: `cargo test`
-- [ ] Batch 2 verification: ownership-focused smoke checks cover successful remote import plus expected failure UX
+- [x] Standardize the supported remote-import contract on the `Pemegang Saham di atas 1% (KSEI)` holder-register layout and its `lamp1` attachment shape
+- [x] Add BEI PDF schema classification before parse/import so `ownership import --url` can reject non-holder-register PDFs before the parser runs
+- [x] Improve CLI error messages and fallback behavior for discovery failure, fetch failure, invalid remote content, and known-but-unsupported legacy BEI schema variants
+- [x] Capture live-like fixtures for the current discoverable `investor-type` and `above 5%` BEI attachments (or their `mutool` `stext` extracts) so unsupported-input detection and failure UX are regression-tested
+- [x] Decide and document whether `ownership discover` should default to `above1` output while keeping legacy families available only for diagnostic use
+- [x] Decide and document whether `ownership import --url` accepts only direct PDF URLs or can also accept an IDX listing page as input
+- [x] Add regression coverage for Cloudflare/HTML responses, missing announcement links, duplicate release imports, and unsupported BEI schema detections
+- [x] Batch 2 verification: `cargo build`
+- [x] Batch 2 verification: `cargo clippy -- -D warnings`
+- [x] Batch 2 verification: `cargo test`
+- [x] Batch 2 verification: ownership-focused smoke checks cover successful remote import plus expected failure UX
 
 ### Batch 3 — Snapshot publishing + sync
 - [ ] Design maintained SQLite snapshot publishing after remote IDX import is stable
@@ -157,6 +157,11 @@
 - [x] Live `ownership import --url` checks against the currently discoverable `above 5%` and `investor-type` BEI PDFs still fail with `no KSEI rows parsed from PDF`, which is expected until unsupported-family detection / rejection UX lands
 - [x] Live `mutool` inspection of the current discoverable `investor-type` BEI attachment shows a stock-level aggregate matrix (`DATE`, `STOCK_CODE`, `NUMBER_OF_SHARES`, investor-type columns, holder-size buckets), not the holder-level KSEI register schema the current parser imports
 - [x] Live `mutool` inspection of the current discoverable `above 5%` BEI attachment shows a member/tampungan report (`INVS`, member names, `KSEI UNTUK CLOSED MEMBER-...` labels), not the raw KSEI holder-register layout
+- [x] `ownership discover` now defaults to the supported `above1` family, surfaces per-URL importability status, and orders the importable `lamp1` attachment first so `--limit 1` yields the current supported PDF URL
+- [x] `ownership import --url` now accepts only direct PDF URLs; IDX listing/announcement page URLs fail fast with guidance to run `ownership discover`
+- [x] Valid-but-unsupported BEI PDFs now fail before row parsing with explicit schema-aware errors (`announcement_wrapper`, legacy `above5`, legacy `investor-type`) instead of the old generic `no KSEI rows parsed from PDF` path
+- [x] Regression coverage now covers default `ownership discover` behavior, status visibility, listing-page rejection, duplicate SHA imports, and explicit unsupported-schema detection with compact `stext` fixtures plus fake-`mutool` CLI tests
+- [x] New `ownership-import` smoke coverage now discovers the current live `above1`/`above5`/`investor-type` URLs, imports the supported `above1` attachment successfully, and confirms the legacy families fail with explicit unsupported-schema UX (`tmp/live-smoke/20260330-160201`)
 
 ## 🐛 Known Issues
 - [ ] Yahoo Finance returns 429 from datacenter IPs occasionally
