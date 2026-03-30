@@ -76,6 +76,11 @@
     - the parser was already correct for the holder-register schema; the missing piece was discovery support for the `Pemegang Saham di atas 1% (KSEI)` family
     - the parser-compatible source is the `lamp1` attachment `https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/b9b638e5a8_8928aca255.pdf`
     - the `above 5%` and `investor-type` BEI families remain different schemas; as of `2026-03-30`, they should be treated as legacy / unsupported input rather than new parser targets
+  - Post-merge reconfirmation on `2026-03-30`:
+    - live `idx ownership discover --family above1 --limit 2` still resolves the `2026-03-10` `above 1%` BEI pair and keeps the `lamp1` attachment as the parser-compatible source
+    - live `idx ownership import --url` into an isolated temp DB succeeded again from `b9b638e5a8_8928aca255.pdf`: `7261` rows for `955` tickers, `1` release, `5200` distinct raw investor names, and `5176` canonical entities for `as_of_date=2026-02-27`
+    - post-import sanity checks still pass for `idx ownership releases` and `idx ownership ticker AADI --source ksei`
+    - parser coverage now includes a compact real `above1` `mutool 1.27.0` `stext` excerpt fixture, not only the synthetic live-like line fixture
 
 ### Batch 2 — Above-1 hardening and unsupported-input UX
 - [ ] Standardize the supported remote-import contract on the `Pemegang Saham di atas 1% (KSEI)` holder-register layout and its `lamp1` attachment shape
