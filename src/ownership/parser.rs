@@ -493,6 +493,27 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_stext_xml_real_above1_excerpt_extracts_row() {
+        let xml = include_str!("../../tests/fixtures/ksei_above1_stext_excerpt.xml");
+
+        let rows = parse_stext_xml(xml).expect("failed to parse real above1 excerpt XML");
+        assert_eq!(rows.len(), 1);
+
+        let row = &rows[0];
+        assert_eq!(row.date, "27-Feb-2026");
+        assert_eq!(row.share_code, "AADI");
+        assert_eq!(row.issuer_name, "ADARO ANDALAN INDONESIA Tbk");
+        assert_eq!(row.investor_name, "ADARO STRATEGIC INVESTMENTS");
+        assert_eq!(row.investor_type, "CP");
+        assert_eq!(row.local_foreign, "D");
+        assert_eq!(row.nationality, "INDONESIA");
+        assert_eq!(row.holdings_scripless, "3.200.142.830");
+        assert_eq!(row.holdings_scrip, "0");
+        assert_eq!(row.total_holding_shares, "3.200.142.830");
+        assert_eq!(row.percentage, "41,10");
+    }
+
+    #[test]
     fn test_parse_ksei_pdf_real_file_row_count() {
         if check_mutool().is_err() {
             eprintln!("skipping mutool-dependent test: mutool not available");
