@@ -1,0 +1,48 @@
+{
+  "Items": [
+    {
+      "Id": "20260327163420-Peng-LKS-00043/BEI.PLP/03-2026_id-id",
+      "AnnouncementNo": "Peng-LKS-00043/BEI.PLP/03-2026",
+      "PublishDate": "2026-03-27T16:34:20",
+      "Title": "Pemegang Saham di atas 5% (KSEI)",
+      "AnnouncementType": "",
+      "Code": "Semua Emiten Saham",
+      "Attachments": [
+        {
+          "PDFFilename": "20260327_Semua Emiten Saham_Pengumuman Bursa_32055594.pdf",
+          "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/5d31bb6f49_announcement.pdf",
+          "IsAttachment": 0,
+          "OriginalFilename": "20260327_Semua Emiten Saham_Pengumuman Bursa_32055594.pdf"
+        },
+        {
+          "PDFFilename": "20260327_Semua Emiten Saham_Pengumuman Bursa_32055594_lamp1.pdf",
+          "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/4f5c4efc6f_bf70f249ac_lamp1.pdf",
+          "IsAttachment": 1,
+          "OriginalFilename": "20260327_Semua Emiten Saham_Pengumuman Bursa_32055594_lamp1.pdf"
+        }
+      ],
+      "PdfPath": "[{\"PDFFilename\":\"20260327_Semua Emiten Saham_Pengumuman Bursa_32055594.pdf\",\"FullSavePath\":\"https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/5d31bb6f49_announcement.pdf\",\"IsAttachment\":\"0\",\"OriginalFilename\":\"20260327_Semua Emiten Saham_Pengumuman Bursa_32055594.pdf\"},{\"PDFFilename\":\"20260327_Semua Emiten Saham_Pengumuman Bursa_32055594_lamp1.pdf\",\"FullSavePath\":\"https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/4f5c4efc6f_bf70f249ac_lamp1.pdf\",\"IsAttachment\":\"1\",\"OriginalFilename\":\"20260327_Semua Emiten Saham_Pengumuman Bursa_32055594_lamp1.pdf\"}]"
+    },
+    {
+      "Id": "20260328114739-LK/28032026/0001/1_id-id",
+      "AnnouncementNo": "LK/28032026/0001/1",
+      "PublishDate": "2026-03-28T11:47:39",
+      "Title": "LAPORAN KEPEMILIKAN ATAU SETIAP PERUBAHAN KEPEMILIKAN SAHAM PERUSAHAAN TERBUKA",
+      "AnnouncementType": "LKS",
+      "Code": "CASH",
+      "Attachments": [
+        {
+          "PDFFilename": "LK-28032026-2468-00.pdf-0",
+          "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_KSEI/LK-28032026-2468-00.pdf-0.pdf",
+          "IsAttachment": 1,
+          "OriginalFilename": "LK-28032026-2468-00.pdf"
+        }
+      ],
+      "PdfPath": "[{\"PDFFilename\":\"LK-28032026-2468-00.pdf-0\",\"FullSavePath\":\"https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_KSEI/LK-28032026-2468-00.pdf-0.pdf\",\"IsAttachment\":1,\"OriginalFilename\":\"LK-28032026-2468-00.pdf\"}]"
+    }
+  ],
+  "ItemCount": 2,
+  "PageSize": 10,
+  "PageNumber": 1,
+  "PageCount": 1
+}

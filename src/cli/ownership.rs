@@ -18,7 +18,7 @@ use crate::output::table::format_idr;
 use crate::ownership::types::{
     ChangeType, FlowSignal, HolderRow, KseiHolding, OwnershipRelease, OwnershipSource,
 };
-use crate::ownership::{db, entities, graph, parser, search};
+use crate::ownership::{db, entities, graph, parser, remote, search};
 
 #[derive(Debug, Args)]
 pub struct OwnershipCmd {
@@ -28,6 +28,8 @@ pub struct OwnershipCmd {
 
 #[derive(Debug, Subcommand)]
 pub enum OwnershipCommand {
+    /// Discover the latest IDX-hosted ownership report URLs.
+    Discover(DiscoverArgs),
     /// Import ownership data from KSEI PDF or Bing API.
     Import(ImportArgs),
     /// Show all holders for a ticker (KSEI + Bing combined).
@@ -53,8 +55,18 @@ pub enum OwnershipCommand {
 }
 
 #[derive(Debug, Args)]
+pub struct DiscoverArgs {
+    /// Report family to discover: all, above1, above5, or investor-type.
+    #[arg(long, default_value = "all")]
+    pub family: String,
+    /// Maximum number of discovered report URLs to print.
+    #[arg(long, default_value_t = 6)]
+    pub limit: usize,
+}
+
+#[derive(Debug, Args)]
 pub struct ImportArgs {
-    /// URL to KSEI ownership PDF.
+    /// URL to a remote ownership PDF.
     #[arg(long)]
     pub url: Option<String>,
     /// Path to local KSEI PDF file.
@@ -159,6 +171,7 @@ pub enum ResolveCommand {
 
 pub fn handle(cmd: &OwnershipCommand, config: &IdxConfig) -> Result<(), IdxError> {
     match cmd {
+        OwnershipCommand::Discover(args) => handle_discover(args, config),
         OwnershipCommand::Import(args) => handle_import(args, config),
         OwnershipCommand::Ticker(args) => handle_ticker(args, config),
         OwnershipCommand::Entity(args) => handle_entity(args, config),
@@ -171,6 +184,45 @@ pub fn handle(cmd: &OwnershipCommand, config: &IdxConfig) -> Result<(), IdxError
         OwnershipCommand::Resolve(args) => handle_resolve(args, config),
         OwnershipCommand::Releases => handle_releases(config),
     }
+}
+
+fn handle_discover(args: &DiscoverArgs, config: &IdxConfig) -> Result<(), IdxError> {
+    if args.limit == 0 {
+        return Err(IdxError::ParseError(
+            "--limit must be greater than 0".to_string(),
+        ));
+    }
+
+    let family = parse_discovery_family(&args.family)?;
+    let reports = remote::discover_idx_ownership_reports(family, args.limit)?;
+
+    if matches!(config.output, OutputFormat::Json) {
+        return json::print_json(&reports);
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec!["DATE", "FAMILY", "KIND", "FILE", "TITLE", "URL"]);
+
+    for report in reports {
+        table.add_row(vec![
+            Cell::new(report.publish_date.split('T').next().unwrap_or("-")),
+            Cell::new(report.family.label()),
+            Cell::new(if report.is_attachment {
+                "attachment"
+            } else {
+                "main"
+            }),
+            Cell::new(report.original_filename.unwrap_or_else(|| "-".to_string())),
+            Cell::new(report.title),
+            Cell::new(report.pdf_url),
+        ]);
+    }
+
+    println!("{table}");
+    Ok(())
 }
 
 fn handle_ticker(args: &TickerArgs, config: &IdxConfig) -> Result<(), IdxError> {
@@ -660,19 +712,19 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
         }
     }
 
-    let Some(pdf_path) = resolve_pdf_input(args)? else {
+    let Some(pdf_input) = resolve_pdf_input(args)? else {
         return Ok(());
     };
 
     let conn = db::open_db(config)?;
 
-    let sha256 = sha256_file(&pdf_path)?;
+    let sha256 = sha256_file(&pdf_input.pdf_path)?;
     if !args.force && db::release_exists(&conn, &sha256)? {
         println!("Release already imported (sha256: {sha256}). Use --force to re-import.");
         return Ok(());
     }
 
-    let raw_rows = parser::parse_ksei_pdf(&pdf_path)?;
+    let raw_rows = parser::parse_ksei_pdf(&pdf_input.pdf_path)?;
     if raw_rows.is_empty() {
         return Err(IdxError::ParseError(
             "no KSEI rows parsed from PDF".to_string(),
@@ -718,7 +770,7 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
 
     let release = OwnershipRelease {
         id: 0,
-        source_url: args.url.clone(),
+        source_url: pdf_input.source_url,
         sha256,
         as_of_date,
         row_count: inserted_rows,
@@ -769,7 +821,30 @@ fn handle_releases(config: &IdxConfig) -> Result<(), IdxError> {
     Ok(())
 }
 
-fn resolve_pdf_input(args: &ImportArgs) -> Result<Option<PathBuf>, IdxError> {
+fn parse_discovery_family(raw: &str) -> Result<Option<remote::OwnershipReportFamily>, IdxError> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "all" => Ok(None),
+        "above1" | "above-1" | "above_1" => {
+            Ok(Some(remote::OwnershipReportFamily::AboveOnePercent))
+        }
+        "above5" | "above-5" | "above_5" => {
+            Ok(Some(remote::OwnershipReportFamily::AboveFivePercent))
+        }
+        "investor-type" | "investor_type" | "investortype" => {
+            Ok(Some(remote::OwnershipReportFamily::InvestorTypeBreakdown))
+        }
+        _ => Err(IdxError::ParseError(
+            "invalid --family, expected: all|above1|above5|investor-type".to_string(),
+        )),
+    }
+}
+
+struct ResolvedPdfInput {
+    pdf_path: PathBuf,
+    source_url: Option<String>,
+}
+
+fn resolve_pdf_input(args: &ImportArgs) -> Result<Option<ResolvedPdfInput>, IdxError> {
     if let Some(path) = &args.file {
         if !path.exists() {
             return Err(IdxError::Io(format!(
@@ -777,13 +852,19 @@ fn resolve_pdf_input(args: &ImportArgs) -> Result<Option<PathBuf>, IdxError> {
                 path.display()
             )));
         }
-        return Ok(Some(path.clone()));
+        return Ok(Some(ResolvedPdfInput {
+            pdf_path: path.clone(),
+            source_url: None,
+        }));
     }
 
     if let Some(url) = &args.url {
         let target = cache_pdf_path(url)?;
         download_pdf(url, &target)?;
-        return Ok(Some(target));
+        return Ok(Some(ResolvedPdfInput {
+            pdf_path: target,
+            source_url: Some(url.clone()),
+        }));
     }
 
     Ok(None)
@@ -815,6 +896,10 @@ fn cache_pdf_path(url: &str) -> Result<PathBuf, IdxError> {
 }
 
 fn download_pdf(url: &str, target: &Path) -> Result<(), IdxError> {
+    if is_idx_url(url) {
+        return remote::download_idx_pdf(url, target);
+    }
+
     let response = ureq::get(url)
         .header(
             "User-Agent",
@@ -830,6 +915,7 @@ fn download_pdf(url: &str, target: &Path) -> Result<(), IdxError> {
     let bytes = body
         .read_to_vec()
         .map_err(|e| IdxError::Http(format!("failed reading PDF body: {e}")))?;
+    remote::validate_pdf_payload(&bytes)?;
 
     fs::write(target, &bytes).map_err(|e| {
         IdxError::Io(format!(
@@ -839,6 +925,14 @@ fn download_pdf(url: &str, target: &Path) -> Result<(), IdxError> {
     })?;
 
     Ok(())
+}
+
+fn is_idx_url(url: &str) -> bool {
+    let normalized = url.trim().to_ascii_lowercase();
+    normalized.starts_with("https://www.idx.co.id/")
+        || normalized.starts_with("http://www.idx.co.id/")
+        || normalized.starts_with("https://idx.co.id/")
+        || normalized.starts_with("http://idx.co.id/")
 }
 
 fn sha256_file(path: &Path) -> Result<String, IdxError> {

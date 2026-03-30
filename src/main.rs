@@ -3,6 +3,7 @@ mod api;
 mod cache;
 mod cli;
 mod config;
+mod curl_impersonate;
 mod error;
 mod output;
 #[cfg(feature = "ownership")]

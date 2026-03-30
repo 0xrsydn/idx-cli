@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Command;
 use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::api::types::{Interval, Period};
+use crate::curl_impersonate;
 use crate::error::IdxError;
 
 use super::raw_types::{ChartResponse, QuoteSummaryResponse};
@@ -117,56 +118,8 @@ impl YahooClient {
         Ok(cookies.join("; "))
     }
 
-    fn chrome_curl_binary() -> Option<&'static str> {
-        // curl-impersonate-chrome ships per-version binaries (curl_chrome131 etc).
-        // Try latest versions first; no --impersonate flag needed; the binary is the impersonation.
-        const CANDIDATES: &[&str] = &[
-            "curl_chrome136",
-            "curl_chrome133a",
-            "curl_chrome131",
-            "curl_chrome124",
-            "curl_chrome120",
-            "curl_chrome116",
-        ];
-        CANDIDATES
-            .iter()
-            .copied()
-            .find(|bin| Command::new(bin).arg("--version").output().is_ok())
-    }
-
-    fn run_curl(stage: &str, binary: &str, args: &[&str]) -> Result<Output, IdxError> {
-        let output = Command::new(binary).args(args).output().map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                return IdxError::Http(format!(
-                    "curl-impersonate binary '{binary}' not found; install nixpkgs#curl-impersonate-chrome"
-                ));
-            }
-            IdxError::Http(format!("failed to run {binary} for Yahoo {stage}: {e}"))
-        })?;
-
-        if output.status.success() {
-            return Ok(output);
-        }
-
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail = stderr.trim();
-        Err(IdxError::Http(format!(
-            "Yahoo {stage} {binary} failed (status {}): {}",
-            output.status,
-            if detail.is_empty() {
-                "no output"
-            } else {
-                detail
-            }
-        )))
-    }
-
     fn fetch_crumb_via_curl(&self) -> Result<String, IdxError> {
-        let binary = Self::chrome_curl_binary().ok_or_else(|| {
-            IdxError::Http(
-                "no curl_chrome* binary found; install nixpkgs#curl-impersonate-chrome".to_string(),
-            )
-        })?;
+        let binary = curl_impersonate::chrome_curl_binary()?;
 
         let cookie_jar = Self::cookie_jar_path();
         let cookie_jar_str = cookie_jar.to_str().ok_or_else(|| {
@@ -190,9 +143,8 @@ impl YahooClient {
             .output();
 
         // Step 2: fetch crumb with cookie jar (Chrome TLS fingerprint + A3 cookie).
-        let output = Self::run_curl(
-            "crumb fetch",
-            binary,
+        let output = curl_impersonate::run(
+            "Yahoo crumb fetch",
             &["--silent", "--cookie", cookie_jar_str, CRUMB_FETCH_URL],
         )?;
 

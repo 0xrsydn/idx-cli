@@ -215,7 +215,7 @@ fn normalize_investor_type(raw: &str) -> Option<InvestorTypeCode> {
 
 fn normalize_locality(raw: &str) -> Option<Locality> {
     match raw.trim().to_uppercase().as_str() {
-        "L" => Some(Locality::Local),
+        "L" | "D" => Some(Locality::Local),
         "F" | "A" => Some(Locality::Foreign),
         _ => None,
     }

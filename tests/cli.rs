@@ -1,5 +1,8 @@
 use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+use std::thread;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -36,6 +39,30 @@ fn bin_with_root(root: &Path) -> Command {
 fn test_bin(name: &str) -> Command {
     let root = test_env_dir(name);
     bin_with_root(&root)
+}
+
+fn spawn_single_response_server(content_type: &str, body: impl Into<Vec<u8>>) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind local test server");
+    let addr = listener.local_addr().expect("local addr");
+    let content_type = content_type.to_string();
+    let body = body.into();
+
+    thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept test connection");
+        let mut buf = [0u8; 2048];
+        let _ = stream.read(&mut buf);
+
+        let headers = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream
+            .write_all(headers.as_bytes())
+            .expect("write response headers");
+        stream.write_all(&body).expect("write response body");
+    });
+
+    format!("http://{addr}")
 }
 
 #[test]
@@ -578,6 +605,108 @@ fn ownership_import_fetch_bing_reports_unsupported() {
         .stderr(predicate::str::contains(
             "--fetch-bing import is not implemented yet",
         ));
+}
+
+#[test]
+fn ownership_discover_lists_fixture_candidates() {
+    let body = fs::read_to_string("tests/fixtures/idx_announcement_kepemilikan.json")
+        .expect("read ownership discovery fixture");
+    let json_url = spawn_single_response_server("application/json", body);
+
+    test_bin("ownership-discover")
+        .env("IDX_CURL_IMPERSONATE_BIN", "curl")
+        .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
+        .env(
+            "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
+            "http://127.0.0.1/pengumuman",
+        )
+        .args([
+            "ownership",
+            "discover",
+            "--family",
+            "above5",
+            "--limit",
+            "2",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Above 5%"))
+        .stdout(predicate::str::contains(
+            "20260327_Semua Emiten Saham_Pengumuman Bursa_32055594.pdf",
+        ))
+        .stdout(predicate::str::contains(
+            "20260327_Semua Emiten Saham_Pengumuman Bursa_32055594_lamp1.pdf",
+        ));
+}
+
+#[test]
+fn ownership_discover_supports_above1_family() {
+    let body = r#"{
+      "Items": [
+        {
+          "PublishDate": "2026-03-10T12:09:09",
+          "Title": "Pemegang Saham di atas 1% (KSEI)",
+          "AnnouncementType": "",
+          "Code": "Semua Emiten Saham",
+          "Attachments": [
+            {
+              "PDFFilename": "d67ebf37e6_10d4080288.pdf",
+              "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/d67ebf37e6_10d4080288.pdf",
+              "IsAttachment": 0,
+              "OriginalFilename": "20260310_Semua Emiten Saham_Pengumuman Bursa_32052554.pdf"
+            },
+            {
+              "PDFFilename": "b9b638e5a8_8928aca255.pdf",
+              "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/b9b638e5a8_8928aca255.pdf",
+              "IsAttachment": 1,
+              "OriginalFilename": "20260310_Semua Emiten Saham_Pengumuman Bursa_32052554_lamp1.pdf"
+            }
+          ],
+          "PdfPath": ""
+        }
+      ],
+      "ItemCount": 1,
+      "PageSize": 10,
+      "PageNumber": 1,
+      "PageCount": 1
+    }"#;
+    let json_url = spawn_single_response_server("application/json", body.to_string());
+
+    test_bin("ownership-discover-above1")
+        .env("IDX_CURL_IMPERSONATE_BIN", "curl")
+        .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
+        .env(
+            "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
+            "http://127.0.0.1/pengumuman",
+        )
+        .args([
+            "ownership",
+            "discover",
+            "--family",
+            "above1",
+            "--limit",
+            "2",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Above 1%"))
+        .stdout(predicate::str::contains(
+            "20260310_Semua Emiten Saham_Pengumuman Bursa_32052554_lamp1.pdf",
+        ));
+}
+
+#[test]
+fn ownership_import_url_rejects_html_response_before_pdf_parse() {
+    let html_url = spawn_single_response_server(
+        "text/html; charset=utf-8",
+        "<!doctype html><html><body>blocked</body></html>",
+    );
+
+    test_bin("ownership-import-url-html")
+        .args(["ownership", "import", "--url", &html_url])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("returned HTML instead of a PDF"));
 }
 
 #[test]
