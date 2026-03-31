@@ -78,9 +78,36 @@ impl OwnershipReportFamily {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OwnershipReportStatus {
+    Supported,
+    AnnouncementOnly,
+    Unsupported,
+}
+
+impl OwnershipReportStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Supported => "supported",
+            Self::AnnouncementOnly => "announcement_only",
+            Self::Unsupported => "unsupported",
+        }
+    }
+
+    fn sort_rank(self) -> u8 {
+        match self {
+            Self::Supported => 0,
+            Self::AnnouncementOnly => 1,
+            Self::Unsupported => 2,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DiscoveredOwnershipPdf {
     pub family: OwnershipReportFamily,
+    pub status: OwnershipReportStatus,
     pub listing_page_url: String,
     pub query_url: String,
     pub pdf_url: String,
@@ -148,13 +175,13 @@ pub fn parse_announcement_page(raw: &str) -> Result<AnnouncementPage, IdxError> 
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(IdxError::Http(
-            "IDX ownership discovery returned an empty announcement payload".to_string(),
+            "IDX ownership discovery returned an empty announcement payload; the IDX announcement API did not return any JSON items".to_string(),
         ));
     }
     let normalized = trimmed.to_ascii_lowercase();
     if normalized.starts_with("<!doctype html") || normalized.starts_with("<html") {
         return Err(IdxError::Http(
-            "IDX ownership discovery returned HTML instead of announcement JSON".to_string(),
+            "IDX ownership discovery returned HTML instead of announcement JSON; verify the announcement endpoint or try again later".to_string(),
         ));
     }
 
@@ -172,7 +199,8 @@ pub fn select_latest_ownership_reports(
         .find(|query| query.family == family)
     else {
         return Err(IdxError::Http(format!(
-            "failed to discover IDX ownership reports from {query_url}: unknown report family"
+            "failed to discover {} IDX ownership reports from {query_url}: unknown report family",
+            family.cli_name()
         )));
     };
 
@@ -185,7 +213,8 @@ pub fn select_latest_ownership_reports(
 
     let Some(item) = matches.into_iter().next() else {
         return Err(IdxError::Http(format!(
-            "failed to discover IDX ownership reports from {query_url}: no matching announcement found"
+            "failed to discover {} IDX ownership reports from {query_url}: no matching announcement found",
+            family.cli_name()
         )));
     };
 
@@ -198,9 +227,11 @@ pub fn select_latest_ownership_reports(
                 .clone()
                 .or(attachment.pdf_filename.clone())
                 .map(|value| value.trim().to_string());
+            let status = classify_report_status(family, is_attachment);
 
             DiscoveredOwnershipPdf {
                 family,
+                status,
                 listing_page_url: announcement_listing_url(),
                 query_url: query_url.to_string(),
                 pdf_url: attachment.full_save_path,
@@ -214,14 +245,17 @@ pub fn select_latest_ownership_reports(
         .collect::<Vec<_>>();
 
     attachments.sort_by(|left, right| {
-        left.is_attachment
-            .cmp(&right.is_attachment)
+        left.status
+            .sort_rank()
+            .cmp(&right.status.sort_rank())
+            .then_with(|| right.is_attachment.cmp(&left.is_attachment))
             .then_with(|| left.original_filename.cmp(&right.original_filename))
     });
 
     if attachments.is_empty() {
         return Err(IdxError::Http(format!(
-            "failed to discover IDX ownership reports from {query_url}: matching announcement had no PDF attachments"
+            "failed to discover {} IDX ownership reports from {query_url}: matching announcement had no PDF attachments",
+            family.cli_name()
         )));
     }
 
@@ -257,7 +291,8 @@ pub fn discover_idx_ownership_reports(
         right
             .publish_date
             .cmp(&left.publish_date)
-            .then_with(|| left.is_attachment.cmp(&right.is_attachment))
+            .then_with(|| left.status.sort_rank().cmp(&right.status.sort_rank()))
+            .then_with(|| right.is_attachment.cmp(&left.is_attachment))
             .then_with(|| left.original_filename.cmp(&right.original_filename))
     });
 
@@ -313,12 +348,12 @@ pub fn validate_pdf_payload(bytes: &[u8]) -> Result<(), IdxError> {
     let preview = String::from_utf8_lossy(&trimmed[..trimmed.len().min(256)]).to_ascii_lowercase();
     if preview.contains("<!doctype html") || preview.contains("<html") {
         return Err(IdxError::Http(
-            "IDX ownership download returned HTML instead of a PDF".to_string(),
+            "IDX ownership download returned HTML instead of a PDF/direct attachment".to_string(),
         ));
     }
 
     Err(IdxError::Http(
-        "IDX ownership download did not look like a PDF".to_string(),
+        "IDX ownership download did not look like a PDF/direct attachment".to_string(),
     ))
 }
 
@@ -415,6 +450,17 @@ fn attachment_label(attachment: &AnnouncementAttachment) -> String {
         .to_ascii_lowercase()
 }
 
+fn classify_report_status(
+    family: OwnershipReportFamily,
+    is_attachment: bool,
+) -> OwnershipReportStatus {
+    match (family, is_attachment) {
+        (OwnershipReportFamily::AboveOnePercent, true) => OwnershipReportStatus::Supported,
+        (OwnershipReportFamily::AboveOnePercent, false) => OwnershipReportStatus::AnnouncementOnly,
+        _ => OwnershipReportStatus::Unsupported,
+    }
+}
+
 fn parse_pdf_path(raw: &str) -> Option<Vec<AnnouncementAttachment>> {
     serde_json::from_str::<Vec<AnnouncementAttachment>>(raw).ok()
 }
@@ -455,8 +501,8 @@ fn percent_encode(value: &str) -> String {
 mod tests {
     use super::{
         AnnouncementPage, IDX_ANNOUNCEMENT_LISTING_URL, OwnershipReportFamily,
-        build_announcement_query_url, parse_announcement_page, select_latest_ownership_reports,
-        validate_pdf_payload,
+        OwnershipReportStatus, build_announcement_query_url, parse_announcement_page,
+        select_latest_ownership_reports, validate_pdf_payload,
     };
     use crate::error::IdxError;
 
@@ -489,22 +535,23 @@ mod tests {
         assert_eq!(discovered[0].publish_date, "2026-03-27T16:34:20");
         assert_eq!(
             discovered[0].pdf_url,
-            "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/5d31bb6f49_announcement.pdf"
-        );
-        assert_eq!(
-            discovered[0].original_filename.as_deref(),
-            Some("20260327_Semua Emiten Saham_Pengumuman Bursa_32055594.pdf")
-        );
-        assert!(!discovered[0].is_attachment);
-        assert_eq!(
-            discovered[1].pdf_url,
             "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/4f5c4efc6f_bf70f249ac_lamp1.pdf"
         );
         assert_eq!(
-            discovered[1].original_filename.as_deref(),
+            discovered[0].original_filename.as_deref(),
             Some("20260327_Semua Emiten Saham_Pengumuman Bursa_32055594_lamp1.pdf")
         );
-        assert!(discovered[1].is_attachment);
+        assert_eq!(discovered[0].status, OwnershipReportStatus::Unsupported);
+        assert!(discovered[0].is_attachment);
+        assert_eq!(
+            discovered[1].pdf_url,
+            "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/5d31bb6f49_announcement.pdf"
+        );
+        assert_eq!(
+            discovered[1].original_filename.as_deref(),
+            Some("20260327_Semua Emiten Saham_Pengumuman Bursa_32055594.pdf")
+        );
+        assert!(!discovered[1].is_attachment);
     }
 
     #[test]
@@ -547,17 +594,18 @@ mod tests {
 
         assert_eq!(discovered.len(), 2);
         assert_eq!(discovered[0].family, OwnershipReportFamily::AboveOnePercent);
+        assert_eq!(discovered[0].status, OwnershipReportStatus::Supported);
         assert_eq!(discovered[0].code.as_deref(), Some("Semua Emiten Saham"));
         assert_eq!(
             discovered[0].original_filename.as_deref(),
-            Some("20260310_Semua Emiten Saham_Pengumuman Bursa_32052554.pdf")
+            Some("20260310_Semua Emiten Saham_Pengumuman Bursa_32052554_lamp1.pdf")
         );
-        assert!(!discovered[0].is_attachment);
+        assert!(discovered[0].is_attachment);
         assert_eq!(
-            discovered[1].pdf_url,
-            "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/b9b638e5a8_8928aca255.pdf"
+            discovered[1].status,
+            OwnershipReportStatus::AnnouncementOnly
         );
-        assert!(discovered[1].is_attachment);
+        assert!(!discovered[1].is_attachment);
     }
 
     #[test]
@@ -601,11 +649,12 @@ mod tests {
         assert_eq!(discovered.len(), 2);
         assert_eq!(
             discovered[0].original_filename.as_deref(),
-            Some("20260302_Pengumuman Bursa_32040089.pdf")
+            Some("20260302_Pengumuman Bursa_32040089_lamp1.pdf")
         );
+        assert_eq!(discovered[0].status, OwnershipReportStatus::Unsupported);
         assert_eq!(
             discovered[1].original_filename.as_deref(),
-            Some("20260302_Pengumuman Bursa_32040089_lamp1.pdf")
+            Some("20260302_Pengumuman Bursa_32040089.pdf")
         );
     }
 
@@ -651,6 +700,57 @@ mod tests {
     }
 
     #[test]
+    fn rejects_empty_announcement_payload() {
+        let err = parse_announcement_page("   ").expect_err("empty payload must fail");
+        assert!(matches!(err, IdxError::Http(_)));
+    }
+
+    #[test]
+    fn select_latest_reports_errors_when_family_is_missing() {
+        let raw = r#"{"Items":[],"ItemCount":0,"PageCount":0}"#;
+        let page = parse_announcement_page(raw).expect("empty page parses");
+
+        let err = select_latest_ownership_reports(
+            &page,
+            "https://www.idx.co.id/primary/NewsAnnouncement/GetAllAnnouncement?keywords=pemegang%20saham%20di%20atas%201&pageNumber=1&pageSize=10&lang=id",
+            OwnershipReportFamily::AboveOnePercent,
+        )
+        .expect_err("missing announcement should fail");
+
+        assert!(matches!(err, IdxError::Http(_)));
+        assert!(err.to_string().contains("no matching announcement found"));
+    }
+
+    #[test]
+    fn select_latest_reports_errors_when_matching_item_has_no_pdf() {
+        let raw = r#"{
+          "Items": [
+            {
+              "PublishDate": "2026-03-10T12:09:09",
+              "Title": "Pemegang Saham di atas 1% (KSEI)",
+              "AnnouncementType": "",
+              "Code": "Semua Emiten Saham",
+              "Attachments": [],
+              "PdfPath": ""
+            }
+          ],
+          "ItemCount": 1,
+          "PageCount": 1
+        }"#;
+        let page = parse_announcement_page(raw).expect("page parses");
+
+        let err = select_latest_ownership_reports(
+            &page,
+            "https://www.idx.co.id/primary/NewsAnnouncement/GetAllAnnouncement?keywords=pemegang%20saham%20di%20atas%201&pageNumber=1&pageSize=10&lang=id",
+            OwnershipReportFamily::AboveOnePercent,
+        )
+        .expect_err("missing pdf attachments should fail");
+
+        assert!(matches!(err, IdxError::Http(_)));
+        assert!(err.to_string().contains("no PDF attachments"));
+    }
+
+    #[test]
     fn accepts_pdf_header() {
         validate_pdf_payload(b"%PDF-1.7\n1 0 obj\n").expect("pdf header should pass");
     }
@@ -660,5 +760,6 @@ mod tests {
         let err = validate_pdf_payload(b"<!doctype html><html><body>blocked</body></html>")
             .expect_err("html body must fail");
         assert!(matches!(err, IdxError::Http(_)));
+        assert!(err.to_string().contains("PDF/direct attachment"));
     }
 }

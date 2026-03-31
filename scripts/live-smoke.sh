@@ -28,6 +28,9 @@ CACHE_HOME=""
 DATA_HOME=""
 OWNERSHIP_DB=""
 LOG_DIR=""
+OWNERSHIP_ABOVE1_URL=""
+OWNERSHIP_ABOVE5_URL=""
+OWNERSHIP_INVESTOR_TYPE_URL=""
 
 declare -a BASE_ENV=()
 
@@ -59,6 +62,7 @@ Groups:
   routing      provider routing and explicit unsupported checks
   errors       JSON error contract and invalid-flag checks
   ownership    ownership commands that are safe without imported data
+  ownership-import  live ownership discovery/import hardening checks
 
 Examples:
   scripts/live-smoke.sh
@@ -124,7 +128,12 @@ group_requested() {
 
 should_run_group() {
     local group="$1"
-    mode_allows_group "$group" && group_requested "$group"
+    if [[ ${#GROUP_FILTERS[@]} -gt 0 ]]; then
+        group_requested "$group"
+        return
+    fi
+
+    mode_allows_group "$group"
 }
 
 add_case() {
@@ -242,6 +251,12 @@ register_cases() {
 
     add_case "ownership" "releases-empty" "0" "" "ownership releases" "No ownership releases imported yet."
     add_case "ownership" "fetch-bing-unsupported" "1" "" "ownership import --fetch-bing $live_symbol" "--fetch-bing import is not implemented yet"
+
+    add_case "ownership-import" "discover-default-above1" "0" "" "ownership discover --limit 1" "supported"
+    add_case "ownership-import" "import-supported-above1" "0" "" "ownership import --url $OWNERSHIP_ABOVE1_URL" "Imported "
+    add_case "ownership-import" "releases-after-import" "0" "" "ownership releases" "$OWNERSHIP_ABOVE1_URL"
+    add_case "ownership-import" "import-legacy-above5" "1" "" "ownership import --url $OWNERSHIP_ABOVE5_URL" "legacy IDX \`above5\` ownership PDFs are not supported for import"
+    add_case "ownership-import" "import-legacy-investor-type" "1" "" "ownership import --url $OWNERSHIP_INVESTOR_TYPE_URL" "legacy IDX \`investor-type\` ownership PDFs are not supported for import"
 }
 
 parse_args() {
@@ -400,6 +415,50 @@ prepare_environment() {
     bootstrap_case "ownership-db" config set ownership.db_path "$OWNERSHIP_DB"
 }
 
+discover_ownership_import_url() {
+    local family="$1"
+    local log_file="$LOG_DIR/bootstrap-discover-${family}.log"
+    local url
+
+    if (( DRY_RUN )); then
+        case "$family" in
+            above1) printf 'https://example.invalid/above1-lamp1.pdf' ;;
+            above5) printf 'https://example.invalid/above5-lamp1.pdf' ;;
+            investor-type) printf 'https://example.invalid/investor-type-lamp1.pdf' ;;
+            *) return 1 ;;
+        esac
+        return 0
+    fi
+
+    (
+        cd "$ROOT_DIR" || exit 1
+        env "${BASE_ENV[@]}" "$BIN_PATH" -o json ownership discover --family "$family" --limit 1
+    ) >"$log_file" 2>&1
+
+    if [[ $? -ne 0 ]]; then
+        echo "bootstrap failed for ownership-discover-$family; see $log_file" >&2
+        exit 1
+    fi
+
+    url="$(grep -m1 '"pdf_url"' "$log_file" | sed -E 's/.*"pdf_url": "([^"]+)".*/\1/')"
+    if [[ -z "$url" ]]; then
+        echo "bootstrap failed for ownership-discover-$family: could not parse pdf_url from $log_file" >&2
+        exit 1
+    fi
+
+    printf '%s' "$url"
+}
+
+prepare_ownership_import_inputs() {
+    if ! should_run_group "ownership-import"; then
+        return 0
+    fi
+
+    OWNERSHIP_ABOVE1_URL="$(discover_ownership_import_url above1)"
+    OWNERSHIP_ABOVE5_URL="$(discover_ownership_import_url above5)"
+    OWNERSHIP_INVESTOR_TYPE_URL="$(discover_ownership_import_url investor-type)"
+}
+
 cache_case_starts_fresh() {
     local group="$1"
     local label="$2"
@@ -494,7 +553,6 @@ main() {
 
     parse_args "$@"
     prepare_paths
-    register_cases
 
     printf 'mode: %s\n' "$MODE"
     printf 'workdir: %s\n' "$WORKDIR"
@@ -506,6 +564,14 @@ main() {
 
     build_binary
     prepare_environment
+    prepare_ownership_import_inputs
+    register_cases
+
+    if should_run_group "ownership-import"; then
+        printf 'ownership above1 url: %s\n' "$OWNERSHIP_ABOVE1_URL"
+        printf 'ownership above5 url: %s\n' "$OWNERSHIP_ABOVE5_URL"
+        printf 'ownership investor-type url: %s\n' "$OWNERSHIP_INVESTOR_TYPE_URL"
+    fi
 
     for case_line in "${CASES[@]}"; do
         run_case_line "$case_line"

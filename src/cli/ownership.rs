@@ -56,8 +56,8 @@ pub enum OwnershipCommand {
 
 #[derive(Debug, Args)]
 pub struct DiscoverArgs {
-    /// Report family to discover: all, above1, above5, or investor-type.
-    #[arg(long, default_value = "all")]
+    /// Report family to discover: above1 (default), all, above5, or investor-type.
+    #[arg(long, default_value = "above1")]
     pub family: String,
     /// Maximum number of discovered report URLs to print.
     #[arg(long, default_value_t = 6)]
@@ -204,12 +204,15 @@ fn handle_discover(args: &DiscoverArgs, config: &IdxConfig) -> Result<(), IdxErr
     table
         .load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_header(vec!["DATE", "FAMILY", "KIND", "FILE", "TITLE", "URL"]);
+        .set_header(vec![
+            "DATE", "FAMILY", "STATUS", "KIND", "FILE", "TITLE", "URL",
+        ]);
 
     for report in reports {
         table.add_row(vec![
             Cell::new(report.publish_date.split('T').next().unwrap_or("-")),
             Cell::new(report.family.label()),
+            Cell::new(report.status.label()),
             Cell::new(if report.is_attachment {
                 "attachment"
             } else {
@@ -859,11 +862,13 @@ fn resolve_pdf_input(args: &ImportArgs) -> Result<Option<ResolvedPdfInput>, IdxE
     }
 
     if let Some(url) = &args.url {
-        let target = cache_pdf_path(url)?;
-        download_pdf(url, &target)?;
+        let trimmed = url.trim();
+        validate_import_url(trimmed)?;
+        let target = cache_pdf_path(trimmed)?;
+        download_pdf(trimmed, &target)?;
         return Ok(Some(ResolvedPdfInput {
             pdf_path: target,
-            source_url: Some(url.clone()),
+            source_url: Some(trimmed.to_string()),
         }));
     }
 
@@ -893,6 +898,28 @@ fn cache_pdf_path(url: &str) -> Result<PathBuf, IdxError> {
     }
 
     Ok(raw_dir.join(file_name))
+}
+
+fn validate_import_url(url: &str) -> Result<(), IdxError> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err(IdxError::InvalidInput(
+            "ownership import --url accepts direct PDF URLs only".to_string(),
+        ));
+    }
+
+    let normalized = trimmed.to_ascii_lowercase();
+    let normalized = normalized
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(normalized.as_str());
+    if normalized.ends_with(".pdf") {
+        return Ok(());
+    }
+
+    Err(IdxError::InvalidInput(
+        "ownership import --url accepts direct PDF URLs only; run `idx ownership discover` first to find the current supported attachment".to_string(),
+    ))
 }
 
 fn download_pdf(url: &str, target: &Path) -> Result<(), IdxError> {

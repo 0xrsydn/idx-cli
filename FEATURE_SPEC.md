@@ -26,15 +26,16 @@ Use `TODO.md` as the execution log and smoke-history record.
 
 ## Verified Current State
 
-- Current automated coverage is `153` tests: `102` unit and `51` integration.
+- Current automated coverage is `168` tests: `110` unit and `58` integration.
 - Reusable smoke coverage exists via `scripts/live-smoke.sh`; command groups are documented in `docs/SMOKE.md`.
 - The latest smoke notes in `TODO.md` report passing live table and JSON checks for all shipped `stocks` commands.
 - Cache/offline parity, JSON startup-error handling, screener input validation, and the recent MSN output cleanups have already been completed.
 - KSEI ownership import/query is now verified end-to-end from a local March 2026 PDF file into SQLite, with direct CLI reads through `ownership releases` and `ownership ticker`.
 - Remote ownership ingestion should now be treated as an IDX PDF discovery-and-fetch problem first, not a hardcoded KSEI PDF URL problem: direct IDX announcement PDFs exist, but the hashed asset URL must be discovered from an IDX listing/announcement surface and fetched with browser-like behavior.
-- The CLI now has an explicit `idx ownership discover` surface that enumerates the latest hashed BEI ownership report URLs.
+- The CLI now has an explicit `idx ownership discover` surface that enumerates the latest hashed BEI ownership report URLs and defaults to the supported `above1` family.
 - Live verification on `2026-03-29` confirmed that the parser-compatible discovered source is currently the `Pemegang Saham di atas 1% (KSEI)` `lamp1` attachment, and `idx ownership import --url` now works end to end for that discovered BEI PDF.
-- The currently discoverable `above 5%` and `investor-type` BEI families remain different schemas and should now be treated as legacy / unsupported input outside the current holder-register parser contract.
+- The currently discoverable `above 5%` and `investor-type` BEI families remain different schemas and are now classified and rejected explicitly during import instead of falling through to a generic zero-row parse failure.
+- Ownership smoke coverage now includes a dedicated `ownership-import` group that verifies live supported import plus expected unsupported-family failures.
 
 This means the main gap is no longer endpoint coverage.
 The remaining work is architecture cleanup, a few correctness edge cases, and selective UX expansion on top of already-shipped commands.
@@ -61,7 +62,7 @@ The remaining work is architecture cleanup, a few correctness edge cases, and se
 | News | `idx stocks news` | Implemented | Fixture-backed CLI coverage exists |
 | Screener | `idx stocks screen` | Implemented with gaps | Validation landed; expression/preset workflow is still future work |
 | MSN charts | `idx stocks history --history-provider msn` | Missing | Explicit MSN history still returns unsupported for IDX |
-| KSEI ownership import/query | `idx ownership import --file`, `idx ownership import --url`, `idx ownership releases`, `idx ownership ticker` | Implemented with gaps | Local PDF import and SQLite-backed query flow are verified against the March 2026 KSEI release; remote IDX import now works for the discovered `above 1%` `lamp1` BEI attachment, while legacy `above 5%` and `investor-type` BEI report families still need explicit unsupported-input handling |
+| KSEI ownership import/query | `idx ownership import --file`, `idx ownership import --url`, `idx ownership releases`, `idx ownership ticker` | Implemented | Local PDF import and SQLite-backed query flow are verified against the March 2026 KSEI release; remote IDX import now works for the discovered `above 1%` `lamp1` BEI attachment, and legacy `above 5%` / `investor-type` BEI report families are rejected explicitly |
 | Bing ownership CLI | `idx ownership import --fetch-bing` | Not implemented | Client groundwork exists, CLI import path is still deferred |
 
 ---
@@ -82,6 +83,7 @@ The following items should no longer be treated as active backlog in this spec:
 - Baseline parser and CLI regression coverage for the shipped MSN-only command set
 - KSEI ownership parser hardening for the March 2026 live PDF layout, including the merged `DATE + SHARE_CODE` segment and `D`/`A` locality markers
 - Real KSEI ownership CLI verification from local file import into SQLite (`7261` rows across `955` tickers on `2026-03-28`)
+- Ownership remote-import hardening for the `above1` contract, including direct-PDF-only `--url` input, discovery status output, explicit legacy-schema rejection, and live ownership-import smoke coverage
 
 If any of the above regress, capture that in `TODO.md` as a new finding rather than reopening the old section here wholesale.
 
@@ -158,7 +160,7 @@ Current state:
 
 Why it matters:
 - The ownership feature now parses and stores live ownership data correctly from both local files and the currently discoverable `above 1%` BEI `lamp1` attachment.
-- The remaining gap is not basic remote import anymore; it is hardening the supported `above 1%` path and clearly rejecting other discovered BEI schemas that do not match the holder-register contract.
+- Batch 2 hardening is now complete; the remaining ownership roadmap is snapshot publishing / `ownership sync` plus optional fallback ingest and cross-check work.
 
 Done when:
 - The CLI can discover the latest parser-compatible IDX ownership PDF URL from an IDX listing/announcement surface without hardcoded monthly paths.
@@ -167,12 +169,8 @@ Done when:
 - Unsupported BEI report families are classified and rejected explicitly instead of failing later with a generic zero-row parse error.
 
 Roadmap:
-1. Keep discovery and import flows centered on the parser-compatible `above 1%` family and its `lamp1` attachment.
-2. Reuse the existing `curl-impersonate` pattern for browser-like PDF fetches.
-3. Add schema classification / unsupported-input UX for the legacy `above 5%` and `investor-type` BEI PDFs.
-4. Decide whether the default discover output should be `above1`-first, with legacy families retained only for diagnostic use.
-5. Publish maintained SQLite snapshot artifacts and add `idx ownership sync` after remote IDX import is stable.
-6. Optionally add KSEI ZIP/TXT ingest later as fallback or cross-check input.
+1. Publish maintained SQLite snapshot artifacts and add `idx ownership sync` after remote IDX import is stable.
+2. Optionally add KSEI ZIP/TXT ingest later as fallback or cross-check input.
 
 ### P1 - UX and output contract cleanup
 

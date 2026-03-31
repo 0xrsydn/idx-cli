@@ -1,6 +1,8 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::thread;
 
@@ -63,6 +65,51 @@ fn spawn_single_response_server(content_type: &str, body: impl Into<Vec<u8>>) ->
     });
 
     format!("http://{addr}")
+}
+
+fn fake_pdf_bytes() -> Vec<u8> {
+    b"%PDF-1.7\n% idx-cli test fixture\n".to_vec()
+}
+
+fn install_fake_mutool(root: &Path, xml: &str) -> PathBuf {
+    let bin_dir = root.join("fake-bin");
+    fs::create_dir_all(&bin_dir).expect("create fake bin dir");
+    let mutool_path = bin_dir.join("mutool");
+    let script = format!(
+        "#!/bin/sh\n\
+if [ \"$1\" = \"--help\" ]; then\n\
+  exit 0\n\
+fi\n\
+if [ \"$1\" = \"convert\" ]; then\n\
+  cat <<'__IDX_XML__'\n\
+{xml}\n\
+__IDX_XML__\n\
+  exit 0\n\
+fi\n\
+echo \"unexpected mutool args: $@\" >&2\n\
+exit 1\n"
+    );
+    fs::write(&mutool_path, script).expect("write fake mutool");
+    #[cfg(unix)]
+    {
+        let mut perms = fs::metadata(&mutool_path)
+            .expect("fake mutool metadata")
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&mutool_path, perms).expect("set fake mutool perms");
+    }
+    bin_dir
+}
+
+fn prepend_path(dir: &Path) -> String {
+    match std::env::var("PATH") {
+        Ok(current) if !current.is_empty() => format!("{}:{current}", dir.display()),
+        _ => dir.display().to_string(),
+    }
+}
+
+fn pdf_url(base: &str, name: &str) -> String {
+    format!("{base}/{name}.pdf")
 }
 
 #[test]
@@ -696,17 +743,250 @@ fn ownership_discover_supports_above1_family() {
 }
 
 #[test]
+fn ownership_discover_defaults_to_above1_and_prefers_supported_attachment() {
+    let body = r#"{
+      "Items": [
+        {
+          "PublishDate": "2026-03-10T12:09:09",
+          "Title": "Pemegang Saham di atas 1% (KSEI)",
+          "AnnouncementType": "",
+          "Code": "Semua Emiten Saham",
+          "Attachments": [
+            {
+              "PDFFilename": "d67ebf37e6_10d4080288.pdf",
+              "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/d67ebf37e6_10d4080288.pdf",
+              "IsAttachment": 0,
+              "OriginalFilename": "20260310_Semua Emiten Saham_Pengumuman Bursa_32052554.pdf"
+            },
+            {
+              "PDFFilename": "b9b638e5a8_8928aca255.pdf",
+              "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/b9b638e5a8_8928aca255.pdf",
+              "IsAttachment": 1,
+              "OriginalFilename": "20260310_Semua Emiten Saham_Pengumuman Bursa_32052554_lamp1.pdf"
+            }
+          ],
+          "PdfPath": ""
+        }
+      ],
+      "ItemCount": 1,
+      "PageSize": 10,
+      "PageNumber": 1,
+      "PageCount": 1
+    }"#;
+    let json_url = spawn_single_response_server("application/json", body.to_string());
+
+    let output = test_bin("ownership-discover-default")
+        .env("IDX_CURL_IMPERSONATE_BIN", "curl")
+        .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
+        .env(
+            "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
+            "http://127.0.0.1/pengumuman",
+        )
+        .args(["ownership", "discover", "--limit", "1"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let stdout = String::from_utf8(output).expect("utf8 stdout");
+    assert!(stdout.contains("Above 1%"));
+    assert!(stdout.contains("supported"));
+    assert!(stdout.contains("20260310_Semua Emiten Saham_Pengumuman Bursa_32052554_lamp1.pdf"));
+    assert!(!stdout.contains("20260310_Semua Emiten Saham_Pengumuman Bursa_32052554.pdf\n"));
+}
+
+#[test]
+fn ownership_discover_json_includes_status() {
+    let body = r#"{
+      "Items": [
+        {
+          "PublishDate": "2026-03-10T12:09:09",
+          "Title": "Pemegang Saham di atas 1% (KSEI)",
+          "AnnouncementType": "",
+          "Code": "Semua Emiten Saham",
+          "Attachments": [
+            {
+              "PDFFilename": "d67ebf37e6_10d4080288.pdf",
+              "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/d67ebf37e6_10d4080288.pdf",
+              "IsAttachment": 0,
+              "OriginalFilename": "20260310_Semua Emiten Saham_Pengumuman Bursa_32052554.pdf"
+            },
+            {
+              "PDFFilename": "b9b638e5a8_8928aca255.pdf",
+              "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202603/b9b638e5a8_8928aca255.pdf",
+              "IsAttachment": 1,
+              "OriginalFilename": "20260310_Semua Emiten Saham_Pengumuman Bursa_32052554_lamp1.pdf"
+            }
+          ],
+          "PdfPath": ""
+        }
+      ],
+      "ItemCount": 1,
+      "PageSize": 10,
+      "PageNumber": 1,
+      "PageCount": 1
+    }"#;
+    let json_url = spawn_single_response_server("application/json", body.to_string());
+
+    test_bin("ownership-discover-json-status")
+        .env("IDX_CURL_IMPERSONATE_BIN", "curl")
+        .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
+        .env(
+            "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
+            "http://127.0.0.1/pengumuman",
+        )
+        .args(["-o", "json", "ownership", "discover", "--limit", "1"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"supported\""));
+}
+
+#[test]
 fn ownership_import_url_rejects_html_response_before_pdf_parse() {
-    let html_url = spawn_single_response_server(
+    let html_base = spawn_single_response_server(
         "text/html; charset=utf-8",
         "<!doctype html><html><body>blocked</body></html>",
     );
+    let html_url = pdf_url(&html_base, "blocked");
 
     test_bin("ownership-import-url-html")
         .args(["ownership", "import", "--url", &html_url])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("returned HTML instead of a PDF"));
+        .stderr(predicate::str::contains(
+            "returned HTML instead of a PDF/direct attachment",
+        ));
+}
+
+#[test]
+fn ownership_import_url_rejects_listing_page_inputs() {
+    test_bin("ownership-import-url-listing-page")
+        .args([
+            "ownership",
+            "import",
+            "--url",
+            "https://www.idx.co.id/id/berita/pengumuman/",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "ownership import --url accepts direct PDF URLs only",
+        ))
+        .stderr(predicate::str::contains("ownership discover"));
+}
+
+#[test]
+fn ownership_import_url_supported_pdf_succeeds_with_fake_mutool() {
+    let root = test_env_dir("ownership-import-supported-remote");
+    let db_path = root.join("ownership.db");
+    let fake_mutool_dir = install_fake_mutool(
+        &root,
+        include_str!("fixtures/ksei_above1_stext_excerpt.xml"),
+    );
+    let pdf_base = spawn_single_response_server("application/pdf", fake_pdf_bytes());
+    let pdf_url = pdf_url(&pdf_base, "supported");
+
+    bin_with_root(&root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            db_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .env("PATH", prepend_path(&fake_mutool_dir))
+        .args(["ownership", "import", "--url", &pdf_url])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Imported 1 rows for 1 tickers"));
+
+    bin_with_root(&root)
+        .args(["ownership", "releases"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("2026-02-27"))
+        .stdout(predicate::str::contains(&pdf_url));
+}
+
+#[test]
+fn ownership_import_url_duplicate_release_is_skipped() {
+    let root = test_env_dir("ownership-import-duplicate-release");
+    let db_path = root.join("ownership.db");
+    let fake_mutool_dir = install_fake_mutool(
+        &root,
+        include_str!("fixtures/ksei_above1_stext_excerpt.xml"),
+    );
+    let first_base = spawn_single_response_server("application/pdf", fake_pdf_bytes());
+    let second_base = spawn_single_response_server("application/pdf", fake_pdf_bytes());
+    let first_url = pdf_url(&first_base, "supported-first");
+    let second_url = pdf_url(&second_base, "supported-second");
+
+    bin_with_root(&root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            db_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .env("PATH", prepend_path(&fake_mutool_dir))
+        .args(["ownership", "import", "--url", &first_url])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .env("PATH", prepend_path(&fake_mutool_dir))
+        .args(["ownership", "import", "--url", &second_url])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Release already imported"));
+}
+
+#[test]
+fn ownership_import_url_rejects_legacy_above5_pdf_schema() {
+    let root = test_env_dir("ownership-import-above5-unsupported");
+    let fake_mutool_dir = install_fake_mutool(
+        &root,
+        include_str!("fixtures/ksei_above5_stext_excerpt.xml"),
+    );
+    let pdf_base = spawn_single_response_server("application/pdf", fake_pdf_bytes());
+    let pdf_url = pdf_url(&pdf_base, "legacy-above5");
+
+    bin_with_root(&root)
+        .env("PATH", prepend_path(&fake_mutool_dir))
+        .args(["ownership", "import", "--url", &pdf_url])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "legacy IDX `above5` ownership PDFs are not supported for import",
+        ));
+}
+
+#[test]
+fn ownership_import_url_rejects_legacy_investor_type_pdf_schema() {
+    let root = test_env_dir("ownership-import-investor-type-unsupported");
+    let fake_mutool_dir = install_fake_mutool(
+        &root,
+        include_str!("fixtures/ksei_investor_type_stext_excerpt.xml"),
+    );
+    let pdf_base = spawn_single_response_server("application/pdf", fake_pdf_bytes());
+    let pdf_url = pdf_url(&pdf_base, "legacy-investor-type");
+
+    bin_with_root(&root)
+        .env("PATH", prepend_path(&fake_mutool_dir))
+        .args(["ownership", "import", "--url", &pdf_url])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "legacy IDX `investor-type` ownership PDFs are not supported for import",
+        ));
 }
 
 #[test]

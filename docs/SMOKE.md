@@ -23,7 +23,7 @@ scripts/live-smoke.sh --dry-run --mode full
 
 - `live` runs the default real-network baseline: `general`, `live-table`, and `ownership`
 - `mock` runs the deterministic baseline: `general`, `mock`, `cache`, `routing`, `errors`, and `ownership`
-- `full` runs every group, including live JSON output checks
+- `full` runs every group, including live JSON output checks and ownership-import verification
 
 ## Groups
 
@@ -35,10 +35,12 @@ scripts/live-smoke.sh --dry-run --mode full
 - `routing`: Yahoo/MSN provider routing plus explicit MSN history unsupported behavior
 - `errors`: JSON error contract and invalid flag/input checks
 - `ownership`: safe ownership smoke checks that do not require imported ownership data
+- `ownership-import`: live discovery/import hardening checks for supported `above1` import plus expected unsupported legacy-family failures
 
 ## Notes
 
 - The runner forces `IDX_OUTPUT=table` as its default environment so table cases stay stable; JSON checks use `-o json` explicitly.
 - Cache-group warm cases clear the smoke cache before they run so each warm/offline/stale sequence starts clean and stale-cache assertions are not masked by earlier groups.
 - Ownership commands that need imported data are intentionally not part of the baseline runner yet. The current baseline only covers `ownership releases` and the known unsupported `ownership import --fetch-bing`.
+- The new `ownership-import` group is intentionally opt-in for explicit `--group ownership-import` runs or `--mode full`; it discovers live URLs first, imports the supported `above1` attachment into the temp DB, then asserts the current `above5` and `investor-type` URLs fail with explicit unsupported-schema UX.
 - When a case fails, inspect the per-case log in `tmp/live-smoke/.../logs/` before updating `TODO.md` or `FEATURE_SPEC.md`.
