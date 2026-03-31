@@ -106,13 +106,13 @@
 - [x] Batch 3 verification: sync installs into an empty temp data dir, preserves query behavior, and no-ops when already current
 
 ### Batch 4 — KSEI ZIP/TXT fallback and cross-check path
-- [ ] Keep KSEI ZIP/TXT ingest as fallback and validation/backstop work, not the first milestone
-- [ ] Define whether the KSEI archive is only a maintainer fallback or a user-facing alternative import source
-- [ ] Add cross-check coverage between IDX-PDF-derived output and KSEI-archive-derived output for at least one monthly release
-- [ ] Batch 4 verification: `cargo build`
-- [ ] Batch 4 verification: `cargo clippy -- -D warnings`
-- [ ] Batch 4 verification: `cargo test`
-- [ ] Batch 4 verification: fallback ingest produces a compatible SQLite state for `ownership releases`, `ticker`, and `changes`
+- [x] Keep KSEI ZIP/TXT ingest as fallback and validation/backstop work, not the first milestone
+- [x] Define whether the KSEI archive is only a maintainer fallback or a user-facing alternative import source
+- [x] Add cross-check coverage between IDX-PDF-derived output and KSEI-archive-derived output for at least one monthly release
+- [x] Batch 4 verification: `cargo build`
+- [x] Batch 4 verification: `cargo clippy -- -D warnings`
+- [x] Batch 4 verification: `cargo test`
+- [x] Batch 4 verification: fallback ingest produces a compatible SQLite state for `ownership releases`, `ticker`, and `changes`
 
 ## 📋 Backlog (per SPEC.md)
 - [ ] `market summary` — IHSG index, market breadth
@@ -122,7 +122,7 @@
 - [ ] `screen presets` / `screen run <PRESET>` — built-in screener presets
 - [ ] `watchlist` commands — create, manage, live watch
 - [ ] `alerts` system (v0.2+) — price alerts with daemon
-- [ ] `completions <SHELL>` — shell completion generation
+- [x] `completions <SHELL>` — shell completion generation
 - [ ] CSV/TSV output formats
 - [ ] Additional providers (Alpha Vantage, Twelve Data, IDX official)
 
@@ -168,6 +168,8 @@
 - [x] Regression coverage now covers default `ownership discover` behavior, status visibility, listing-page rejection, duplicate SHA imports, and explicit unsupported-schema detection with compact `stext` fixtures plus fake-`mutool` CLI tests
 - [x] New `ownership-import` smoke coverage now discovers the current live `above1`/`above5`/`investor-type` URLs, imports the supported `above1` attachment successfully, and confirms the legacy families fail with explicit unsupported-schema UX (`tmp/live-smoke/20260330-160201`)
 - [x] New ownership snapshot sync coverage now verifies manifest parsing, checksum validation, install into an empty temp data dir, preserved query behavior for `releases`/`ticker`/`changes`, no-op sync when current, and `--force` refresh via fixture-backed local manifests on `2026-03-31`
+- [x] KSEI archive ZIP/TXT fallback import now works through `ownership import --file` for local `.zip` and `.txt` inputs, using synthetic investor-type/locality aggregate holders as a maintainer backstop rather than the primary product ingest
+- [x] Batch 4 coverage now cross-checks the live-like `2026-02-27` `above1` PDF fixture against the matching KSEI archive bucket excerpt and verifies fallback import/query behavior for `releases`, `ticker`, and `changes`
 
 ## 🐛 Known Issues
 - [ ] Yahoo Finance returns 429 from datacenter IPs occasionally

@@ -10,6 +10,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
+use zip::write::SimpleFileOptions;
 
 fn bin() -> Command {
     let current = std::env::current_exe().expect("current test executable path");
@@ -165,6 +166,18 @@ fn prepend_path(dir: &Path) -> String {
 
 fn pdf_url(base: &str, name: &str) -> String {
     format!("{base}/{name}.pdf")
+}
+
+fn write_zip_with_text(zip_path: &Path, entry_name: &str, text: &str) {
+    let file = fs::File::create(zip_path).expect("create zip fixture");
+    let mut writer = zip::ZipWriter::new(file);
+    writer
+        .start_file(entry_name, SimpleFileOptions::default())
+        .expect("start zip file");
+    writer
+        .write_all(text.as_bytes())
+        .expect("write zip fixture text");
+    writer.finish().expect("finish zip fixture");
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -1173,6 +1186,111 @@ fn ownership_import_url_rejects_legacy_investor_type_pdf_schema() {
         .stderr(predicate::str::contains(
             "legacy IDX `investor-type` ownership PDFs are not supported for import",
         ));
+}
+
+#[test]
+fn ownership_import_file_txt_archive_succeeds() {
+    let root = test_env_dir("ownership-import-txt-archive");
+    let db_path = root.join("ownership.db");
+    let txt_path = root.join("Balancepos20260227.txt");
+    fs::write(
+        &txt_path,
+        include_str!("fixtures/ksei_balancepos_20260227_excerpt.txt"),
+    )
+    .expect("write txt archive fixture");
+
+    bin_with_root(&root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            db_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .args(["ownership", "import", "--file", txt_path.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Imported 18 rows for 1 tickers"));
+
+    bin_with_root(&root)
+        .args(["ownership", "ticker", "AADI", "--source", "ksei"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("KSEI AGGREGATE LOCAL CP"))
+        .stdout(predicate::str::contains("64.67%"));
+}
+
+#[test]
+fn ownership_import_file_zip_archive_supports_releases_ticker_and_changes() {
+    let root = test_env_dir("ownership-import-zip-archive");
+    let db_path = root.join("ownership.db");
+    let jan_zip = root.join("BalanceposEfek20260130.zip");
+    let feb_zip = root.join("BalanceposEfek20260227.zip");
+
+    write_zip_with_text(
+        &jan_zip,
+        "Balancepos20260130.txt",
+        include_str!("fixtures/ksei_balancepos_20260130_excerpt.txt"),
+    );
+    write_zip_with_text(
+        &feb_zip,
+        "Balancepos20260227.txt",
+        include_str!("fixtures/ksei_balancepos_20260227_excerpt.txt"),
+    );
+
+    bin_with_root(&root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            db_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .args(["ownership", "import", "--file", jan_zip.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Imported 18 rows for 1 tickers"));
+
+    bin_with_root(&root)
+        .args(["ownership", "import", "--file", feb_zip.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Imported 18 rows for 1 tickers"));
+
+    bin_with_root(&root)
+        .args(["ownership", "releases"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("2026-02-27"))
+        .stdout(predicate::str::contains("2026-01-30"));
+
+    bin_with_root(&root)
+        .args(["ownership", "ticker", "AADI", "--source", "ksei"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("KSEI AGGREGATE LOCAL CP"))
+        .stdout(predicate::str::contains("KSEI AGGREGATE FOREIGN MF"));
+
+    bin_with_root(&root)
+        .args([
+            "ownership",
+            "changes",
+            "--from",
+            "2026-01-30",
+            "--to",
+            "2026-02-27",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("AADI"))
+        .stdout(predicate::str::contains("KSEI AGGREGATE LOCAL CP"))
+        .stdout(predicate::str::contains("DECREASED"));
 }
 
 #[test]

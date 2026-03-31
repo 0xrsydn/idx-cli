@@ -61,12 +61,17 @@ Unlike the `stocks` module (live-fetch), ownership is **import-then-query**:
 
 ### Data Sources
 - **KSEI** — official ≥1% shareholder registry (monthly PDF from IDX)
+- **KSEI archive** — monthly ZIP/TXT balance-position matrix, used as a local fallback/backstop import path
 - **Bing Finance** — global institutional ownership (REST API, quarterly)
 
 ### Parser Pipeline
 ```
 KSEI PDF → mutool stext (XML with coordinates) → quick-xml parse → KseiRawRow
   → normalize (ID locale numbers, dates, entity names) → KseiHolding
+  → SQLite INSERT (within transaction)
+
+KSEI archive ZIP/TXT → pipe-delimited balance-position rows
+  → map investor-type/locality buckets into synthetic aggregate holders
   → SQLite INSERT (within transaction)
 ```
 

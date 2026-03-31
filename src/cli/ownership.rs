@@ -18,7 +18,7 @@ use crate::output::table::format_idr;
 use crate::ownership::types::{
     ChangeType, FlowSignal, HolderRow, KseiHolding, OwnershipRelease, OwnershipSource,
 };
-use crate::ownership::{db, entities, graph, parser, remote, search, snapshot};
+use crate::ownership::{archive, db, entities, graph, parser, remote, search, snapshot};
 
 #[derive(Debug, Args)]
 pub struct OwnershipCmd {
@@ -30,7 +30,7 @@ pub struct OwnershipCmd {
 pub enum OwnershipCommand {
     /// Discover the latest IDX-hosted ownership report URLs.
     Discover(DiscoverArgs),
-    /// Import ownership data from KSEI PDF or Bing API.
+    /// Import ownership data from KSEI PDF or archive fallback files.
     Import(ImportArgs),
     /// Install or refresh a maintained ownership SQLite snapshot.
     Sync(SyncArgs),
@@ -71,7 +71,7 @@ pub struct ImportArgs {
     /// URL to a remote ownership PDF.
     #[arg(long)]
     pub url: Option<String>,
-    /// Path to local KSEI PDF file.
+    /// Path to local KSEI ownership PDF, ZIP, or TXT file.
     #[arg(long)]
     pub file: Option<PathBuf>,
     /// Fetch Bing institutional data for these symbols.
@@ -773,30 +773,40 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
         }
     }
 
-    let Some(pdf_input) = resolve_pdf_input(args)? else {
+    let Some(import_input) = resolve_import_input(args)? else {
         return Ok(());
     };
 
     let conn = db::open_db(config)?;
 
-    let sha256 = sha256_file(&pdf_input.pdf_path)?;
+    let sha256 = sha256_file(&import_input.import_path)?;
     if !args.force && db::release_exists(&conn, &sha256)? {
         println!("Release already imported (sha256: {sha256}). Use --force to re-import.");
         return Ok(());
     }
 
-    let raw_rows = parser::parse_ksei_pdf(&pdf_input.pdf_path)?;
-    if raw_rows.is_empty() {
-        return Err(IdxError::ParseError(
-            "no KSEI rows parsed from PDF".to_string(),
-        ));
-    }
+    let drafts = match import_input.format {
+        ImportInputFormat::Pdf => {
+            let raw_rows = parser::parse_ksei_pdf(&import_input.import_path)?;
+            if raw_rows.is_empty() {
+                return Err(IdxError::ParseError(
+                    "no KSEI rows parsed from PDF".to_string(),
+                ));
+            }
 
-    let mut holdings = Vec::with_capacity(raw_rows.len());
+            let mut drafts = Vec::with_capacity(raw_rows.len());
+            for raw in &raw_rows {
+                drafts.push(entities::normalize_ksei_row(raw)?);
+            }
+            drafts
+        }
+        ImportInputFormat::Archive => archive::parse_balancepos_file(&import_input.import_path)?,
+    };
+
+    let mut holdings = Vec::with_capacity(drafts.len());
     let mut ticker_ids = HashSet::new();
 
-    for raw in &raw_rows {
-        let draft = entities::normalize_ksei_row(raw)?;
+    for draft in drafts {
         let ticker_id = db::upsert_ticker(&conn, &draft.ticker_code, draft.issuer_name.as_deref())?;
         let entity_id =
             entities::resolve_entity(&conn, &draft.raw_investor_name, OwnershipSource::Ksei)?;
@@ -831,7 +841,7 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
 
     let release = OwnershipRelease {
         id: 0,
-        source_url: pdf_input.source_url,
+        source_url: import_input.source_url,
         sha256,
         as_of_date,
         row_count: inserted_rows,
@@ -900,23 +910,31 @@ fn parse_discovery_family(raw: &str) -> Result<Option<remote::OwnershipReportFam
     }
 }
 
-struct ResolvedPdfInput {
-    pdf_path: PathBuf,
+struct ResolvedImportInput {
+    import_path: PathBuf,
     source_url: Option<String>,
+    format: ImportInputFormat,
 }
 
-fn resolve_pdf_input(args: &ImportArgs) -> Result<Option<ResolvedPdfInput>, IdxError> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImportInputFormat {
+    Pdf,
+    Archive,
+}
+
+fn resolve_import_input(args: &ImportArgs) -> Result<Option<ResolvedImportInput>, IdxError> {
     if let Some(path) = &args.file {
         if !path.exists() {
             return Err(IdxError::Io(format!(
-                "input PDF not found: {}",
+                "input ownership file not found: {}",
                 path.display()
             )));
         }
 
-        return Ok(Some(ResolvedPdfInput {
-            pdf_path: path.clone(),
+        return Ok(Some(ResolvedImportInput {
+            import_path: path.clone(),
             source_url: None,
+            format: detect_local_import_format(path)?,
         }));
     }
 
@@ -925,13 +943,32 @@ fn resolve_pdf_input(args: &ImportArgs) -> Result<Option<ResolvedPdfInput>, IdxE
         validate_import_url(trimmed)?;
         let target = cache_pdf_path(trimmed)?;
         download_pdf(trimmed, &target)?;
-        return Ok(Some(ResolvedPdfInput {
-            pdf_path: target,
+        return Ok(Some(ResolvedImportInput {
+            import_path: target,
             source_url: Some(trimmed.to_string()),
+            format: ImportInputFormat::Pdf,
         }));
     }
 
     Ok(None)
+}
+
+fn detect_local_import_format(path: &Path) -> Result<ImportInputFormat, IdxError> {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("pdf") => Ok(ImportInputFormat::Pdf),
+        Some("zip") | Some("txt") if archive::supports_local_archive_file(path) => {
+            Ok(ImportInputFormat::Archive)
+        }
+        _ => Err(IdxError::InvalidInput(format!(
+            "unsupported local ownership file {}; expected a .pdf, .zip, or .txt input",
+            path.display()
+        ))),
+    }
 }
 
 fn cache_pdf_path(url: &str) -> Result<PathBuf, IdxError> {

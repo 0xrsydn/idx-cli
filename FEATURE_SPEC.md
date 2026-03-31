@@ -26,7 +26,7 @@ Use `TODO.md` as the execution log and smoke-history record.
 
 ## Verified Current State
 
-- Current automated coverage is `176` tests: `115` unit and `61` integration.
+- Current automated coverage is `180` tests: `117` unit and `63` integration.
 - Reusable smoke coverage exists via `scripts/live-smoke.sh`; command groups are documented in `docs/SMOKE.md`.
 - The latest smoke notes in `TODO.md` report passing live table and JSON checks for all shipped `stocks` commands.
 - Cache/offline parity, JSON startup-error handling, screener input validation, and the recent MSN output cleanups have already been completed.
@@ -37,6 +37,7 @@ Use `TODO.md` as the execution log and smoke-history record.
 - The currently discoverable `above 5%` and `investor-type` BEI families remain different schemas and are now classified and rejected explicitly during import instead of falling through to a generic zero-row parse failure.
 - Ownership smoke coverage now includes a dedicated `ownership-import` group that verifies live supported import plus expected unsupported-family failures.
 - `idx ownership sync` now installs maintained SQLite snapshots via a manifest-driven contract with checksum validation, conservative local replacement rules, and fixture-backed regression coverage for install/no-op/force-refresh behavior.
+- The KSEI archive ZIP/TXT path is now implemented as a local-file maintainer fallback/backstop, with cross-check coverage against the `above1` PDF contract for a shared monthly release.
 
 This means the main gap is no longer endpoint coverage.
 The remaining work is architecture cleanup, a few correctness edge cases, and selective UX expansion on top of already-shipped commands.
@@ -64,6 +65,7 @@ The remaining work is architecture cleanup, a few correctness edge cases, and se
 | Screener | `idx stocks screen` | Implemented with gaps | Validation landed; expression/preset workflow is still future work |
 | MSN charts | `idx stocks history --history-provider msn` | Missing | Explicit MSN history still returns unsupported for IDX |
 | KSEI ownership import/query | `idx ownership import --file`, `idx ownership import --url`, `idx ownership releases`, `idx ownership ticker` | Implemented | Local PDF import and SQLite-backed query flow are verified against the March 2026 KSEI release; remote IDX import now works for the discovered `above 1%` `lamp1` BEI attachment, and legacy `above 5%` / `investor-type` BEI report families are rejected explicitly |
+| KSEI archive fallback import | `idx ownership import --file <.zip|.txt>` | Implemented as fallback | Local archive ZIP/TXT ingest maps investor-type/locality buckets into synthetic aggregate holders for validation/backstop use, not the primary ingest surface |
 | Ownership snapshot sync | `idx ownership sync` | Implemented | Manifest-driven SQLite snapshot install with checksum validation, conservative replacement/no-op rules, and publisher helper script |
 | Bing ownership CLI | `idx ownership import --fetch-bing` | Not implemented | Client groundwork exists, CLI import path is still deferred |
 
@@ -87,6 +89,7 @@ The following items should no longer be treated as active backlog in this spec:
 - Real KSEI ownership CLI verification from local file import into SQLite (`7261` rows across `955` tickers on `2026-03-28`)
 - Ownership remote-import hardening for the `above1` contract, including direct-PDF-only `--url` input, discovery status output, explicit legacy-schema rejection, and live ownership-import smoke coverage
 - Ownership snapshot publishing/sync contract, including `idx ownership sync`, manifest/checksum validation, conservative local replacement rules, and the `scripts/build-ownership-snapshot.sh` publisher helper
+- KSEI archive ZIP/TXT fallback ingest for local `.zip`/`.txt` files, including cross-check coverage against the `above1` PDF holder-register fixture and compatible `releases`/`ticker`/`changes` verification
 
 If any of the above regress, capture that in `TODO.md` as a new finding rather than reopening the old section here wholesale.
 
@@ -148,26 +151,6 @@ Done when:
 - The retry/fallback story for Yahoo failures is deliberate and documented.
 - SMA200 behavior is either improved or clearly documented as expected.
 
-#### 5. Ownership fallback ingest and cross-check path
-
-Current state:
-- Remote IDX discovery/fetch is already in place for the supported `above1` holder-register family.
-- `idx ownership sync` now covers the maintained-snapshot distribution path on top of that import flow.
-- The KSEI ZIP/TXT archive remains the main unresolved ownership follow-up and should stay a fallback/cross-check input, not the primary ingest path.
-
-Why it matters:
-- The core ownership product path is now stable: local import, remote IDX discovery/import, and maintained snapshot sync all exist.
-- The remaining ownership work is about fallback resilience and validation against a secondary upstream.
-
-Done when:
-- The KSEI ZIP/TXT archive ingest shape is defined.
-- At least one monthly archive release is cross-checked against the IDX-PDF-derived SQLite state.
-- Fallback ingest produces query-compatible data for `ownership releases`, `ticker`, and `changes`.
-
-Roadmap:
-1. Add KSEI ZIP/TXT ingest later as fallback or cross-check input.
-2. Decide whether that fallback stays maintainer-only or becomes a user-facing alternative path.
-
 ### P1 - UX and output contract cleanup
 
 Tasks:
@@ -191,14 +174,10 @@ Priority order:
    - Reuse the existing client groundwork in `src/api/msn/bing.rs`.
    - Define the import shape and output contract for `idx ownership import --fetch-bing`.
 
-3. Ownership fallback ingest and cross-check work
-   - Treat the KSEI archive (`https://web.ksei.co.id/archive_download/holding_composition`) as fallback/backstop input, not the primary product ingest path.
-   - Define the ZIP/TXT ingest shape and verify compatibility with the IDX-PDF-derived SQLite contract.
-
-4. Richer financial statements
+3. Richer financial statements
    - Decide whether to stay with the current single-period model or add multi-period fetch support.
 
-5. New user-facing surfaces from `TODO.md`
+4. New user-facing surfaces from `TODO.md`
    - `market summary`
    - `market movers`
    - `market sectors`
