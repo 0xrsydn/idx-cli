@@ -8,6 +8,8 @@ use std::thread;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use rusqlite::Connection;
+use sha2::{Digest, Sha256};
 
 fn bin() -> Command {
     let current = std::env::current_exe().expect("current test executable path");
@@ -101,6 +103,59 @@ exit 1\n"
     bin_dir
 }
 
+fn install_fake_mutool_routes(root: &Path, routes: &[(&str, &str)]) -> PathBuf {
+    let bin_dir = root.join("fake-bin-routes");
+    fs::create_dir_all(&bin_dir).expect("create fake route bin dir");
+    let mutool_path = bin_dir.join("mutool");
+
+    let mut script = String::from(
+        "#!/bin/sh\n\
+if [ \"$1\" = \"--help\" ]; then\n\
+  exit 0\n\
+fi\n\
+if [ \"$1\" != \"convert\" ]; then\n\
+  echo \"unexpected mutool args: $@\" >&2\n\
+  exit 1\n\
+fi\n\
+last=\"\"\n\
+for arg in \"$@\"; do\n\
+  last=\"$arg\"\n\
+done\n\
+case \"$last\" in\n",
+    );
+
+    for (index, (suffix, xml)) in routes.iter().enumerate() {
+        script.push_str(&format!(
+            "  *{suffix})\n\
+    cat <<'__IDX_XML_{index}__'\n\
+{xml}\n\
+__IDX_XML_{index}__\n\
+    exit 0\n\
+    ;;\n"
+        ));
+    }
+
+    script.push_str(
+        "  *)\n\
+    echo \"unexpected mutool target: $last\" >&2\n\
+    exit 1\n\
+    ;;\n\
+esac\n",
+    );
+
+    fs::write(&mutool_path, script).expect("write fake routed mutool");
+    #[cfg(unix)]
+    {
+        let mut perms = fs::metadata(&mutool_path)
+            .expect("fake routed mutool metadata")
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&mutool_path, perms).expect("set fake routed mutool perms");
+    }
+
+    bin_dir
+}
+
 fn prepend_path(dir: &Path) -> String {
     match std::env::var("PATH") {
         Ok(current) if !current.is_empty() => format!("{}:{current}", dir.display()),
@@ -110,6 +165,116 @@ fn prepend_path(dir: &Path) -> String {
 
 fn pdf_url(base: &str, name: &str) -> String {
     format!("{base}/{name}.pdf")
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn snapshot_metadata(db_path: &Path) -> (usize, String, String, usize, usize) {
+    let conn = Connection::open(db_path).expect("open snapshot sqlite");
+    let release_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ownership_releases", [], |row| {
+            row.get(0)
+        })
+        .expect("snapshot release count");
+    let (latest_as_of_date, latest_release_sha256, latest_row_count): (String, String, i64) = conn
+        .query_row(
+            "SELECT as_of_date, sha256, row_count
+             FROM ownership_releases
+             ORDER BY as_of_date DESC, imported_at DESC
+             LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("snapshot latest release metadata");
+    let ticker_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM tickers", [], |row| row.get(0))
+        .expect("snapshot ticker count");
+
+    (
+        usize::try_from(release_count).expect("release_count fits usize"),
+        latest_as_of_date,
+        latest_release_sha256,
+        usize::try_from(latest_row_count).expect("row_count fits usize"),
+        usize::try_from(ticker_count).expect("ticker_count fits usize"),
+    )
+}
+
+fn write_snapshot_manifest(path: &Path, db_path: &Path, checksum_override: Option<&str>) {
+    let bytes = fs::read(db_path).expect("read snapshot sqlite");
+    let (release_count, latest_as_of_date, latest_release_sha256, latest_row_count, ticker_count) =
+        snapshot_metadata(db_path);
+    let manifest = serde_json::json!({
+        "schema_version": 1,
+        "generated_at": "2026-03-31T12:00:00Z",
+        "snapshot": {
+            "kind": "sqlite",
+            "compression": "none",
+            "version": latest_as_of_date,
+            "download_url": db_path.to_str().expect("snapshot db path"),
+            "sqlite_sha256": checksum_override.unwrap_or(&sha256_hex(&bytes)),
+            "size_bytes": bytes.len(),
+            "release_count": release_count,
+            "latest_as_of_date": latest_as_of_date,
+            "latest_release_sha256": latest_release_sha256,
+            "latest_row_count": latest_row_count,
+            "ticker_count": ticker_count
+        }
+    });
+
+    fs::write(
+        path,
+        serde_json::to_string_pretty(&manifest).expect("serialize snapshot manifest"),
+    )
+    .expect("write snapshot manifest");
+}
+
+fn prepare_snapshot_fixture(root: &Path) -> (PathBuf, PathBuf) {
+    let source_db = root.join("published-ownership.db");
+    let manifest_path = root.join("ownership-snapshot-manifest.json");
+    let first_pdf = root.join("release-2026-01-31.pdf");
+    let second_pdf = root.join("release-2026-02-27.pdf");
+    fs::write(&first_pdf, b"%PDF-1.7\n% snapshot fixture jan\n").expect("write jan pdf");
+    fs::write(&second_pdf, b"%PDF-1.7\n% snapshot fixture feb\n").expect("write feb pdf");
+
+    let fake_mutool_dir = install_fake_mutool_routes(
+        root,
+        &[
+            (
+                "release-2026-01-31.pdf",
+                include_str!("fixtures/ksei_above1_stext_excerpt_prev.xml"),
+            ),
+            (
+                "release-2026-02-27.pdf",
+                include_str!("fixtures/ksei_above1_stext_excerpt.xml"),
+            ),
+        ],
+    );
+
+    bin_with_root(root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            source_db.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    for file in [&first_pdf, &second_pdf] {
+        bin_with_root(root)
+            .env("PATH", prepend_path(&fake_mutool_dir))
+            .args(["ownership", "import", "--file", file.to_str().unwrap()])
+            .assert()
+            .success();
+    }
+
+    write_snapshot_manifest(&manifest_path, &source_db, None);
+    (source_db, manifest_path)
 }
 
 #[test]
@@ -623,6 +788,27 @@ fn config_set_and_get_ownership_db_path_round_trip() {
 }
 
 #[test]
+fn config_set_and_get_ownership_snapshot_manifest_round_trip() {
+    let root = test_env_dir("config-ownership-snapshot-manifest");
+
+    bin_with_root(&root)
+        .args([
+            "config",
+            "set",
+            "ownership.snapshot_manifest",
+            "/tmp/ownership-latest.json",
+        ])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .args(["config", "get", "ownership.snapshot_manifest"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("/tmp/ownership-latest.json"));
+}
+
+#[test]
 fn config_set_mixed_case_provider_does_not_break_future_loads() {
     let root = test_env_dir("config-mixed-case-provider");
 
@@ -987,6 +1173,122 @@ fn ownership_import_url_rejects_legacy_investor_type_pdf_schema() {
         .stderr(predicate::str::contains(
             "legacy IDX `investor-type` ownership PDFs are not supported for import",
         ));
+}
+
+#[test]
+fn ownership_sync_installs_snapshot_and_preserves_query_behavior() {
+    let publisher_root = test_env_dir("ownership-sync-publisher");
+    let (_source_db, manifest_path) = prepare_snapshot_fixture(&publisher_root);
+
+    let sync_root = test_env_dir("ownership-sync-consumer");
+    let target_db = sync_root.join("ownership.db");
+
+    bin_with_root(&sync_root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            target_db.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    bin_with_root(&sync_root)
+        .args([
+            "config",
+            "set",
+            "ownership.snapshot_manifest",
+            manifest_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin_with_root(&sync_root)
+        .args(["ownership", "sync"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Installed ownership snapshot 2026-02-27",
+        ));
+
+    assert!(target_db.exists());
+
+    bin_with_root(&sync_root)
+        .args(["ownership", "releases"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("2026-02-27"))
+        .stdout(predicate::str::contains("2026-01-31"));
+
+    bin_with_root(&sync_root)
+        .args(["ownership", "ticker", "AADI", "--source", "ksei"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ADARO STRATEGIC INVESTMENTS"))
+        .stdout(predicate::str::contains("41.10%"));
+
+    bin_with_root(&sync_root)
+        .args([
+            "ownership",
+            "changes",
+            "--from",
+            "2026-01-31",
+            "--to",
+            "2026-02-27",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("AADI"))
+        .stdout(predicate::str::contains("INCREASED"))
+        .stdout(predicate::str::contains("+1.28%"));
+
+    bin_with_root(&sync_root)
+        .args(["ownership", "sync"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("already current"));
+
+    bin_with_root(&sync_root)
+        .args(["ownership", "sync", "--force"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Refreshed ownership snapshot 2026-02-27",
+        ));
+}
+
+#[test]
+fn ownership_sync_rejects_checksum_mismatch() {
+    let publisher_root = test_env_dir("ownership-sync-bad-checksum");
+    let (source_db, manifest_path) = prepare_snapshot_fixture(&publisher_root);
+    write_snapshot_manifest(
+        &manifest_path,
+        &source_db,
+        Some("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"),
+    );
+
+    let sync_root = test_env_dir("ownership-sync-bad-checksum-consumer");
+    let target_db = sync_root.join("ownership.db");
+
+    bin_with_root(&sync_root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            target_db.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin_with_root(&sync_root)
+        .args([
+            "ownership",
+            "sync",
+            "--manifest",
+            manifest_path.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("checksum mismatch"));
 }
 
 #[test]

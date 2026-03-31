@@ -4,4 +4,5 @@ pub mod graph;
 pub mod parser;
 pub mod remote;
 pub mod search;
+pub mod snapshot;
 pub mod types;

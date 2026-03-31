@@ -18,7 +18,7 @@ use crate::output::table::format_idr;
 use crate::ownership::types::{
     ChangeType, FlowSignal, HolderRow, KseiHolding, OwnershipRelease, OwnershipSource,
 };
-use crate::ownership::{db, entities, graph, parser, remote, search};
+use crate::ownership::{db, entities, graph, parser, remote, search, snapshot};
 
 #[derive(Debug, Args)]
 pub struct OwnershipCmd {
@@ -32,6 +32,8 @@ pub enum OwnershipCommand {
     Discover(DiscoverArgs),
     /// Import ownership data from KSEI PDF or Bing API.
     Import(ImportArgs),
+    /// Install or refresh a maintained ownership SQLite snapshot.
+    Sync(SyncArgs),
     /// Show all holders for a ticker (KSEI + Bing combined).
     Ticker(TickerArgs),
     /// Show all holdings for an entity across tickers.
@@ -76,6 +78,16 @@ pub struct ImportArgs {
     #[arg(long, value_delimiter = ',')]
     pub fetch_bing: Option<Vec<String>>,
     /// Re-import even if already imported.
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct SyncArgs {
+    /// Snapshot manifest location (URL or local path).
+    #[arg(long)]
+    pub manifest: Option<String>,
+    /// Replace the local DB even when already current or newer.
     #[arg(long)]
     pub force: bool,
 }
@@ -173,6 +185,7 @@ pub fn handle(cmd: &OwnershipCommand, config: &IdxConfig) -> Result<(), IdxError
     match cmd {
         OwnershipCommand::Discover(args) => handle_discover(args, config),
         OwnershipCommand::Import(args) => handle_import(args, config),
+        OwnershipCommand::Sync(args) => handle_sync(args, config),
         OwnershipCommand::Ticker(args) => handle_ticker(args, config),
         OwnershipCommand::Entity(args) => handle_entity(args, config),
         OwnershipCommand::Search(args) => handle_search(args, config),
@@ -184,6 +197,51 @@ pub fn handle(cmd: &OwnershipCommand, config: &IdxConfig) -> Result<(), IdxError
         OwnershipCommand::Resolve(args) => handle_resolve(args, config),
         OwnershipCommand::Releases => handle_releases(config),
     }
+}
+
+fn handle_sync(args: &SyncArgs, config: &IdxConfig) -> Result<(), IdxError> {
+    let manifest_source = snapshot::resolve_manifest_source(args.manifest.as_deref())?;
+    let db_path = db::db_path(config)?;
+    let result = snapshot::sync_snapshot(&manifest_source, &db_path, args.force)?;
+
+    if matches!(config.output, OutputFormat::Json) {
+        return json::print_json(&result);
+    }
+
+    match result.action {
+        snapshot::OwnershipSyncAction::Installed => {
+            println!(
+                "Installed ownership snapshot {} ({} release(s), {} tickers) into {}.",
+                result.latest_as_of_date.format("%Y-%m-%d"),
+                result.release_count,
+                result.ticker_count,
+                result.db_path
+            );
+        }
+        snapshot::OwnershipSyncAction::Updated => {
+            println!(
+                "Updated ownership snapshot to {} ({} release(s), {} tickers) in {}.",
+                result.latest_as_of_date.format("%Y-%m-%d"),
+                result.release_count,
+                result.ticker_count,
+                result.db_path
+            );
+        }
+        snapshot::OwnershipSyncAction::Refreshed => {
+            println!(
+                "Refreshed ownership snapshot {} in {}.",
+                result.latest_as_of_date.format("%Y-%m-%d"),
+                result.db_path
+            );
+        }
+        snapshot::OwnershipSyncAction::NoChange
+        | snapshot::OwnershipSyncAction::SkippedNewer
+        | snapshot::OwnershipSyncAction::SkippedDiverged => {
+            println!("{}", result.reason);
+        }
+    }
+
+    Ok(())
 }
 
 fn handle_discover(args: &DiscoverArgs, config: &IdxConfig) -> Result<(), IdxError> {
@@ -855,6 +913,7 @@ fn resolve_pdf_input(args: &ImportArgs) -> Result<Option<ResolvedPdfInput>, IdxE
                 path.display()
             )));
         }
+
         return Ok(Some(ResolvedPdfInput {
             pdf_path: path.clone(),
             source_url: None,

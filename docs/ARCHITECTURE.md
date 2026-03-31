@@ -55,8 +55,9 @@ Factory functions:
 Unlike the `stocks` module (live-fetch), ownership is **import-then-query**:
 
 1. `idx ownership import` — ETL pipeline: fetch PDF/API → parse → normalize → load SQLite
-2. All query commands read from local `~/.local/share/idx/ownership.db`
-3. Fully offline after import
+2. `idx ownership sync` — install a maintained SQLite snapshot via manifest + checksum validation
+3. All query commands read from local `~/.local/share/idx/ownership.db`
+4. Fully offline after import/sync
 
 ### Data Sources
 - **KSEI** — official ≥1% shareholder registry (monthly PDF from IDX)

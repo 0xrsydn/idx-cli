@@ -96,14 +96,14 @@
 - [x] Batch 2 verification: ownership-focused smoke checks cover successful remote import plus expected failure UX
 
 ### Batch 3 — Snapshot publishing + sync
-- [ ] Design maintained SQLite snapshot publishing after remote IDX import is stable
-- [ ] Add `idx ownership sync`
-- [ ] Define manifest/checksum/update semantics and local DB replacement rules
-- [ ] Add regression coverage for manifest parsing, checksum validation, no-op sync, and forced refresh
-- [ ] Batch 3 verification: `cargo build`
-- [ ] Batch 3 verification: `cargo clippy -- -D warnings`
-- [ ] Batch 3 verification: `cargo test`
-- [ ] Batch 3 verification: sync installs into an empty temp data dir, preserves query behavior, and no-ops when already current
+- [x] Design maintained SQLite snapshot publishing after remote IDX import is stable
+- [x] Add `idx ownership sync`
+- [x] Define manifest/checksum/update semantics and local DB replacement rules
+- [x] Add regression coverage for manifest parsing, checksum validation, no-op sync, and forced refresh
+- [x] Batch 3 verification: `cargo build`
+- [x] Batch 3 verification: `cargo clippy -- -D warnings`
+- [x] Batch 3 verification: `cargo test`
+- [x] Batch 3 verification: sync installs into an empty temp data dir, preserves query behavior, and no-ops when already current
 
 ### Batch 4 — KSEI ZIP/TXT fallback and cross-check path
 - [ ] Keep KSEI ZIP/TXT ingest as fallback and validation/backstop work, not the first milestone
@@ -167,6 +167,7 @@
 - [x] Valid-but-unsupported BEI PDFs now fail before row parsing with explicit schema-aware errors (`announcement_wrapper`, legacy `above5`, legacy `investor-type`) instead of the old generic `no KSEI rows parsed from PDF` path
 - [x] Regression coverage now covers default `ownership discover` behavior, status visibility, listing-page rejection, duplicate SHA imports, and explicit unsupported-schema detection with compact `stext` fixtures plus fake-`mutool` CLI tests
 - [x] New `ownership-import` smoke coverage now discovers the current live `above1`/`above5`/`investor-type` URLs, imports the supported `above1` attachment successfully, and confirms the legacy families fail with explicit unsupported-schema UX (`tmp/live-smoke/20260330-160201`)
+- [x] New ownership snapshot sync coverage now verifies manifest parsing, checksum validation, install into an empty temp data dir, preserved query behavior for `releases`/`ticker`/`changes`, no-op sync when current, and `--force` refresh via fixture-backed local manifests on `2026-03-31`
 
 ## 🐛 Known Issues
 - [ ] Yahoo Finance returns 429 from datacenter IPs occasionally

@@ -128,8 +128,8 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), IdxError> {
 }
 
 /// Open ownership database connection and run idempotent schema migration.
-pub fn open_db(_config: &IdxConfig) -> Result<Connection, IdxError> {
-    let db_path = resolve_db_path()?;
+pub fn open_db(config: &IdxConfig) -> Result<Connection, IdxError> {
+    let db_path = db_path(config)?;
 
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent).map_err(|e| IdxError::DatabaseError(e.to_string()))?;
@@ -1088,7 +1088,7 @@ pub fn compute_concentration(percentages_bps: &[i64]) -> ConcentrationMetrics {
     }
 }
 
-fn resolve_db_path() -> Result<PathBuf, IdxError> {
+pub fn db_path(_config: &IdxConfig) -> Result<PathBuf, IdxError> {
     if let Some(custom_path) = get_config_value("ownership.db_path")? {
         let trimmed = custom_path.trim();
         if !trimmed.is_empty() {

@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<document>
+<page id="page1" width="792" height="612">
+<block bbox="28.68 86.33 767.71438 600.02999" justify="unknown">
+<line bbox="31.56 86.33 39.25776 89.810009" wmode="0" dir="1 0" flags="0" text="DATE"></line>
+<line bbox="56.64 86.33 75.974887 89.810009" wmode="0" dir="1 0" flags="0" text="SHARE_CODE"></line>
+<line bbox="121.22 86.33 142.22878 89.810009" wmode="0" dir="1 0" flags="0" text="ISSUER_NAME"></line>
+<line bbox="267.17 86.33 292.6193 89.810009" wmode="0" dir="1 0" flags="0" text="INVESTOR_NAME"></line>
+<line bbox="390.89 86.33 414.18165 89.810009" wmode="0" dir="1 0" flags="0" text="INVESTOR_TYPE"></line>
+<line bbox="434.11 86.33 457.99674 89.810009" wmode="0" dir="1 0" flags="0" text="LOCAL_FOREIGN"></line>
+<line bbox="475.87 86.33 495.66777 89.810009" wmode="0" dir="1 0" flags="0" text="NATIONALITY"></line>
+<line bbox="525.19 86.33 539.60067 89.810009" wmode="0" dir="1 0" flags="0" text="DOMICILE"></line>
+<line bbox="574.63 86.33 606.14498 89.810009" wmode="0" dir="1 0" flags="0" text="HOLDINGS_SCRIPLESS"></line>
+<line bbox="629.98 86.33 655.1021 89.810009" wmode="0" dir="1 0" flags="0" text="HOLDINGS_SCRIP"></line>
+<line bbox="680.02 86.33 717.5414 89.810009" wmode="0" dir="1 0" flags="0" text="TOTAL_HOLDING_SHARES"></line>
+<line bbox="741.22 86.33 760.0782 89.810009" wmode="0" dir="1 0" flags="0" text="PERCENTAGE"></line>
+<line bbox="28.68 91.009998 55.722299 94.49" wmode="0" dir="1 0" flags="0" text="31-Jan-2026 AADI"></line>
+<line bbox="85.104 91.009998 133.29856 94.49" wmode="0" dir="1 0" flags="0" text="ADARO ANDALAN INDONESIA Tbk"></line>
+<line bbox="179.3 91.009998 226.93775 94.49" wmode="0" dir="1 0" flags="0" text="ADARO STRATEGIC INVESTMENTS"></line>
+<line bbox="381.41 91.009998 385.00923 94.49" wmode="0" dir="1 0" flags="0" text="CP"></line>
+<line bbox="424.75 91.009998 426.8902 94.49" wmode="0" dir="1 0" flags="0" text="D"></line>
+<line bbox="504.07 91.009998 519.99099 94.49" wmode="0" dir="1 0" flags="0" text="INDONESIA"></line>
+<line bbox="597.58 91.009998 618.0213 94.49" wmode="0" dir="1 0" flags="0" text="3.050.000.000"></line>
+<line bbox="662.26 91.009998 664.02438 94.49" wmode="0" dir="1 0" flags="0" text="0"></line>
+<line bbox="710.26 91.009998 730.7013 94.49" wmode="0" dir="1 0" flags="0" text="3.050.000.000"></line>
+<line bbox="759.72 91.009998 767.70999 94.49" wmode="0" dir="1 0" flags="0" text="39,82"></line>
+</block>
+</page>
+</document>

@@ -258,6 +258,7 @@ const KNOWN_CONFIG_KEYS: &[&str] = &[
     "cache.quote_ttl",
     "cache.fundamental_ttl",
     "ownership.db_path",
+    "ownership.snapshot_manifest",
 ];
 
 /// Validates a config key and value before writing
@@ -300,6 +301,10 @@ fn normalize_config_value(key: &str, value: &str) -> Result<toml::Value, IdxErro
         }
         "ownership.db_path" => {
             // Ownership DB path is free-form and may be absolute or relative.
+            Ok(toml::Value::String(value.to_string()))
+        }
+        "ownership.snapshot_manifest" => {
+            // Snapshot manifest can be an absolute/relative path or a URL.
             Ok(toml::Value::String(value.to_string()))
         }
         "general.color" => {
@@ -554,6 +559,24 @@ mod tests {
     fn validate_accepts_ownership_db_path() {
         assert!(super::validate_config_key_value("ownership.db_path", "/tmp/ownership.db").is_ok());
         assert!(super::validate_config_key_value("ownership.db_path", "data/ownership.db").is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_ownership_snapshot_manifest() {
+        assert!(
+            super::validate_config_key_value(
+                "ownership.snapshot_manifest",
+                "https://example.com/latest.json"
+            )
+            .is_ok()
+        );
+        assert!(
+            super::validate_config_key_value(
+                "ownership.snapshot_manifest",
+                "snapshots/latest.json"
+            )
+            .is_ok()
+        );
     }
 
     #[test]
