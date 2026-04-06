@@ -12,7 +12,7 @@ use crate::api::types::{
 };
 use crate::api::{
     EarningsProvider, FinancialsProvider, FundamentalsProvider, InsightsProvider, NewsProvider,
-    ProfileProvider, QuoteProvider, SentimentProvider,
+    ProfileProvider, QuoteProvider, ScreenerProvider, SentimentProvider,
 };
 use crate::error::IdxError;
 
@@ -33,16 +33,6 @@ impl MsnProvider {
         Self {
             client: MsnClient::new(),
         }
-    }
-
-    pub fn screener(
-        &self,
-        filter: &str,
-        region: &str,
-        limit: usize,
-    ) -> Result<Vec<Quote>, IdxError> {
-        let raw = self.client.fetch_screener(filter, region, limit)?;
-        parse_screener_results(&raw)
     }
 }
 
@@ -99,6 +89,13 @@ impl InsightsProvider for MsnProvider {
 impl NewsProvider for MsnProvider {
     fn news(&self, symbol: &str, limit: usize) -> Result<Vec<NewsItem>, IdxError> {
         let raw = self.client.fetch_news(symbol, limit)?;
-        parse_news(&raw)
+        parse_news(symbol, &raw)
+    }
+}
+
+impl ScreenerProvider for MsnProvider {
+    fn screener(&self, filter: &str, region: &str, limit: usize) -> Result<Vec<Quote>, IdxError> {
+        let raw = self.client.fetch_screener(filter, region, limit)?;
+        parse_screener_results(&raw)
     }
 }

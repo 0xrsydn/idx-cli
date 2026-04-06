@@ -1,13 +1,23 @@
 [package]
 name = "idx-cli"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
+rust-version = "1.85"
 description = "CLI tool for Indonesian stock market (IDX) analysis"
 license = "MIT"
 repository = "https://github.com/0xrsydn/idx-cli"
 homepage = "https://github.com/0xrsydn/idx-cli"
 keywords = ["idx", "stocks", "indonesia", "cli", "finance"]
 categories = ["command-line-utilities", "finance"]
+include = [
+  "/Cargo.toml",
+  "/Cargo.lock",
+  "/LICENSE",
+  "/README.md",
+  "/src/**",
+  "/tests/cli.rs",
+  "/tests/fixtures/**",
+]
 
 [[bin]]
 name = "idx"

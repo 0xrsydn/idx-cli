@@ -8,6 +8,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::error::IdxError;
+use crate::runtime;
 
 const CURRENT_SCHEMA_VERSION: u32 = 1;
 
@@ -175,9 +176,9 @@ impl Cache {
         let entry: CacheEntry<T> = match serde_json::from_str(&raw) {
             Ok(e) => e,
             Err(e) => {
-                eprintln!(
-                    "warning: corrupted cache entry for {data_type}/{symbol}, treating as miss: {e}"
-                );
+                runtime::warn(format!(
+                    "corrupted cache entry for {data_type}/{symbol}, treating as miss: {e}"
+                ));
                 let _ = fs::remove_file(&path);
                 return Ok(None);
             }

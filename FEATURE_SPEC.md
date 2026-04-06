@@ -57,8 +57,8 @@ The remaining work is architecture cleanup, a few correctness edge cases, and se
 | Fundamental | `idx stocks fundamental` | Implemented | Shipped and exercised |
 | Compare | `idx stocks compare` | Implemented | Shipped and exercised |
 | Company profile | `idx stocks profile` | Implemented | Cache/offline parity and fixture-backed coverage are in place |
-| Financial statements | `idx stocks financials` | Implemented with gaps | Output cleanup landed; statement filter flags and richer period controls are still missing |
-| Earnings | `idx stocks earnings` | Implemented with gaps | History/forecast split is rendered; filter flags are still missing |
+| Financial statements | `idx stocks financials` | Implemented | Output cleanup landed, and statement filters now support `--statement income|balance|cashflow` |
+| Earnings | `idx stocks earnings` | Implemented | History/forecast split is rendered, and filters now support `--forecast|--history` with `--annual|--quarterly` |
 | Sentiment | `idx stocks sentiment` | Implemented | Fixture-backed CLI coverage exists |
 | Insights | `idx stocks insights` | Implemented | Summary/highlights/risks/`last_updated` mapping was corrected and tested |
 | News | `idx stocks news` | Implemented | Fixture-backed CLI coverage exists |
@@ -153,11 +153,11 @@ Done when:
 
 ### P1 - UX and output contract cleanup
 
-Tasks:
-- Add `financials` filters such as `--statement income|balance|cashflow`.
-- Add `earnings` filters such as `--forecast|--history` and `--annual|--quarterly`.
-- Review JSON payload consistency where symbol or context fields are still sparse.
-- Decide whether `screen` stays under `stocks` long term or graduates into a richer dedicated surface later.
+Completed on `2026-04-02`:
+- `financials` now supports `--statement income|balance|cashflow`.
+- `earnings` now supports `--forecast|--history` and `--annual|--quarterly`.
+- JSON payload context is less sparse for MSN `earnings`, `insights`, and `news`; each now carries the resolved symbol.
+- `screen` stays under `stocks` for now; revisit a dedicated surface only if `screen query` / `screen presets` grow into a richer workflow.
 
 Done when:
 - Existing shipped commands are easier to drive without changing product scope.

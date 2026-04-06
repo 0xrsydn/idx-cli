@@ -350,6 +350,7 @@ prepare_paths() {
 
 build_binary() {
     local build_log
+    local stale_input
 
     if [[ -z "$BIN_PATH" ]]; then
         BIN_PATH="$ROOT_DIR/target/debug/idx"
@@ -368,6 +369,27 @@ build_binary() {
                 echo "cargo not found; run inside nix develop or pass --bin/--no-build with an existing idx binary" >&2
                 exit 1
             fi
+        fi
+    fi
+
+    if (( BUILD == 0 )) && [[ "$BIN_PATH" == "$ROOT_DIR/target/debug/idx" && -x "$BIN_PATH" ]]; then
+        stale_input="$(
+            find \
+                "$ROOT_DIR/src" \
+                "$ROOT_DIR/tests" \
+                "$ROOT_DIR/Cargo.toml" \
+                "$ROOT_DIR/Cargo.lock" \
+                "$ROOT_DIR/scripts/live-smoke.sh" \
+                -type f \
+                -newer "$BIN_PATH" \
+                -print \
+                -quit \
+                2>/dev/null
+        )"
+        if [[ -n "$stale_input" ]]; then
+            echo "refusing to run smoke checks against stale $BIN_PATH; newer input detected at $stale_input" >&2
+            echo "rebuild first or omit --no-build so the runner refreshes target/debug/idx" >&2
+            exit 1
         fi
     fi
 

@@ -1,11 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::process::Stdio;
 use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::api::types::{Interval, Period};
 use crate::curl_impersonate;
 use crate::error::IdxError;
+use crate::runtime;
 
 use super::raw_types::{ChartResponse, QuoteSummaryResponse};
 
@@ -48,7 +50,7 @@ impl YahooClient {
     }
 
     fn cookie_jar_path() -> PathBuf {
-        PathBuf::from(format!("/tmp/idx_yf_{}.txt", std::process::id()))
+        std::env::temp_dir().join(format!("idx_yf_{}.txt", std::process::id()))
     }
 
     pub(super) fn parse_crumb_body(raw: &str) -> Result<String, IdxError> {
@@ -132,14 +134,9 @@ impl YahooClient {
         // Step 1: fetch fc.yahoo.com to set A3 cookie (returns 404 but writes cookie jar).
         // We allow non-zero exit here since 404 still writes the cookie.
         let _ = Command::new(binary)
-            .args([
-                "--silent",
-                "--cookie-jar",
-                cookie_jar_str,
-                COOKIE_FETCH_URL,
-                "--output",
-                "/dev/null",
-            ])
+            .args(["--silent", "--cookie-jar", cookie_jar_str, COOKIE_FETCH_URL])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .output();
 
         // Step 2: fetch crumb with cookie jar (Chrome TLS fingerprint + A3 cookie).
@@ -176,36 +173,60 @@ impl YahooClient {
         Ok(())
     }
 
+    fn retry_rate_limited<T, F>(&self, request: F) -> Result<Result<T, ureq::Error>, IdxError>
+    where
+        F: FnMut() -> Result<T, ureq::Error>,
+    {
+        Self::retry_rate_limited_with(request, std::thread::sleep, jitter)
+    }
+
+    fn retry_rate_limited_with<T, F, S, J>(
+        mut request: F,
+        mut sleeper: S,
+        mut jitter_fn: J,
+    ) -> Result<Result<T, ureq::Error>, IdxError>
+    where
+        F: FnMut() -> Result<T, ureq::Error>,
+        S: FnMut(Duration),
+        J: FnMut() -> Duration,
+    {
+        let mut wait = Duration::from_millis(250);
+
+        for attempt in 0..3 {
+            match request() {
+                Err(ureq::Error::StatusCode(429)) => {
+                    if attempt < 2 {
+                        sleeper(wait + jitter_fn());
+                        wait *= 2;
+                        continue;
+                    }
+                    return Err(IdxError::RateLimited);
+                }
+                other => return Ok(other),
+            }
+        }
+
+        Err(IdxError::RateLimited)
+    }
+
     pub(super) fn fetch_chart(
         &self,
         symbol: &str,
         period: &Period,
         interval: &Interval,
     ) -> Result<ChartResponse, IdxError> {
-        let mut wait = Duration::from_millis(250);
-        for attempt in 0..3 {
-            let url = Self::chart_url(symbol, period, interval);
-            let response = self.agent.get(&url).header("User-Agent", USER_AGENT).call();
-            match response {
-                Ok(ok) => {
-                    return ok
-                        .into_body()
-                        .read_json::<ChartResponse>()
-                        .map_err(|e| IdxError::ParseError(e.to_string()));
-                }
-                Err(ureq::Error::StatusCode(429)) => {
-                    if attempt < 2 {
-                        std::thread::sleep(wait + jitter());
-                        wait *= 2;
-                    }
-                }
-                Err(ureq::Error::StatusCode(404)) => {
-                    return Err(IdxError::SymbolNotFound(symbol.to_string()));
-                }
-                Err(e) => return Err(IdxError::Http(e.to_string())),
-            }
+        let url = Self::chart_url(symbol, period, interval);
+        let response = self
+            .retry_rate_limited(|| self.agent.get(&url).header("User-Agent", USER_AGENT).call())?;
+
+        match response {
+            Ok(ok) => ok
+                .into_body()
+                .read_json::<ChartResponse>()
+                .map_err(|e| IdxError::ParseError(e.to_string())),
+            Err(ureq::Error::StatusCode(404)) => Err(IdxError::SymbolNotFound(symbol.to_string())),
+            Err(e) => Err(IdxError::Http(e.to_string())),
         }
-        Err(IdxError::RateLimited)
     }
 
     pub(super) fn fetch_quote_summary(
@@ -217,48 +238,41 @@ impl YahooClient {
             let cookie_header = match Self::cookie_header_from_jar(&Self::cookie_jar_path()) {
                 Ok(header) => header,
                 Err(err) => {
-                    eprintln!("warning: failed to parse Yahoo cookie jar: {err}");
+                    runtime::warn(format!("failed to parse Yahoo cookie jar: {err}"));
                     return Err(IdxError::AuthError(format!(
                         "failed to parse Yahoo cookies: {err}"
                     )));
                 }
             };
             let url = Self::quote_summary_url(symbol, &crumb);
-            let mut wait = Duration::from_millis(250);
-
-            for attempt in 0..3 {
+            let response = self.retry_rate_limited(|| {
                 let mut req = self.agent.get(&url).header("User-Agent", USER_AGENT);
                 if !cookie_header.is_empty() {
                     req = req.header("Cookie", &cookie_header);
                 }
-                let response = req.call();
-                match response {
-                    Ok(ok) => {
-                        return ok
-                            .into_body()
-                            .read_json::<QuoteSummaryResponse>()
-                            .map_err(|e| IdxError::ParseError(e.to_string()));
-                    }
-                    Err(ureq::Error::StatusCode(401)) => {
-                        if auth_attempt == 0 {
-                            self.clear_crumb()?;
-                            break;
-                        }
-                        return Err(IdxError::Http(
-                            "yahoo quoteSummary returned unauthorized (401)".to_string(),
-                        ));
-                    }
-                    Err(ureq::Error::StatusCode(429)) => {
-                        if attempt < 2 {
-                            std::thread::sleep(wait + jitter());
-                            wait *= 2;
-                        }
-                    }
-                    Err(ureq::Error::StatusCode(404)) => {
-                        return Err(IdxError::SymbolNotFound(symbol.to_string()));
-                    }
-                    Err(e) => return Err(IdxError::Http(e.to_string())),
+                req.call()
+            })?;
+
+            match response {
+                Ok(ok) => {
+                    return ok
+                        .into_body()
+                        .read_json::<QuoteSummaryResponse>()
+                        .map_err(|e| IdxError::ParseError(e.to_string()));
                 }
+                Err(ureq::Error::StatusCode(401)) => {
+                    if auth_attempt == 0 {
+                        self.clear_crumb()?;
+                        continue;
+                    }
+                    return Err(IdxError::Http(
+                        "yahoo quoteSummary returned unauthorized (401)".to_string(),
+                    ));
+                }
+                Err(ureq::Error::StatusCode(404)) => {
+                    return Err(IdxError::SymbolNotFound(symbol.to_string()));
+                }
+                Err(e) => return Err(IdxError::Http(e.to_string())),
             }
         }
 
@@ -273,6 +287,7 @@ fn jitter() -> Duration {
 #[cfg(test)]
 mod tests {
     use super::YahooClient;
+    use std::time::Duration;
 
     #[test]
     fn parses_crumb_body_trimmed() {
@@ -289,5 +304,56 @@ mod tests {
         let rate_limited = YahooClient::parse_crumb_body("Too Many Requests")
             .expect_err("rate limited crumb must fail");
         assert!(matches!(rate_limited, crate::error::IdxError::Http(_)));
+    }
+
+    #[test]
+    fn retry_rate_limited_succeeds_after_retry() {
+        let mut attempts = 0;
+        let mut sleeps = Vec::new();
+
+        let result = YahooClient::retry_rate_limited_with(
+            || {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(ureq::Error::StatusCode(429))
+                } else {
+                    Ok("ok")
+                }
+            },
+            |duration| sleeps.push(duration),
+            || Duration::ZERO,
+        )
+        .expect("retry helper should not fail")
+        .expect("third attempt should succeed");
+
+        assert_eq!(result, "ok");
+        assert_eq!(attempts, 3);
+        assert_eq!(
+            sleeps,
+            vec![Duration::from_millis(250), Duration::from_millis(500)]
+        );
+    }
+
+    #[test]
+    fn retry_rate_limited_returns_rate_limited_after_exhaustion() {
+        let mut attempts = 0;
+        let mut sleeps = Vec::new();
+
+        let err = YahooClient::retry_rate_limited_with(
+            || {
+                attempts += 1;
+                Err::<(), ureq::Error>(ureq::Error::StatusCode(429))
+            },
+            |duration| sleeps.push(duration),
+            || Duration::ZERO,
+        )
+        .expect_err("rate-limited helper should fail after three attempts");
+
+        assert!(matches!(err, crate::error::IdxError::RateLimited));
+        assert_eq!(attempts, 3);
+        assert_eq!(
+            sleeps,
+            vec![Duration::from_millis(250), Duration::from_millis(500)]
+        );
     }
 }

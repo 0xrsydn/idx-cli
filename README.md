@@ -4,13 +4,29 @@ CLI tool for Indonesian stock market (IDX) analysis, built in Rust for humans an
 
 ## Installation
 
+### Cargo
+
 ```bash
 cargo install idx-cli
 ```
 
+This installs the `idx` binary. `idx-cli` currently requires Rust `1.85+`.
+
+If you use the Cargo install path directly, some commands also require helper tools at runtime:
+
+- Yahoo-authenticated flows require a `curl_chrome*` binary from `curl-impersonate-chrome` in `PATH`, or `IDX_CURL_IMPERSONATE_BIN` pointing at that binary.
+- Ownership PDF import requires `mutool` from MuPDF in `PATH`.
+
+Install those helpers with your OS package manager, or use the Nix app/package below so they are wrapped automatically.
+
+### Nix
+
 ```bash
-nix run github:0xrsydn/idx-cli
+nix run github:0xrsydn/idx-cli -- version
+nix profile install github:0xrsydn/idx-cli#default
 ```
+
+The Nix app wraps `idx` with `curl-impersonate` and `mupdf`, so the Yahoo auth and ownership PDF helper tools are available automatically.
 
 ## Quick start
 
@@ -54,7 +70,6 @@ Precedence order:
 
 - Use `idx --help` and subcommand help for discoverability
 - Use `-o json` / `--output json` for structured output
-- See `skills/` for agent workflows and task recipes
 
 ## Development
 

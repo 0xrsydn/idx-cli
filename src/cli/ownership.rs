@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use clap::{Args, Subcommand};
 use comfy_table::{Cell, ContentArrangement, Table, presets::UTF8_FULL};
-use directories::ProjectDirs;
 use owo_colors::OwoColorize;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -15,12 +14,18 @@ use crate::error::IdxError;
 use crate::output::OutputFormat;
 use crate::output::json;
 use crate::output::table::format_idr;
+use crate::runtime;
 use crate::ownership::types::{
     ChangeType, FlowSignal, HolderRow, KseiHolding, OwnershipRelease, OwnershipSource,
 };
 use crate::ownership::{archive, db, entities, graph, parser, remote, search, snapshot};
 
 #[derive(Debug, Args)]
+#[command(
+    about = "Ownership intelligence (KSEI + Bing)",
+    long_about = "Ownership intelligence (KSEI + Bing).\n\nPreferred bootstrap path:\n  1. Run `idx ownership sync` to install or refresh a maintained SQLite snapshot.\n  2. If no snapshot manifest is available, run `idx ownership discover` and then `idx ownership import --url <pdf-url>`.\n  3. Local `.pdf`, `.zip`, and `.txt` imports remain available for manual or fallback workflows.",
+    after_help = "Examples:\n  idx ownership sync\n  idx ownership sync --manifest /path/to/ownership-snapshot-manifest.json\n  idx ownership discover --limit 1\n  idx ownership import --url <pdf-url>\n  idx ownership releases"
+)]
 pub struct OwnershipCmd {
     #[command(subcommand)]
     pub command: OwnershipCommand,
@@ -28,11 +33,22 @@ pub struct OwnershipCmd {
 
 #[derive(Debug, Subcommand)]
 pub enum OwnershipCommand {
-    /// Discover the latest IDX-hosted ownership report URLs.
+    #[command(
+        about = "Discover the latest IDX-hosted ownership report URLs",
+        after_help = "Examples:\n  idx ownership discover --limit 1\n  idx ownership discover --family all --limit 6\n\nUse this when no snapshot manifest is available and you need a direct PDF URL for `idx ownership import --url`."
+    )]
     Discover(DiscoverArgs),
-    /// Import ownership data from KSEI PDF or archive fallback files.
+    #[command(
+        about = "Import ownership data directly from source files",
+        long_about = "Import ownership data directly from source files.\n\nPrefer `idx ownership sync` for normal bootstrap/update flows. Use `import` when you need a direct PDF import from IDX discovery output, a local PDF, or a local KSEI archive fallback file.",
+        after_help = "Examples:\n  idx ownership import --url <pdf-url-from-discover>\n  idx ownership import --file /path/to/ksei.pdf\n  idx ownership import --file /path/to/BalanceposEfek20260227.zip"
+    )]
     Import(ImportArgs),
-    /// Install or refresh a maintained ownership SQLite snapshot.
+    #[command(
+        about = "Install or refresh a maintained ownership SQLite snapshot",
+        long_about = "Install or refresh a maintained ownership SQLite snapshot.\n\nThis is the normal bootstrap/update path for ownership data.\n\nManifest lookup order:\n  1. `--manifest`\n  2. `IDX_OWNERSHIP_SNAPSHOT_MANIFEST`\n  3. `ownership.snapshot_manifest` in config",
+        after_help = "Examples:\n  idx ownership sync\n  idx ownership sync --manifest /path/to/ownership-snapshot-manifest.json\n  IDX_OWNERSHIP_SNAPSHOT_MANIFEST=https://example.com/latest.json idx ownership sync"
+    )]
     Sync(SyncArgs),
     /// Show all holders for a ticker (KSEI + Bing combined).
     Ticker(TickerArgs),
@@ -68,26 +84,26 @@ pub struct DiscoverArgs {
 
 #[derive(Debug, Args)]
 pub struct ImportArgs {
-    /// URL to a remote ownership PDF.
+    /// Direct URL to a remote ownership PDF, typically from `ownership discover`.
     #[arg(long)]
     pub url: Option<String>,
-    /// Path to local KSEI ownership PDF, ZIP, or TXT file.
+    /// Path to a local ownership file: PDF (primary), ZIP/TXT archive (fallback).
     #[arg(long)]
     pub file: Option<PathBuf>,
     /// Fetch Bing institutional data for these symbols.
     #[arg(long, value_delimiter = ',')]
     pub fetch_bing: Option<Vec<String>>,
-    /// Re-import even if already imported.
+    /// Re-import even if the release SHA-256 has already been seen.
     #[arg(long)]
     pub force: bool,
 }
 
 #[derive(Debug, Args)]
 pub struct SyncArgs {
-    /// Snapshot manifest location (URL or local path).
+    /// Snapshot manifest location (URL or local path). If omitted, config/env lookup is used.
     #[arg(long)]
     pub manifest: Option<String>,
-    /// Replace the local DB even when already current or newer.
+    /// Replace the local DB even when it is already current or newer than the snapshot.
     #[arg(long)]
     pub force: bool,
 }
@@ -536,7 +552,10 @@ fn handle_flow(args: &FlowArgs, config: &IdxConfig) -> Result<(), IdxError> {
 
     let flow = db::query_bing_flow(&conn, ticker_id)?;
     let Some(flow) = flow else {
-        println!("No institutional flow data. Run: idx ownership import --fetch-bing {symbol}");
+        if matches!(config.output, OutputFormat::Json) {
+            return json::print_json(&Option::<crate::ownership::types::InstitutionalFlow>::None);
+        }
+        println!("No institutional flow data available for {symbol}.");
         return Ok(());
     };
 
@@ -759,12 +778,12 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
             .collect();
 
         if !clean.is_empty() {
-            eprintln!(
-                "info: --fetch-bing requested for {} symbol(s), implementation deferred for Sprint 6",
+            runtime::info(format!(
+                "--fetch-bing requested for {} symbol(s), implementation deferred for Sprint 6",
                 clean.len()
-            );
+            ));
             for symbol in &clean {
-                eprintln!("  - {symbol}");
+                runtime::info(format!("  - {symbol}"));
             }
 
             return Err(IdxError::Unsupported(
@@ -781,7 +800,23 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
 
     let sha256 = sha256_file(&import_input.import_path)?;
     if !args.force && db::release_exists(&conn, &sha256)? {
-        println!("Release already imported (sha256: {sha256}). Use --force to re-import.");
+        let result = OwnershipImportResult {
+            action: "skipped_existing",
+            inserted_rows: 0,
+            ticker_count: 0,
+            as_of_date: None,
+            sha256,
+            source_url: import_input.source_url,
+        };
+
+        if matches!(config.output, OutputFormat::Json) {
+            return json::print_json(&result);
+        }
+
+        println!(
+            "Release already imported (sha256: {}). Use --force to re-import.",
+            result.sha256
+        );
         return Ok(());
     }
 
@@ -830,7 +865,6 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
         });
     }
 
-    let inserted_rows = db::insert_ksei_holdings(&conn, &holdings)?;
     let as_of_date = holdings
         .iter()
         .map(|h| h.report_date)
@@ -844,15 +878,28 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
         source_url: import_input.source_url,
         sha256,
         as_of_date,
-        row_count: inserted_rows,
+        row_count: holdings.len(),
         imported_at: Utc::now().timestamp(),
     };
-    let _ = db::insert_release(&conn, &release)?;
+    let inserted_rows = db::write_ksei_release(&conn, &release, &holdings, args.force)?;
+
+    let result = OwnershipImportResult {
+        action: if args.force { "reimported" } else { "imported" },
+        inserted_rows,
+        ticker_count: ticker_ids.len(),
+        as_of_date: Some(as_of_date.format("%Y-%m-%d").to_string()),
+        sha256: release.sha256.clone(),
+        source_url: release.source_url.clone(),
+    };
+
+    if matches!(config.output, OutputFormat::Json) {
+        return json::print_json(&result);
+    }
 
     println!(
         "Imported {} rows for {} tickers (as of {}).",
-        inserted_rows,
-        ticker_ids.len(),
+        result.inserted_rows,
+        result.ticker_count,
         as_of_date.format("%Y-%m-%d")
     );
 
@@ -916,6 +963,16 @@ struct ResolvedImportInput {
     format: ImportInputFormat,
 }
 
+#[derive(Debug, Serialize)]
+struct OwnershipImportResult {
+    action: &'static str,
+    inserted_rows: usize,
+    ticker_count: usize,
+    as_of_date: Option<String>,
+    sha256: String,
+    source_url: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ImportInputFormat {
     Pdf,
@@ -972,9 +1029,7 @@ fn detect_local_import_format(path: &Path) -> Result<ImportInputFormat, IdxError
 }
 
 fn cache_pdf_path(url: &str) -> Result<PathBuf, IdxError> {
-    let dirs = ProjectDirs::from("", "", "idx")
-        .ok_or_else(|| IdxError::Io("unable to resolve cache directory".to_string()))?;
-    let raw_dir = dirs.cache_dir().join("ownership").join("raw");
+    let raw_dir = crate::cache::cache_dir()?.join("ownership").join("raw");
     fs::create_dir_all(&raw_dir).map_err(|e| IdxError::Io(e.to_string()))?;
 
     let mut file_name = url

@@ -9,6 +9,33 @@ mod output;
 #[cfg(feature = "ownership")]
 pub mod ownership;
 
+pub mod runtime {
+    use std::fmt::Display;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static QUIET: AtomicBool = AtomicBool::new(false);
+
+    pub fn set_quiet(quiet: bool) {
+        QUIET.store(quiet, Ordering::Relaxed);
+    }
+
+    pub fn is_quiet() -> bool {
+        QUIET.load(Ordering::Relaxed)
+    }
+
+    pub fn info(message: impl Display) {
+        if !is_quiet() {
+            eprintln!("info: {message}");
+        }
+    }
+
+    pub fn warn(message: impl Display) {
+        if !is_quiet() {
+            eprintln!("warning: {message}");
+        }
+    }
+}
+
 use clap::CommandFactory;
 use clap::Parser;
 use clap_complete::{generate, shells};
@@ -27,6 +54,7 @@ fn main() {
 
 fn run() -> Result<(), IdxError> {
     let cli = Cli::parse();
+    runtime::set_quiet(cli.quiet);
     let config = match IdxConfig::load_with_cli(&cli) {
         Ok(config) => config,
         Err(err) => {
@@ -50,13 +78,16 @@ fn run() -> Result<(), IdxError> {
         }
         Commands::Stocks(stocks) => {
             let provider = default_provider(config.provider, cli.verbose > 0);
-            if let Err(err) = cli::stocks::handle(
-                stocks,
-                &config,
-                provider.as_ref(),
-                cli.offline,
-                cli.no_cache,
-            ) {
+            if let Err(err) =
+                cli::stocks::handle(
+                    stocks,
+                    &config,
+                    &provider,
+                    cli.offline,
+                    cli.no_cache,
+                    cli.verbose > 0,
+                )
+            {
                 emit_error(&err, &config.output);
                 return Err(err);
             }

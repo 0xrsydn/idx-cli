@@ -15,22 +15,56 @@
       let
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
+        lib = pkgs.lib;
+        cargoManifest = builtins.fromTOML (builtins.readFile ./Cargo.toml);
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "rust-analyzer" ];
         };
+        rustPlatform = pkgs.makeRustPlatform {
+          cargo = rustToolchain;
+          rustc = rustToolchain;
+        };
+        runtimeDeps = with pkgs; [
+          curl-impersonate
+          mupdf
+        ];
+        idxPackage = rustPlatform.buildRustPackage {
+          pname = cargoManifest.package.name;
+          version = cargoManifest.package.version;
+          src = lib.cleanSource ./.;
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+          };
+          doCheck = false;
+          nativeBuildInputs = with pkgs; [
+            makeWrapper
+            pkg-config
+          ];
+          buildInputs = with pkgs; [
+            openssl
+          ];
+          postInstall = ''
+            wrapProgram "$out/bin/idx" \
+              --prefix PATH : "${lib.makeBinPath runtimeDeps}"
+          '';
+        };
       in
       {
+        packages.default = idxPackage;
+        apps.default = {
+          type = "app";
+          program = "${idxPackage}/bin/idx";
+        };
+        checks.default = idxPackage;
+
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
+          inputsFrom = [ idxPackage ];
+          packages = with pkgs; [
             rustToolchain
-            pkg-config
-            openssl
             cargo-watch
             cargo-nextest
             prek
-            curl-impersonate  # required for Yahoo Finance auth (curl_chrome* binaries for TLS fingerprinting)
-            mupdf             # mutool for KSEI PDF parsing (ownership module)
-          ];
+          ] ++ runtimeDeps;
 
           shellHook = ''
             export PATH="$PWD/target/debug:$PATH"

@@ -2,6 +2,7 @@ use clap::{Args, Subcommand};
 
 use crate::cache::Cache;
 use crate::error::IdxError;
+use crate::runtime;
 
 #[derive(Debug, Args)]
 #[command(about = "Manage local cache")]
@@ -43,7 +44,7 @@ pub fn handle(cmd: &CacheCmd) -> Result<(), IdxError> {
             let (removed, failed) = cache.clear()?;
             println!("cleared {removed} files");
             if !failed.is_empty() {
-                eprintln!("warning: failed to remove {} file(s)", failed.len());
+                runtime::warn(format!("failed to remove {} file(s)", failed.len()));
             }
         }
     }

@@ -143,14 +143,10 @@ impl IdxConfig {
         if let Ok(no_color) = std::env::var("IDX_NO_COLOR") {
             cfg.no_color = no_color == "1" || no_color.eq_ignore_ascii_case("true");
         }
-        if let Ok(v) = std::env::var("IDX_CACHE_QUOTE_TTL")
-            && let Ok(parsed) = v.parse::<u64>()
-        {
+        if let Some(parsed) = parse_env_ttl("IDX_CACHE_QUOTE_TTL")? {
             cfg.quote_ttl = parsed;
         }
-        if let Ok(v) = std::env::var("IDX_CACHE_FUNDAMENTAL_TTL")
-            && let Ok(parsed) = v.parse::<u64>()
-        {
+        if let Some(parsed) = parse_env_ttl("IDX_CACHE_FUNDAMENTAL_TTL")? {
             cfg.fundamental_ttl = parsed;
         }
 
@@ -197,6 +193,27 @@ impl IdxConfig {
         }
         Ok(cfg)
     }
+}
+
+fn parse_env_ttl(name: &str) -> Result<Option<u64>, IdxError> {
+    let Ok(raw) = std::env::var(name) else {
+        return Ok(None);
+    };
+
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(IdxError::ConfigError(format!(
+            "invalid {name} value '{raw}': expected a non-negative integer"
+        )));
+    }
+
+    let parsed = trimmed.parse::<u64>().map_err(|_| {
+        IdxError::ConfigError(format!(
+            "invalid {name} value '{raw}': expected a non-negative integer"
+        ))
+    })?;
+
+    Ok(Some(parsed))
 }
 
 pub fn default_config_toml() -> String {

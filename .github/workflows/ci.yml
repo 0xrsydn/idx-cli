@@ -30,3 +30,29 @@ jobs:
 
       - name: Test
         run: cargo test
+
+      - name: Package
+        run: cargo package --locked
+
+      - name: Install Smoke
+        run: |
+          root="$(mktemp -d)"
+          cargo install --path . --locked --root "$root"
+          "$root/bin/idx" version
+          scripts/live-smoke.sh --bin "$root/bin/idx" --no-build --mode mock
+
+  nix:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+
+      - name: Build default package
+        run: nix build .#default
+
+      - name: Run default app
+        run: nix run .#default -- version

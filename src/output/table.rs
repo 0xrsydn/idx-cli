@@ -557,7 +557,7 @@ fn trend_context(report: &TechnicalReport) -> String {
             format_idr(sma50.round() as i64),
             format_idr(sma200.round() as i64)
         ),
-        _ => "Insufficient data".to_string(),
+        _ => "Trend unavailable (need at least 200 daily candles)".to_string(),
     }
 }
 

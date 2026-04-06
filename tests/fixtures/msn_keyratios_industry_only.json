@@ -1,0 +1,20 @@
+[
+  {
+    "industryMetrics": [
+      {
+        "year": "2025",
+        "fiscalPeriodType": "TTM",
+        "priceToEarningsRatio": 12.5,
+        "forwardPriceToEPS": 11.8,
+        "priceToBookRatio": 1.7,
+        "roe": 18.4,
+        "profitMargin": 22.1,
+        "revenueGrowthRate": 9.4,
+        "earningsGrowthRate": 8.1,
+        "debtToEquityRatio": 0.4,
+        "currentRatio": 1.3
+      }
+    ],
+    "companyMetrics": []
+  }
+]

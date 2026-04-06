@@ -26,12 +26,24 @@ pub fn query_ownership_graph(
         let mut stmt = conn
             .prepare(
                 "WITH RECURSIVE
+                    latest_ksei AS (
+                        SELECT sha256
+                        FROM ownership_releases
+                        ORDER BY as_of_date DESC, imported_at DESC
+                        LIMIT 1
+                    ),
+                    latest_bing AS (
+                        SELECT ticker_id, MAX(report_date) AS report_date
+                        FROM bing_holdings
+                        GROUP BY ticker_id
+                    ),
                     all_edges AS (
                         SELECT
                             'entity:' || k.entity_id AS from_id,
                             'ticker:' || t.code AS to_id
                         FROM ksei_holdings k
                         JOIN tickers t ON t.id = k.ticker_id
+                        JOIN latest_ksei lk ON lk.sha256 = k.release_sha256
                         WHERE k.entity_id IS NOT NULL
 
                         UNION
@@ -40,8 +52,12 @@ pub fn query_ownership_graph(
                             'entity:' || b.entity_id AS from_id,
                             'ticker:' || t.code AS to_id
                         FROM bing_holdings b
+                        JOIN latest_bing lb
+                          ON lb.ticker_id = b.ticker_id
+                         AND lb.report_date = b.report_date
                         JOIN tickers t ON t.id = b.ticker_id
                         WHERE b.entity_id IS NOT NULL
+                          AND b.signal = 'holder'
                     ),
                     neighbors AS (
                         SELECT from_id AS a, to_id AS b FROM all_edges
@@ -207,6 +223,15 @@ fn detect_root_node(conn: &Connection, root: &str) -> Result<String, IdxError> {
 fn query_all_edges(conn: &Connection) -> Result<Vec<GraphEdge>, IdxError> {
     let mut out = Vec::new();
 
+    if let Ok(release_sha) = conn
+        .query_row(
+            "SELECT sha256
+             FROM ownership_releases
+             ORDER BY as_of_date DESC, imported_at DESC
+             LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
     {
         let mut stmt = conn
             .prepare(
@@ -215,12 +240,13 @@ fn query_all_edges(conn: &Connection) -> Result<Vec<GraphEdge>, IdxError> {
                         k.percentage_bps
                  FROM ksei_holdings k
                  JOIN tickers t ON t.id = k.ticker_id
-                 WHERE k.entity_id IS NOT NULL",
+                 WHERE k.entity_id IS NOT NULL
+                   AND k.release_sha256 = ?1",
             )
             .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
         let rows = stmt
-            .query_map([], |row| {
+            .query_map(params![release_sha], |row| {
                 Ok(GraphEdge {
                     from: row.get(0)?,
                     to: row.get(1)?,
@@ -238,12 +264,21 @@ fn query_all_edges(conn: &Connection) -> Result<Vec<GraphEdge>, IdxError> {
     {
         let mut stmt = conn
             .prepare(
-                "SELECT 'entity:' || b.entity_id,
+                "WITH latest_bing AS (
+                    SELECT ticker_id, MAX(report_date) AS report_date
+                    FROM bing_holdings
+                    GROUP BY ticker_id
+                 )
+                 SELECT 'entity:' || b.entity_id,
                         'ticker:' || t.code,
                         COALESCE(b.pct_ownership_bps, 0)
                  FROM bing_holdings b
+                 JOIN latest_bing lb
+                   ON lb.ticker_id = b.ticker_id
+                  AND lb.report_date = b.report_date
                  JOIN tickers t ON t.id = b.ticker_id
-                 WHERE b.entity_id IS NOT NULL",
+                 WHERE b.entity_id IS NOT NULL
+                   AND b.signal = 'holder'",
             )
             .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
@@ -329,4 +364,101 @@ fn source_label(source: OwnershipSource) -> &'static str {
 
 fn escape_dot(value: &str) -> String {
     value.replace('"', "\\\"")
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::NaiveDate;
+    use rusqlite::Connection;
+
+    use crate::ownership::db::{ensure_schema, write_ksei_release, upsert_ticker};
+    use crate::ownership::types::{KseiHolding, OwnershipRelease};
+
+    use super::query_ownership_graph;
+
+    fn setup() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        ensure_schema(&conn).unwrap();
+        conn
+    }
+
+    #[test]
+    fn graph_uses_latest_ksei_release_only() {
+        let conn = setup();
+        let aa = upsert_ticker(&conn, "AA", None).unwrap();
+
+        conn.execute(
+            "INSERT INTO entities (canonical_name, entity_type, country, created_at, updated_at)
+             VALUES ('OLDER HOLDER', NULL, NULL, 0, 0)",
+            [],
+        )
+        .unwrap();
+        let older_entity = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO entities (canonical_name, entity_type, country, created_at, updated_at)
+             VALUES ('LATEST HOLDER', NULL, NULL, 0, 0)",
+            [],
+        )
+        .unwrap();
+        let latest_entity = conn.last_insert_rowid();
+
+        let old_release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: "old-graph".to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 1, 30).unwrap(),
+            row_count: 1,
+            imported_at: 1,
+        };
+        let old_rows = vec![KseiHolding {
+            id: 0,
+            ticker_id: aa,
+            entity_id: Some(older_entity),
+            raw_investor_name: "OLDER HOLDER".to_string(),
+            investor_type: None,
+            locality: None,
+            nationality: None,
+            domicile: None,
+            holdings_scripless: 1,
+            holdings_scrip: 0,
+            total_shares: 1,
+            percentage_bps: 1000,
+            report_date: old_release.as_of_date,
+            release_sha256: old_release.sha256.clone(),
+        }];
+        write_ksei_release(&conn, &old_release, &old_rows, false).unwrap();
+
+        let latest_release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: "latest-graph".to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
+            row_count: 1,
+            imported_at: 2,
+        };
+        let latest_rows = vec![KseiHolding {
+            id: 0,
+            ticker_id: aa,
+            entity_id: Some(latest_entity),
+            raw_investor_name: "LATEST HOLDER".to_string(),
+            investor_type: None,
+            locality: None,
+            nationality: None,
+            domicile: None,
+            holdings_scripless: 1,
+            holdings_scrip: 0,
+            total_shares: 1,
+            percentage_bps: 1200,
+            report_date: latest_release.as_of_date,
+            release_sha256: latest_release.sha256.clone(),
+        }];
+        write_ksei_release(&conn, &latest_release, &latest_rows, false).unwrap();
+
+        let (nodes, edges) = query_ownership_graph(&conn, "AA", 1).unwrap();
+        assert!(nodes.iter().any(|node| node.label == "LATEST HOLDER"));
+        assert!(!nodes.iter().any(|node| node.label == "OLDER HOLDER"));
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].percentage_bps, 1200);
+    }
 }

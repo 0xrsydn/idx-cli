@@ -114,6 +114,42 @@
 - [x] Batch 4 verification: `cargo test`
 - [x] Batch 4 verification: fallback ingest produces a compatible SQLite state for `ownership releases`, `ticker`, and `changes`
 
+## 🎯 Current Core Work (from FEATURE_SPEC.md)
+
+### P0 — Correctness and architecture
+- [x] Unify provider and capability flow so `src/cli/stocks.rs` stops constructing `MsnProvider` directly for MSN-only command handlers
+- [x] Fix screener row hygiene so incomplete MSN screener rows with missing price data are filtered or rejected instead of defaulting to `0.0`
+- [x] Decide and implement the fundamentals fallback policy when company metrics are missing
+- [x] Harden Yahoo reliability edge cases: intermittent `429` handling and documented/intentional SMA200 behavior with fewer than `200` candles
+
+### P1 — UX and output contract cleanup
+- [x] Add `stocks financials` filters such as `--statement income|balance|cashflow`
+- [x] Add `stocks earnings` filters such as `--forecast|--history` and `--annual|--quarterly`
+- [x] Review JSON payload consistency where symbol or context fields are still sparse
+- [x] Decide whether `screen` stays under `stocks` long term or graduates into a richer dedicated surface later
+
+### P2 — Deferred but real work
+- [ ] Add MSN chart/history support through `stocks history --history-provider msn`
+- [ ] Define and implement `ownership import --fetch-bing`
+- [ ] Decide whether richer financial statements should stay single-period or grow into multi-period fetch support
+
+## 🚀 Publish Readiness (2026-04-03)
+
+### P1 — Release blockers
+- [x] Keep the installed binary name as `idx`; `Cargo.toml` already ships `[[bin]] name = "idx"` while the package remains `idx-cli`
+- [x] Expose a default Nix package/app so the documented `nix run github:0xrsydn/idx-cli` path actually works
+- [x] Restrict packaged crate contents so internal repo files like `.claude/`, `CLAUDE.md`, `AGENTS.md`, and agent-planning docs are not shipped to crates.io
+- [x] Document real runtime dependencies and platform assumptions for `cargo install idx-cli`, including `curl-impersonate-chrome` for Yahoo auth and `mutool` for ownership PDF parsing
+- [x] Add release/install verification to CI, at minimum `cargo package` and an install smoke path; include Nix app/package verification if the README keeps advertising `nix run`
+
+### P2 — Pre-publish cleanup
+- [x] Wire `--quiet` so non-essential `info:` / `warning:` output is actually suppressed
+- [x] Fail fast on invalid `IDX_CACHE_QUOTE_TTL` / `IDX_CACHE_FUNDAMENTAL_TTL` env values instead of silently ignoring them
+- [x] Propagate `-v` into the history/technical provider path so verbose Yahoo diagnostics can surface
+- [x] Honor XDG overrides consistently for ownership DB/raw download defaults, not only config/cache
+- [x] Tighten `scripts/live-smoke.sh` so it does not silently validate a stale `target/debug/idx` binary
+- [x] Remove or fix the README reference to the non-existent `skills/` directory
+
 ## 📋 Backlog (per SPEC.md)
 - [ ] `market summary` — IHSG index, market breadth
 - [ ] `market movers` — top gainers/losers/volume
@@ -126,7 +162,21 @@
 - [ ] CSV/TSV output formats
 - [ ] Additional providers (Alpha Vantage, Twelve Data, IDX official)
 
-## 🔬 Latest Smoke Findings (2026-03-28)
+## 🔬 Latest Smoke Findings (2026-04-02)
+- [x] Final release-hygiene pass on `2026-04-06`: crate metadata now declares `rust-version = 1.85`, README install docs now spell out Cargo helper-runtime expectations plus persistent `nix profile install`, and CI install smoke now runs the mock smoke matrix against the installed binary instead of only checking `idx version`
+- [x] Verification on `2026-04-06`: `nix develop --command cargo build`, `nix develop --command cargo clippy -- -D warnings`, `nix develop --command cargo test`, `nix develop --command cargo package --allow-dirty --locked`, and `scripts/live-smoke.sh --bin ./tmp/release-install/bin/idx --no-build --mode mock` all passed
+- [x] Publish review blocker batch on `2026-04-05`: the default Nix app/package path builds again without relying on an untracked runtime module, `ownership import --force` now re-imports the same release SHA atomically, and current ownership views (`ticker`, `entity`, `cross-holders`, `concentration`, `graph`) now scope KSEI data to the latest imported release instead of blending historical snapshots
+- [x] Verification on `2026-04-05`: `nix develop --command cargo build`, `nix develop --command cargo clippy -- -D warnings`, `nix develop --command cargo test`, `nix build .#default`, `nix develop --command cargo package --allow-dirty --locked`, fresh `cargo install --path . --locked --root tmp/release-install`, `./tmp/release-install/bin/idx version`, and `nix run .#default -- version` all passed
+- [x] Publish P2 cleanup batch on `2026-04-03`: `--quiet` now suppresses non-essential CLI warnings/info, invalid cache TTL env vars fail during startup, `-v` reaches Yahoo history diagnostics, ownership default DB/raw paths honor XDG overrides, and `scripts/live-smoke.sh` now refuses a stale `target/debug/idx` when build refresh is skipped
+- [x] Verification on `2026-04-03`: `nix develop --command cargo build`, `nix develop --command cargo clippy -- -D warnings`, `nix develop --command cargo test`, `bash -n scripts/live-smoke.sh`, and `scripts/live-smoke.sh --mode mock --dry-run` all passed
+- [x] Publish blocker batch on `2026-04-03`: crate packaging now excludes repo-internal agent harness files, the flake exports a default package/app for `nix run`, README install docs now describe runtime helper dependencies, and CI now checks package/install surfaces
+- [x] Verification on `2026-04-03`: `nix develop --command cargo build`, `nix develop --command cargo clippy -- -D warnings`, `nix develop --command cargo test`, `nix develop --command cargo package --allow-dirty --locked`, fresh `cargo install --path . --locked --root tmp/release-install`, `./tmp/release-install/bin/idx version`, `nix build .#default`, and `nix run .#default -- version` all passed
+- [x] P0 provider/capability routing is now centralized through `SelectedProvider`; `stocks` handlers no longer construct `MsnProvider` directly for MSN-only commands
+- [x] MSN fundamentals now reject industry-only metrics with an explicit unsupported error; the normal MSN mock/live path uses company metrics only
+- [x] MSN screener parsing now drops rows with missing/invalid/non-positive price data instead of synthesizing `0.0` price rows
+- [x] Yahoo `429` retry/backoff is now centralized and regression-tested for chart and quote-summary fetches
+- [x] `stocks technical` table output now says `Trend unavailable (need at least 200 daily candles)` when fewer than `200` daily candles are available
+- [x] Verification on `2026-04-02`: `nix develop --command cargo build`, `nix develop --command cargo clippy -- -D warnings`, `nix develop --command cargo test`, `scripts/live-smoke.sh --mode mock`, and `scripts/live-smoke.sh --group live-table --group live-json --group routing --group cache --group errors` all passed (`tmp/live-smoke/20260402-122215`, `tmp/live-smoke/20260402-122218`)
 - [x] Live smoke passed for shipped `stocks` commands: `quote`, `history`, `technical`, `growth`, `valuation`, `risk`, `fundamental`, `compare`, `profile`, `financials`, `earnings`, `sentiment`, `insights`, `news`, `screen`
 - [x] Yahoo routing verified for live `quote` and `history`
 - [x] `stocks history --history-provider msn` correctly fails for IDX as unsupported
@@ -145,6 +195,11 @@
 - [x] Re-run full live smoke to reconfirm all MSN-only commands after the latest hardening fixes
 - [x] `stocks financials BBCA` table now trims ISO timestamps from section headers and humanizes raw line-item keys
 - [x] `stocks earnings BBCA` table now splits history vs forecast and formats annual periods, revenue values, and dates for table mode
+- [x] `stocks financials` now supports section filters via `--statement income|balance|cashflow`, with filtered table output and JSON sections rendered as `null` when intentionally excluded
+- [x] `stocks earnings` now supports `--forecast|--history` and `--annual|--quarterly`, so table and JSON output can be scoped without changing the cached source payload
+- [x] JSON payload context is now less sparse for MSN `earnings`, `insights`, and `news`; each payload now carries the resolved stock symbol even when sourced from older cache entries
+- [x] `stocks financials` JSON now normalizes `instrument.symbol` to the exchange-qualified ticker (for example `BBCA.JK`), and older cached payloads are backfilled at read time so users do not need to clear cache after upgrading
+- [x] Product decision on `2026-04-02`: keep `screen` under `stocks` for now; revisit a dedicated surface only when `screen query` / `screen presets` graduate from backlog into a richer workflow
 - [x] Fixture-backed parser and CLI JSON regression coverage now covers the remaining MSN-only `sentiment`, `news`, and `screen` commands
 - [x] Fresh post-coverage live MSN smoke rerun still passes for table and JSON surfaces: 30/30 (`tmp/live-smoke/20260327-163403`)
 - [ ] `ownership import --fetch-bing` is still deferred and returns unsupported

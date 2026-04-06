@@ -35,6 +35,7 @@ pub(crate) struct MsnQuote {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct KeyRatios {
+    #[allow(dead_code)]
     #[serde(default)]
     pub(crate) industry_metrics: Vec<IndustryMetric>,
     #[serde(default)]

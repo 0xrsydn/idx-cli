@@ -62,6 +62,75 @@ pub trait NewsProvider {
     fn news(&self, symbol: &str, limit: usize) -> Result<Vec<NewsItem>, IdxError>;
 }
 
+#[allow(dead_code)]
+pub trait ScreenerProvider {
+    fn screener(&self, filter: &str, region: &str, limit: usize) -> Result<Vec<Quote>, IdxError>;
+}
+
+pub struct SelectedProvider {
+    kind: ProviderKind,
+    market: Box<dyn MarketDataProvider>,
+    profile: Option<Box<dyn ProfileProvider>>,
+    financials: Option<Box<dyn FinancialsProvider>>,
+    earnings: Option<Box<dyn EarningsProvider>>,
+    sentiment: Option<Box<dyn SentimentProvider>>,
+    insights: Option<Box<dyn InsightsProvider>>,
+    news: Option<Box<dyn NewsProvider>>,
+    screener: Option<Box<dyn ScreenerProvider>>,
+}
+
+impl SelectedProvider {
+    pub fn kind(&self) -> ProviderKind {
+        self.kind
+    }
+
+    pub fn market(&self) -> &dyn MarketDataProvider {
+        self.market.as_ref()
+    }
+
+    pub fn profile_provider(&self, subject: &str) -> Result<&dyn ProfileProvider, IdxError> {
+        self.profile
+            .as_deref()
+            .ok_or_else(|| msn_capability_error(subject))
+    }
+
+    pub fn financials_provider(&self, subject: &str) -> Result<&dyn FinancialsProvider, IdxError> {
+        self.financials
+            .as_deref()
+            .ok_or_else(|| msn_capability_error(subject))
+    }
+
+    pub fn earnings_provider(&self, subject: &str) -> Result<&dyn EarningsProvider, IdxError> {
+        self.earnings
+            .as_deref()
+            .ok_or_else(|| msn_capability_error(subject))
+    }
+
+    pub fn sentiment_provider(&self, subject: &str) -> Result<&dyn SentimentProvider, IdxError> {
+        self.sentiment
+            .as_deref()
+            .ok_or_else(|| msn_capability_error(subject))
+    }
+
+    pub fn insights_provider(&self, subject: &str) -> Result<&dyn InsightsProvider, IdxError> {
+        self.insights
+            .as_deref()
+            .ok_or_else(|| msn_capability_error(subject))
+    }
+
+    pub fn news_provider(&self, subject: &str) -> Result<&dyn NewsProvider, IdxError> {
+        self.news
+            .as_deref()
+            .ok_or_else(|| msn_capability_error(subject))
+    }
+
+    pub fn screener_provider(&self, subject: &str) -> Result<&dyn ScreenerProvider, IdxError> {
+        self.screener
+            .as_deref()
+            .ok_or_else(|| msn_capability_error(subject))
+    }
+}
+
 pub fn resolve_symbol(symbol: &str, exchange: &str) -> Result<String, IdxError> {
     let trimmed = symbol.trim().to_uppercase();
     if trimmed.is_empty() {
@@ -78,15 +147,69 @@ pub fn resolve_symbol(symbol: &str, exchange: &str) -> Result<String, IdxError> 
     Ok(format!("{trimmed}.{}", exchange.trim().to_uppercase()))
 }
 
-pub fn default_provider(provider: ProviderKind, verbose: bool) -> Box<dyn MarketDataProvider> {
-    if std::env::var("IDX_USE_MOCK_PROVIDER").is_ok() {
-        Box::new(MockProvider::from_fixtures(provider))
-    } else {
-        match provider {
-            ProviderKind::Yahoo => Box::new(yahoo::YahooProvider::new(verbose)),
-            ProviderKind::Msn => Box::new(msn::MsnProvider::new(verbose)),
-        }
+pub fn default_provider(provider: ProviderKind, verbose: bool) -> SelectedProvider {
+    build_selected_provider(
+        provider,
+        verbose,
+        std::env::var("IDX_USE_MOCK_PROVIDER").is_ok(),
+    )
+}
+
+fn build_selected_provider(
+    provider: ProviderKind,
+    verbose: bool,
+    use_mock: bool,
+) -> SelectedProvider {
+    match (provider, use_mock) {
+        (ProviderKind::Yahoo, true) => SelectedProvider {
+            kind: ProviderKind::Yahoo,
+            market: Box::new(MockProvider::from_fixtures(ProviderKind::Yahoo)),
+            profile: None,
+            financials: None,
+            earnings: None,
+            sentiment: None,
+            insights: None,
+            news: None,
+            screener: None,
+        },
+        (ProviderKind::Yahoo, false) => SelectedProvider {
+            kind: ProviderKind::Yahoo,
+            market: Box::new(yahoo::YahooProvider::new(verbose)),
+            profile: None,
+            financials: None,
+            earnings: None,
+            sentiment: None,
+            insights: None,
+            news: None,
+            screener: None,
+        },
+        (ProviderKind::Msn, true) => SelectedProvider {
+            kind: ProviderKind::Msn,
+            market: Box::new(MockProvider::from_fixtures(ProviderKind::Msn)),
+            profile: Some(Box::new(msn::MsnProvider::new(verbose))),
+            financials: Some(Box::new(msn::MsnProvider::new(verbose))),
+            earnings: Some(Box::new(msn::MsnProvider::new(verbose))),
+            sentiment: Some(Box::new(msn::MsnProvider::new(verbose))),
+            insights: Some(Box::new(msn::MsnProvider::new(verbose))),
+            news: Some(Box::new(msn::MsnProvider::new(verbose))),
+            screener: Some(Box::new(msn::MsnProvider::new(verbose))),
+        },
+        (ProviderKind::Msn, false) => SelectedProvider {
+            kind: ProviderKind::Msn,
+            market: Box::new(msn::MsnProvider::new(verbose)),
+            profile: Some(Box::new(msn::MsnProvider::new(verbose))),
+            financials: Some(Box::new(msn::MsnProvider::new(verbose))),
+            earnings: Some(Box::new(msn::MsnProvider::new(verbose))),
+            sentiment: Some(Box::new(msn::MsnProvider::new(verbose))),
+            insights: Some(Box::new(msn::MsnProvider::new(verbose))),
+            news: Some(Box::new(msn::MsnProvider::new(verbose))),
+            screener: Some(Box::new(msn::MsnProvider::new(verbose))),
+        },
     }
+}
+
+fn msn_capability_error(subject: &str) -> IdxError {
+    IdxError::Unsupported(format!("{subject}: command requires --provider msn"))
 }
 
 /// Resolves a history provider based on the selected market data provider and
@@ -115,7 +238,12 @@ pub fn history_provider(
                     .into(),
             ));
         }
-        return Ok((resolved, Box::new(MockProvider::from_fixtures(resolved))));
+        return Ok((
+            resolved,
+            Box::new(MockProvider::from_fixtures_with_history_verbose(
+                resolved, verbose,
+            )),
+        ));
     }
 
     match resolved {
@@ -135,21 +263,30 @@ pub struct MockProvider {
 
 impl MockProvider {
     pub fn from_fixtures(provider: ProviderKind) -> Self {
+        Self::from_fixtures_with_history_verbose(provider, false)
+    }
+
+    pub fn from_fixtures_with_history_verbose(
+        provider: ProviderKind,
+        history_verbose: bool,
+    ) -> Self {
         if std::env::var("IDX_MOCK_ERROR").is_ok() {
             return Self::with_error(IdxError::ProviderUnavailable);
         }
 
         match provider {
-            ProviderKind::Yahoo => Self::from_yahoo_fixtures(),
+            ProviderKind::Yahoo => Self::from_yahoo_fixtures(history_verbose),
             ProviderKind::Msn => Self::from_msn_fixtures(),
         }
     }
 
-    fn from_yahoo_fixtures() -> Self {
+    fn from_yahoo_fixtures(history_verbose: bool) -> Self {
         let quote_raw = std::fs::read_to_string("tests/fixtures/chart_bbca_1d.json")
             .unwrap_or_else(|_| "{}".to_string());
-        let history_raw = std::fs::read_to_string("tests/fixtures/chart_bbca_3mo.json")
-            .unwrap_or_else(|_| "{}".to_string());
+        let history_path = std::env::var("IDX_MOCK_YAHOO_HISTORY_FIXTURE")
+            .unwrap_or_else(|_| "tests/fixtures/chart_bbca_3mo.json".to_string());
+        let history_raw =
+            std::fs::read_to_string(&history_path).unwrap_or_else(|_| "{}".to_string());
         let fundamentals_raw = std::fs::read_to_string("tests/fixtures/quotesummary_bbca.json")
             .unwrap_or_else(|_| "{}".to_string());
 
@@ -157,8 +294,9 @@ impl MockProvider {
             .map_err(|e| IdxError::ParseError(e.to_string()));
         let fundamentals = yahoo::parse_fundamentals_from_str("BBCA.JK", &fundamentals_raw)
             .map_err(|e| IdxError::ParseError(e.to_string()));
-        let history = yahoo::parse_history_from_str("BBCA.JK", &history_raw)
-            .map_err(|e| IdxError::ParseError(e.to_string()));
+        let history =
+            yahoo::parse_history_from_str_with_verbose("BBCA.JK", &history_raw, history_verbose)
+                .map_err(|e| IdxError::ParseError(e.to_string()));
 
         Self {
             quote,
@@ -170,8 +308,10 @@ impl MockProvider {
     fn from_msn_fixtures() -> Self {
         let quote_raw = std::fs::read_to_string("tests/fixtures/msn_quote_bbca.json")
             .unwrap_or_else(|_| "[]".to_string());
-        let fundamentals_raw = std::fs::read_to_string("tests/fixtures/msn_keyratios_bbca.json")
-            .unwrap_or_else(|_| "[]".to_string());
+        let fundamentals_path = std::env::var("IDX_MOCK_MSN_KEYRATIOS_FIXTURE")
+            .unwrap_or_else(|_| "tests/fixtures/msn_keyratios_bbca.json".to_string());
+        let fundamentals_raw =
+            std::fs::read_to_string(&fundamentals_path).unwrap_or_else(|_| "[]".to_string());
 
         let quote = msn::parse_quote_from_str("BBCA.JK", &quote_raw)
             .map_err(|e| IdxError::ParseError(e.to_string()));
@@ -225,7 +365,8 @@ impl HistoryProvider for MockProvider {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_symbol;
+    use super::{ProviderKind, build_selected_provider, resolve_symbol};
+    use crate::error::IdxError;
 
     #[test]
     fn resolves_symbol_variants() {
@@ -240,5 +381,61 @@ mod tests {
         assert!(resolve_symbol("  ", "JK").is_err());
         // Valid ticker returns Ok
         assert_eq!(resolve_symbol("BBCA", "JK").unwrap(), "BBCA.JK");
+    }
+
+    #[test]
+    fn selected_provider_exposes_expected_capabilities_for_msn() {
+        let provider = build_selected_provider(ProviderKind::Msn, false, false);
+
+        assert!(provider.profile_provider("BBCA.JK").is_ok());
+        assert!(provider.financials_provider("BBCA.JK").is_ok());
+        assert!(provider.earnings_provider("BBCA.JK").is_ok());
+        assert!(provider.sentiment_provider("BBCA.JK").is_ok());
+        assert!(provider.insights_provider("BBCA.JK").is_ok());
+        assert!(provider.news_provider("BBCA.JK").is_ok());
+        assert!(provider.screener_provider("screen").is_ok());
+    }
+
+    #[test]
+    fn selected_provider_exposes_expected_capabilities_for_mock_msn() {
+        let provider = build_selected_provider(ProviderKind::Msn, false, true);
+
+        assert!(provider.profile_provider("BBCA.JK").is_ok());
+        assert!(provider.financials_provider("BBCA.JK").is_ok());
+        assert!(provider.earnings_provider("BBCA.JK").is_ok());
+        assert!(provider.sentiment_provider("BBCA.JK").is_ok());
+        assert!(provider.insights_provider("BBCA.JK").is_ok());
+        assert!(provider.news_provider("BBCA.JK").is_ok());
+        assert!(provider.screener_provider("screen").is_ok());
+    }
+
+    #[test]
+    fn selected_provider_rejects_msn_only_capabilities_for_yahoo() {
+        let provider = build_selected_provider(ProviderKind::Yahoo, false, false);
+        let err = match provider.profile_provider("BBCA.JK") {
+            Ok(_) => panic!("yahoo should not expose msn-only profile"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(err, IdxError::Unsupported(_)));
+        assert_eq!(
+            err.to_string(),
+            "unsupported: BBCA.JK: command requires --provider msn"
+        );
+    }
+
+    #[test]
+    fn selected_provider_rejects_msn_only_capabilities_for_mock_yahoo() {
+        let provider = build_selected_provider(ProviderKind::Yahoo, false, true);
+        let err = match provider.screener_provider("screen") {
+            Ok(_) => panic!("mock yahoo should not expose msn-only screener"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(err, IdxError::Unsupported(_)));
+        assert_eq!(
+            err.to_string(),
+            "unsupported: screen: command requires --provider msn"
+        );
     }
 }

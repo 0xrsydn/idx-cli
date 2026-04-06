@@ -159,18 +159,10 @@ pub fn upsert_ticker(conn: &Connection, code: &str, name: Option<&str>) -> Resul
     .map_err(|e| IdxError::DatabaseError(e.to_string()))
 }
 
-/// Bulk insert KSEI holdings within a transaction.
-/// Uses INSERT OR IGNORE for dedup (unique on release_sha256 + ticker_id + raw_investor_name).
-pub fn insert_ksei_holdings(
-    conn: &Connection,
-    holdings: &[KseiHolding],
-) -> Result<usize, IdxError> {
+fn insert_ksei_holdings_rows(conn: &Connection, holdings: &[KseiHolding]) -> Result<usize, IdxError> {
     if holdings.is_empty() {
         return Ok(0);
     }
-
-    conn.execute("BEGIN IMMEDIATE", [])
-        .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
     let mut inserted = 0usize;
     for h in holdings {
@@ -203,12 +195,33 @@ pub fn insert_ksei_holdings(
 
         match changed {
             Ok(n) => inserted += n,
-            Err(err) => {
-                let _ = conn.execute("ROLLBACK", []);
-                return Err(err);
-            }
+            Err(err) => return Err(err),
         }
     }
+
+    Ok(inserted)
+}
+
+/// Bulk insert KSEI holdings within a transaction.
+/// Uses INSERT OR IGNORE for dedup (unique on release_sha256 + ticker_id + raw_investor_name).
+pub fn insert_ksei_holdings(
+    conn: &Connection,
+    holdings: &[KseiHolding],
+) -> Result<usize, IdxError> {
+    if holdings.is_empty() {
+        return Ok(0);
+    }
+
+    conn.execute("BEGIN IMMEDIATE", [])
+        .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+
+    let inserted = match insert_ksei_holdings_rows(conn, holdings) {
+        Ok(inserted) => inserted,
+        Err(err) => {
+            let _ = conn.execute("ROLLBACK", []);
+            return Err(err);
+        }
+    };
 
     conn.execute("COMMIT", [])
         .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
@@ -286,6 +299,48 @@ pub fn insert_release(conn: &Connection, release: &OwnershipRelease) -> Result<i
     Ok(conn.last_insert_rowid())
 }
 
+/// Insert or replace a complete KSEI release and its rows atomically.
+pub fn write_ksei_release(
+    conn: &Connection,
+    release: &OwnershipRelease,
+    holdings: &[KseiHolding],
+    replace_existing: bool,
+) -> Result<usize, IdxError> {
+    conn.execute("BEGIN IMMEDIATE", [])
+        .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+
+    let result = (|| {
+        if replace_existing {
+            conn.execute(
+                "DELETE FROM ksei_holdings WHERE release_sha256 = ?1",
+                params![&release.sha256],
+            )
+            .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+            conn.execute(
+                "DELETE FROM ownership_releases WHERE sha256 = ?1",
+                params![&release.sha256],
+            )
+            .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+        }
+
+        let inserted = insert_ksei_holdings_rows(conn, holdings)?;
+        let _ = insert_release(conn, release)?;
+        Ok(inserted)
+    })();
+
+    match result {
+        Ok(inserted) => {
+            conn.execute("COMMIT", [])
+                .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+            Ok(inserted)
+        }
+        Err(err) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(err)
+        }
+    }
+}
+
 /// Check if a release with this SHA-256 already exists.
 pub fn release_exists(conn: &Connection, sha256: &str) -> Result<bool, IdxError> {
     let exists: i64 = conn
@@ -306,15 +361,8 @@ pub fn query_ticker_holdings(conn: &Connection, code: &str) -> Result<TickerOwne
     let ticker =
         query_ticker(conn, code)?.ok_or_else(|| IdxError::SymbolNotFound(code.to_string()))?;
 
-    let ksei_as_of = conn
-        .query_row(
-            "SELECT MAX(report_date) FROM ksei_holdings WHERE ticker_id = ?1",
-            params![ticker.id],
-            |row| row.get::<_, Option<String>>(0),
-        )
-        .map_err(|e| IdxError::DatabaseError(e.to_string()))?
-        .map(|s| parse_iso_date(&s))
-        .transpose()?;
+    let latest_ksei = latest_ksei_release(conn)?;
+    let ksei_as_of = latest_ksei.as_ref().map(|release| release.as_of_date);
 
     let bing_as_of = conn
         .query_row(
@@ -326,20 +374,20 @@ pub fn query_ticker_holdings(conn: &Connection, code: &str) -> Result<TickerOwne
 
     let mut holders: Vec<HolderRow> = Vec::new();
 
-    {
+    if let Some(latest_ksei) = latest_ksei.as_ref() {
         let mut stmt = conn
             .prepare(
                 "SELECT k.entity_id, COALESCE(e.canonical_name, k.raw_investor_name),
                         k.investor_type, k.locality, k.total_shares, k.percentage_bps
                  FROM ksei_holdings k
                  LEFT JOIN entities e ON e.id = k.entity_id
-                 WHERE k.ticker_id = ?1
+                 WHERE k.ticker_id = ?1 AND k.release_sha256 = ?2
                  ORDER BY k.percentage_bps DESC, k.total_shares DESC",
             )
             .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
         let rows = stmt
-            .query_map(params![ticker.id], |row| {
+            .query_map(params![ticker.id, &latest_ksei.sha256], |row| {
                 Ok((
                     row.get::<_, Option<i64>>(0)?,
                     row.get::<_, String>(1)?,
@@ -368,20 +416,20 @@ pub fn query_ticker_holdings(conn: &Connection, code: &str) -> Result<TickerOwne
         }
     }
 
-    {
+    if let Some(bing_as_of) = bing_as_of.as_ref() {
         let mut stmt = conn
             .prepare(
                 "SELECT b.entity_id, COALESCE(e.canonical_name, b.raw_investor_name),
                         b.investor_type, COALESCE(b.shares_held, 0), COALESCE(b.pct_ownership_bps, 0), b.signal
                  FROM bing_holdings b
                  LEFT JOIN entities e ON e.id = b.entity_id
-                 WHERE b.ticker_id = ?1
+                 WHERE b.ticker_id = ?1 AND b.report_date = ?2 AND b.signal = 'holder'
                  ORDER BY COALESCE(b.pct_ownership_bps, 0) DESC, COALESCE(b.shares_held, 0) DESC",
             )
             .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
         let rows = stmt
-            .query_map(params![ticker.id], |row| {
+            .query_map(params![ticker.id, bing_as_of], |row| {
                 Ok((
                     row.get::<_, Option<i64>>(0)?,
                     row.get::<_, String>(1)?,
@@ -443,18 +491,18 @@ pub fn query_entity_holdings(
 
     let mut holdings = Vec::new();
 
-    {
+    if let Some(latest_ksei) = latest_ksei_release(conn)? {
         let mut stmt = conn
             .prepare(
                 "SELECT t.id, t.code, t.name, t.sector, k.total_shares, k.percentage_bps, k.report_date
                  FROM ksei_holdings k
                  JOIN tickers t ON t.id = k.ticker_id
-                 WHERE k.entity_id = ?1",
+                 WHERE k.entity_id = ?1 AND k.release_sha256 = ?2",
             )
             .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
         let rows = stmt
-            .query_map(params![entity_id], |row| {
+            .query_map(params![entity_id, latest_ksei.sha256], |row| {
                 Ok(EntityTickerRow {
                     ticker: Ticker {
                         id: row.get(0)?,
@@ -479,11 +527,19 @@ pub fn query_entity_holdings(
     {
         let mut stmt = conn
             .prepare(
-                "SELECT t.id, t.code, t.name, t.sector,
+                "WITH latest_bing AS (
+                    SELECT ticker_id, MAX(report_date) AS report_date
+                    FROM bing_holdings
+                    GROUP BY ticker_id
+                 )
+                 SELECT t.id, t.code, t.name, t.sector,
                         COALESCE(b.shares_held, 0), COALESCE(b.pct_ownership_bps, 0), b.report_date
                  FROM bing_holdings b
+                 JOIN latest_bing lb
+                   ON lb.ticker_id = b.ticker_id
+                  AND lb.report_date = b.report_date
                  JOIN tickers t ON t.id = b.ticker_id
-                 WHERE b.entity_id = ?1",
+                 WHERE b.entity_id = ?1 AND b.signal = 'holder'",
             )
             .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
@@ -535,55 +591,108 @@ pub fn query_cross_holders(
     min_tickers: usize,
     limit: usize,
 ) -> Result<Vec<CrossHolderRow>, IdxError> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT e.id, e.canonical_name, e.entity_type, e.country,
-                    COUNT(DISTINCT u.ticker_id) AS ticker_count,
-                    SUM(u.percentage_bps) AS total_bps
-             FROM entities e
-             JOIN (
-                 SELECT entity_id, ticker_id, percentage_bps
-                 FROM ksei_holdings
-                 WHERE entity_id IS NOT NULL
-                 UNION ALL
-                 SELECT entity_id, ticker_id, COALESCE(pct_ownership_bps, 0) AS percentage_bps
-                 FROM bing_holdings
-                 WHERE entity_id IS NOT NULL
-             ) u ON u.entity_id = e.id
-             GROUP BY e.id
-             HAVING COUNT(DISTINCT u.ticker_id) >= ?1
-             ORDER BY ticker_count DESC, total_bps DESC, e.canonical_name ASC
-             LIMIT ?2",
-        )
-        .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+    let mut aggregates: std::collections::BTreeMap<i64, (Entity, std::collections::BTreeSet<i64>, i64)> =
+        std::collections::BTreeMap::new();
 
-    let rows = stmt
-        .query_map(
-            params![
-                i64::try_from(min_tickers)
-                    .map_err(|e| IdxError::DatabaseError(format!("invalid min_tickers: {e}")))?,
-                i64::try_from(limit)
-                    .map_err(|e| IdxError::DatabaseError(format!("invalid limit: {e}")))?,
-            ],
-            |row| {
-                Ok(CrossHolderRow {
-                    entity: Entity {
+    if let Some(latest_ksei) = latest_ksei_release(conn)? {
+        let mut stmt = conn
+            .prepare(
+                "SELECT e.id, e.canonical_name, e.entity_type, e.country, k.ticker_id, k.percentage_bps
+                 FROM ksei_holdings k
+                 JOIN entities e ON e.id = k.entity_id
+                 WHERE k.entity_id IS NOT NULL AND k.release_sha256 = ?1",
+            )
+            .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+
+        let rows = stmt
+            .query_map(params![latest_ksei.sha256], |row| {
+                Ok((
+                    Entity {
                         id: row.get(0)?,
                         canonical_name: row.get(1)?,
                         entity_type: row.get(2)?,
                         country: row.get(3)?,
                     },
-                    ticker_count: row.get::<_, i64>(4)? as usize,
-                    total_bps: row.get(5)?,
-                })
-            },
-        )
-        .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            })
+            .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row.map_err(|e| IdxError::DatabaseError(e.to_string()))?);
+        for row in rows {
+            let (entity, ticker_id, percentage_bps) =
+                row.map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+            let entry = aggregates
+                .entry(entity.id)
+                .or_insert_with(|| (entity, std::collections::BTreeSet::new(), 0));
+            entry.1.insert(ticker_id);
+            entry.2 += percentage_bps;
+        }
     }
+
+    {
+        let mut stmt = conn
+            .prepare(
+                "WITH latest_bing AS (
+                    SELECT ticker_id, MAX(report_date) AS report_date
+                    FROM bing_holdings
+                    GROUP BY ticker_id
+                 )
+                 SELECT e.id, e.canonical_name, e.entity_type, e.country, b.ticker_id,
+                        COALESCE(b.pct_ownership_bps, 0)
+                 FROM bing_holdings b
+                 JOIN latest_bing lb
+                   ON lb.ticker_id = b.ticker_id
+                  AND lb.report_date = b.report_date
+                 JOIN entities e ON e.id = b.entity_id
+                 WHERE b.entity_id IS NOT NULL AND b.signal = 'holder'",
+            )
+            .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    Entity {
+                        id: row.get(0)?,
+                        canonical_name: row.get(1)?,
+                        entity_type: row.get(2)?,
+                        country: row.get(3)?,
+                    },
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            })
+            .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+
+        for row in rows {
+            let (entity, ticker_id, percentage_bps) =
+                row.map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+            let entry = aggregates
+                .entry(entity.id)
+                .or_insert_with(|| (entity, std::collections::BTreeSet::new(), 0));
+            entry.1.insert(ticker_id);
+            entry.2 += percentage_bps;
+        }
+    }
+
+    let mut out = aggregates
+        .into_values()
+        .filter_map(|(entity, tickers, total_bps)| {
+            (tickers.len() >= min_tickers).then_some(CrossHolderRow {
+                entity,
+                ticker_count: tickers.len(),
+                total_bps,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    out.sort_by(|a, b| {
+        b.ticker_count
+            .cmp(&a.ticker_count)
+            .then_with(|| b.total_bps.cmp(&a.total_bps))
+            .then_with(|| a.entity.canonical_name.cmp(&b.entity.canonical_name))
+    });
+    out.truncate(limit);
     Ok(out)
 }
 
@@ -601,17 +710,22 @@ pub fn query_concentration(
         )));
     }
 
+    let Some(latest_ksei) = latest_ksei_release(conn)? else {
+        return Ok(Vec::new());
+    };
+
     let mut stmt = conn
         .prepare(
             "SELECT t.code, k.percentage_bps
              FROM tickers t
              JOIN ksei_holdings k ON k.ticker_id = t.id
+             WHERE k.release_sha256 = ?1
              ORDER BY t.code ASC, k.percentage_bps DESC",
         )
         .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
     let rows = stmt
-        .query_map([], |row| {
+        .query_map(params![latest_ksei.sha256], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })
         .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
@@ -1096,9 +1210,46 @@ pub fn db_path(_config: &IdxConfig) -> Result<PathBuf, IdxError> {
         }
     }
 
+    if let Ok(dir) = std::env::var("XDG_DATA_HOME")
+        && !dir.is_empty()
+    {
+        let path = PathBuf::from(dir);
+        if path.is_absolute() {
+            return Ok(path.join("idx").join("ownership.db"));
+        }
+    }
+
     ProjectDirs::from("", "", "idx")
         .map(|dirs| dirs.data_local_dir().join("ownership.db"))
         .ok_or_else(|| IdxError::DatabaseError("unable to resolve ownership db path".to_string()))
+}
+
+#[derive(Debug, Clone)]
+struct LatestKseiRelease {
+    sha256: String,
+    as_of_date: NaiveDate,
+}
+
+fn latest_ksei_release(conn: &Connection) -> Result<Option<LatestKseiRelease>, IdxError> {
+    conn.query_row(
+        "SELECT sha256, as_of_date
+         FROM ownership_releases
+         ORDER BY as_of_date DESC, imported_at DESC
+         LIMIT 1",
+        [],
+        |row| {
+            Ok(LatestKseiRelease {
+                sha256: row.get(0)?,
+                as_of_date: parse_iso_date(&row.get::<_, String>(1)?)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+            })
+        },
+    )
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        _ => Err(IdxError::DatabaseError(e.to_string())),
+    })
 }
 
 fn query_ticker(conn: &Connection, code: &str) -> Result<Option<Ticker>, IdxError> {
@@ -1190,7 +1341,7 @@ mod tests {
     use crate::ownership::db::{
         compute_concentration, ensure_schema, get_ticker_id, insert_bing_holdings,
         insert_ksei_holdings, insert_release, query_concentration, query_cross_holders,
-        query_ticker_holdings, release_exists, upsert_ticker,
+        query_ticker_holdings, release_exists, upsert_ticker, write_ksei_release,
     };
     use crate::ownership::types::{
         BingHolding, FlowSignal, KseiHolding, Locality, OwnershipRelease,
@@ -1278,7 +1429,15 @@ mod tests {
             },
         ];
 
-        assert_eq!(insert_ksei_holdings(&conn, &holdings).unwrap(), 2);
+        let release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: "r1".to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
+            row_count: holdings.len(),
+            imported_at: 1,
+        };
+        assert_eq!(write_ksei_release(&conn, &release, &holdings, false).unwrap(), 2);
 
         let data = query_ticker_holdings(&conn, "BBCA").unwrap();
         assert_eq!(data.ticker.code, "BBCA");
@@ -1323,6 +1482,165 @@ mod tests {
     }
 
     #[test]
+    fn test_write_ksei_release_replaces_existing_sha_when_requested() {
+        let conn = setup();
+        let bbri_id = upsert_ticker(&conn, "BBRI", None).unwrap();
+
+        let initial = KseiHolding {
+            id: 0,
+            ticker_id: bbri_id,
+            entity_id: None,
+            raw_investor_name: "FORCE".to_string(),
+            investor_type: None,
+            locality: None,
+            nationality: None,
+            domicile: None,
+            holdings_scripless: 10,
+            holdings_scrip: 0,
+            total_shares: 10,
+            percentage_bps: 100,
+            report_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
+            release_sha256: "force-sha".to_string(),
+        };
+        let initial_release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: "force-sha".to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
+            row_count: 1,
+            imported_at: 1,
+        };
+
+        assert_eq!(
+            write_ksei_release(&conn, &initial_release, std::slice::from_ref(&initial), false)
+                .unwrap(),
+            1
+        );
+
+        let replacement = KseiHolding {
+            percentage_bps: 250,
+            total_shares: 25,
+            holdings_scripless: 25,
+            ..initial
+        };
+        let replacement_release = OwnershipRelease {
+            imported_at: 2,
+            ..initial_release
+        };
+
+        assert_eq!(
+            write_ksei_release(
+                &conn,
+                &replacement_release,
+                std::slice::from_ref(&replacement),
+                true,
+            )
+            .unwrap(),
+            1
+        );
+
+        let release_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM ownership_releases WHERE sha256 = 'force-sha'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(release_count, 1);
+
+        let latest_bps: i64 = conn
+            .query_row(
+                "SELECT percentage_bps FROM ksei_holdings WHERE release_sha256 = 'force-sha'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(latest_bps, 250);
+    }
+
+    #[test]
+    fn test_query_ticker_holdings_uses_latest_release_only() {
+        let conn = setup();
+        let tlkm_id = upsert_ticker(&conn, "TLKM", None).unwrap();
+
+        let older_release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: "old-release".to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 1, 30).unwrap(),
+            row_count: 2,
+            imported_at: 1,
+        };
+        let older_rows = vec![
+            KseiHolding {
+                id: 0,
+                ticker_id: tlkm_id,
+                entity_id: None,
+                raw_investor_name: "OLDER A".to_string(),
+                investor_type: None,
+                locality: None,
+                nationality: None,
+                domicile: None,
+                holdings_scripless: 40,
+                holdings_scrip: 0,
+                total_shares: 40,
+                percentage_bps: 4000,
+                report_date: older_release.as_of_date,
+                release_sha256: older_release.sha256.clone(),
+            },
+            KseiHolding {
+                id: 0,
+                ticker_id: tlkm_id,
+                entity_id: None,
+                raw_investor_name: "OLDER B".to_string(),
+                investor_type: None,
+                locality: None,
+                nationality: None,
+                domicile: None,
+                holdings_scripless: 30,
+                holdings_scrip: 0,
+                total_shares: 30,
+                percentage_bps: 3000,
+                report_date: older_release.as_of_date,
+                release_sha256: older_release.sha256.clone(),
+            },
+        ];
+        write_ksei_release(&conn, &older_release, &older_rows, false).unwrap();
+
+        let latest_release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: "latest-release".to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
+            row_count: 1,
+            imported_at: 2,
+        };
+        let latest_rows = vec![KseiHolding {
+            id: 0,
+            ticker_id: tlkm_id,
+            entity_id: None,
+            raw_investor_name: "LATEST".to_string(),
+            investor_type: None,
+            locality: None,
+            nationality: None,
+            domicile: None,
+            holdings_scripless: 25,
+            holdings_scrip: 0,
+            total_shares: 25,
+            percentage_bps: 2500,
+            report_date: latest_release.as_of_date,
+            release_sha256: latest_release.sha256.clone(),
+        }];
+        write_ksei_release(&conn, &latest_release, &latest_rows, false).unwrap();
+
+        let data = query_ticker_holdings(&conn, "TLKM").unwrap();
+        assert_eq!(data.ksei_as_of, Some(latest_release.as_of_date));
+        assert_eq!(data.holders.len(), 1);
+        assert_eq!(data.holders[0].name, "LATEST");
+        assert_eq!(data.concentration.top1_bps, 2500);
+    }
+
+    #[test]
     fn test_cross_holders_same_entity_three_tickers() {
         let conn = setup();
         conn.execute(
@@ -1333,9 +1651,10 @@ mod tests {
         .unwrap();
         let eid = conn.last_insert_rowid();
 
+        let mut holdings = Vec::new();
         for (code, bps) in [("BBCA", 1000), ("BBRI", 1100), ("BMRI", 1200)] {
             let tid = upsert_ticker(&conn, code, None).unwrap();
-            let h = KseiHolding {
+            holdings.push(KseiHolding {
                 id: 0,
                 ticker_id: tid,
                 entity_id: Some(eid),
@@ -1349,15 +1668,114 @@ mod tests {
                 total_shares: 10,
                 percentage_bps: bps,
                 report_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
-                release_sha256: format!("r-{code}"),
-            };
-            insert_ksei_holdings(&conn, &[h]).unwrap();
+                release_sha256: "current-release".to_string(),
+            });
         }
+        let release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: "current-release".to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
+            row_count: holdings.len(),
+            imported_at: 1,
+        };
+        write_ksei_release(&conn, &release, &holdings, false).unwrap();
 
         let rows = query_cross_holders(&conn, 3, 10).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].entity.id, eid);
         assert_eq!(rows[0].ticker_count, 3);
+    }
+
+    #[test]
+    fn test_cross_holders_use_latest_release_only() {
+        let conn = setup();
+        conn.execute(
+            "INSERT INTO entities (canonical_name, entity_type, country, created_at, updated_at)
+             VALUES ('OMEGA', NULL, NULL, 0, 0)",
+            [],
+        )
+        .unwrap();
+        let eid = conn.last_insert_rowid();
+
+        let aa = upsert_ticker(&conn, "AA", None).unwrap();
+        let bb = upsert_ticker(&conn, "BB", None).unwrap();
+
+        let old_release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: "old-cross".to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 1, 30).unwrap(),
+            row_count: 2,
+            imported_at: 1,
+        };
+        let old_rows = vec![
+            KseiHolding {
+                id: 0,
+                ticker_id: aa,
+                entity_id: Some(eid),
+                raw_investor_name: "OMEGA".to_string(),
+                investor_type: None,
+                locality: None,
+                nationality: None,
+                domicile: None,
+                holdings_scripless: 1,
+                holdings_scrip: 0,
+                total_shares: 1,
+                percentage_bps: 1000,
+                report_date: old_release.as_of_date,
+                release_sha256: old_release.sha256.clone(),
+            },
+            KseiHolding {
+                id: 0,
+                ticker_id: bb,
+                entity_id: Some(eid),
+                raw_investor_name: "OMEGA".to_string(),
+                investor_type: None,
+                locality: None,
+                nationality: None,
+                domicile: None,
+                holdings_scripless: 1,
+                holdings_scrip: 0,
+                total_shares: 1,
+                percentage_bps: 1200,
+                report_date: old_release.as_of_date,
+                release_sha256: old_release.sha256.clone(),
+            },
+        ];
+        write_ksei_release(&conn, &old_release, &old_rows, false).unwrap();
+
+        let latest_release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: "latest-cross".to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
+            row_count: 1,
+            imported_at: 2,
+        };
+        let latest_rows = vec![KseiHolding {
+            id: 0,
+            ticker_id: aa,
+            entity_id: Some(eid),
+            raw_investor_name: "OMEGA".to_string(),
+            investor_type: None,
+            locality: None,
+            nationality: None,
+            domicile: None,
+            holdings_scripless: 1,
+            holdings_scrip: 0,
+            total_shares: 1,
+            percentage_bps: 900,
+            report_date: latest_release.as_of_date,
+            release_sha256: latest_release.sha256.clone(),
+        }];
+        write_ksei_release(&conn, &latest_release, &latest_rows, false).unwrap();
+
+        assert!(query_cross_holders(&conn, 2, 10).unwrap().is_empty());
+        let rows = query_cross_holders(&conn, 1, 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].ticker_count, 1);
+        assert_eq!(rows[0].total_bps, 900);
     }
 
     #[test]
@@ -1373,10 +1791,9 @@ mod tests {
             (bb, 3000, "B2"),
         ];
 
-        for (tid, bps, name) in rows {
-            insert_ksei_holdings(
-                &conn,
-                &[KseiHolding {
+        let holdings = rows
+            .into_iter()
+            .map(|(tid, bps, name)| KseiHolding {
                     id: 0,
                     ticker_id: tid,
                     entity_id: None,
@@ -1390,11 +1807,18 @@ mod tests {
                     total_shares: 1,
                     percentage_bps: bps,
                     report_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
-                    release_sha256: format!("{tid}-{name}"),
-                }],
-            )
-            .unwrap();
-        }
+                    release_sha256: "current-release".to_string(),
+                })
+            .collect::<Vec<_>>();
+        let release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: "current-release".to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
+            row_count: holdings.len(),
+            imported_at: 1,
+        };
+        write_ksei_release(&conn, &release, &holdings, false).unwrap();
 
         let by_top1 = query_concentration(&conn, "top1", 10).unwrap();
         assert_eq!(by_top1[0].0, "AA");
@@ -1404,6 +1828,87 @@ mod tests {
 
         let by_hhi = query_concentration(&conn, "hhi", 10).unwrap();
         assert_eq!(by_hhi[0].0, "AA");
+    }
+
+    #[test]
+    fn test_concentration_uses_latest_release_only() {
+        let conn = setup();
+        let aa = upsert_ticker(&conn, "AA", None).unwrap();
+
+        let old_release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: "old-concentration".to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 1, 30).unwrap(),
+            row_count: 1,
+            imported_at: 1,
+        };
+        let old_rows = vec![KseiHolding {
+            id: 0,
+            ticker_id: aa,
+            entity_id: None,
+            raw_investor_name: "OLD".to_string(),
+            investor_type: None,
+            locality: None,
+            nationality: None,
+            domicile: None,
+            holdings_scripless: 1,
+            holdings_scrip: 0,
+            total_shares: 1,
+            percentage_bps: 6000,
+            report_date: old_release.as_of_date,
+            release_sha256: old_release.sha256.clone(),
+        }];
+        write_ksei_release(&conn, &old_release, &old_rows, false).unwrap();
+
+        let latest_release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: "latest-concentration".to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
+            row_count: 2,
+            imported_at: 2,
+        };
+        let latest_rows = vec![
+            KseiHolding {
+                id: 0,
+                ticker_id: aa,
+                entity_id: None,
+                raw_investor_name: "NEW A".to_string(),
+                investor_type: None,
+                locality: None,
+                nationality: None,
+                domicile: None,
+                holdings_scripless: 1,
+                holdings_scrip: 0,
+                total_shares: 1,
+                percentage_bps: 2000,
+                report_date: latest_release.as_of_date,
+                release_sha256: latest_release.sha256.clone(),
+            },
+            KseiHolding {
+                id: 0,
+                ticker_id: aa,
+                entity_id: None,
+                raw_investor_name: "NEW B".to_string(),
+                investor_type: None,
+                locality: None,
+                nationality: None,
+                domicile: None,
+                holdings_scripless: 1,
+                holdings_scrip: 0,
+                total_shares: 1,
+                percentage_bps: 1500,
+                report_date: latest_release.as_of_date,
+                release_sha256: latest_release.sha256.clone(),
+            },
+        ];
+        write_ksei_release(&conn, &latest_release, &latest_rows, false).unwrap();
+
+        let rows = query_concentration(&conn, "top1", 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1.top1_bps, 2000);
+        assert_eq!(rows[0].1.top3_bps, 3500);
     }
 
     #[test]

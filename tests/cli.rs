@@ -9,17 +9,90 @@ use std::thread;
 use assert_cmd::Command;
 use predicates::prelude::*;
 use rusqlite::Connection;
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;
 
 fn bin() -> Command {
-    let current = std::env::current_exe().expect("current test executable path");
-    let debug_dir = current
-        .parent()
-        .and_then(|path| path.parent())
-        .expect("target debug directory");
-    let exe = debug_dir.join(format!("idx{}", std::env::consts::EXE_SUFFIX));
+    let exe = resolve_idx_binary_path();
     Command::new(exe)
+}
+
+fn resolve_idx_binary_path() -> PathBuf {
+    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_idx").map(PathBuf::from)
+        && candidate_is_idx_binary(&path)
+    {
+        return path;
+    }
+
+    let target_debug = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("debug")
+        .join(format!("idx{}", std::env::consts::EXE_SUFFIX));
+    if candidate_is_idx_binary(&target_debug) {
+        return target_debug;
+    }
+
+    let current = std::env::current_exe().expect("current test executable path");
+    let deps_dir = current.parent().expect("deps directory");
+    let exe_suffix = std::env::consts::EXE_SUFFIX;
+    let mut candidates: Vec<PathBuf> = fs::read_dir(deps_dir)
+        .expect("read deps dir")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .filter(|path| is_executable(path))
+        .filter(|path| {
+            let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+                return false;
+            };
+            name.starts_with("idx-")
+                && !name.ends_with(".d")
+                && (exe_suffix.is_empty() || name.ends_with(exe_suffix))
+        })
+        .collect();
+
+    candidates.sort_by_key(|path| {
+        fs::metadata(path)
+            .and_then(|meta| meta.modified())
+            .expect("modified time")
+    });
+    candidates.reverse();
+
+    for candidate in candidates {
+        if candidate_is_idx_binary(&candidate) {
+            return candidate;
+        }
+    }
+
+    panic!("unable to resolve idx app binary in {}", deps_dir.display());
+}
+
+fn candidate_is_idx_binary(path: &Path) -> bool {
+    if !path.is_file() || !is_executable(path) {
+        return false;
+    }
+
+    let Ok(output) = std::process::Command::new(path).arg("version").output() else {
+        return false;
+    };
+
+    output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == env!("CARGO_PKG_VERSION")
+}
+
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    fs::metadata(path)
+        .map(|meta| meta.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("exe"))
+        .unwrap_or(true)
 }
 
 fn test_env_dir(name: &str) -> PathBuf {
@@ -36,6 +109,7 @@ fn bin_with_root(root: &Path) -> Command {
     fs::create_dir_all(&cache_home).expect("create cache dir");
 
     let mut cmd = bin();
+    cmd.current_dir(env!("CARGO_MANIFEST_DIR"));
     cmd.env("XDG_CONFIG_HOME", &config_home);
     cmd.env("XDG_CACHE_HOME", &cache_home);
     cmd
@@ -44,6 +118,13 @@ fn bin_with_root(root: &Path) -> Command {
 fn test_bin(name: &str) -> Command {
     let root = test_env_dir(name);
     bin_with_root(&root)
+}
+
+fn fixture_path(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join(name)
 }
 
 fn spawn_single_response_server(content_type: &str, body: impl Into<Vec<u8>>) -> String {
@@ -296,6 +377,43 @@ fn help_works() {
 }
 
 #[test]
+fn ownership_help_mentions_sync_as_preferred_bootstrap() {
+    test_bin("ownership-help")
+        .args(["ownership", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Preferred bootstrap path"))
+        .stdout(predicate::str::contains("idx ownership sync"))
+        .stdout(predicate::str::contains("idx ownership discover"));
+}
+
+#[test]
+fn ownership_import_help_mentions_sync_preference_and_fallback_files() {
+    test_bin("ownership-import-help")
+        .args(["ownership", "import", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Prefer `idx ownership sync`"))
+        .stdout(predicate::str::contains(
+            "PDF (primary), ZIP/TXT archive (fallback)",
+        ))
+        .stdout(predicate::str::contains(
+            "idx ownership import --file /path/to/BalanceposEfek20260227.zip",
+        ));
+}
+
+#[test]
+fn ownership_sync_help_mentions_manifest_lookup_order() {
+    test_bin("ownership-sync-help")
+        .args(["ownership", "sync", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Manifest lookup order"))
+        .stdout(predicate::str::contains("IDX_OWNERSHIP_SNAPSHOT_MANIFEST"))
+        .stdout(predicate::str::contains("ownership.snapshot_manifest"));
+}
+
+#[test]
 fn version_prints_cargo_version() {
     test_bin("version")
         .arg("version")
@@ -349,7 +467,10 @@ fn technical_with_mock_provider_table_contains_expected_rows() {
         .success()
         .stdout(predicate::str::contains("Technical Analysis for"))
         .stdout(predicate::str::contains("RSI (14)"))
-        .stdout(predicate::str::contains("Overall Signal"));
+        .stdout(predicate::str::contains("Overall Signal"))
+        .stdout(predicate::str::contains(
+            "Trend unavailable (need at least 200 daily candles)",
+        ));
 }
 
 #[test]
@@ -465,6 +586,43 @@ fn msn_financials_with_mock_fixture_table_contains_sections() {
 }
 
 #[test]
+fn msn_financials_with_statement_filter_table_only_shows_requested_section() {
+    test_bin("msn-financials-statement-table")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["stocks", "financials", "BBCA", "--statement", "cashflow"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Cash Flow"))
+        .stdout(predicate::str::contains("Operating Cash Flow"))
+        .stdout(predicate::str::contains("Income Statement").not())
+        .stdout(predicate::str::contains("Balance Sheet").not());
+}
+
+#[test]
+fn msn_financials_with_statement_filter_json_keeps_context_and_nulls_filtered_sections() {
+    test_bin("msn-financials-statement-json")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args([
+            "-o",
+            "json",
+            "stocks",
+            "financials",
+            "BBCA",
+            "--statement",
+            "income,balance",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"instrument\""))
+        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
+        .stdout(predicate::str::contains("\"income_statement\""))
+        .stdout(predicate::str::contains("\"balance_sheet\""))
+        .stdout(predicate::str::contains("\"cash_flow\": null"));
+}
+
+#[test]
 fn msn_earnings_with_mock_fixture_table_is_sectioned_and_formatted() {
     test_bin("msn-earnings-table")
         .env("IDX_PROVIDER", "msn")
@@ -481,6 +639,21 @@ fn msn_earnings_with_mock_fixture_table_is_sectioned_and_formatted() {
 }
 
 #[test]
+fn msn_earnings_with_filters_table_limits_scope_and_period() {
+    test_bin("msn-earnings-filter-table")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["stocks", "earnings", "BBCA", "--history", "--quarterly"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Earnings History"))
+        .stdout(predicate::str::contains("Q4 2025"))
+        .stdout(predicate::str::contains("FY2025").not())
+        .stdout(predicate::str::contains("Earnings Forecast").not())
+        .stdout(predicate::str::contains("Q1 2026").not());
+}
+
+#[test]
 fn msn_earnings_with_mock_fixture_json_contains_forecast_and_history() {
     test_bin("msn-earnings-json")
         .env("IDX_PROVIDER", "msn")
@@ -488,9 +661,33 @@ fn msn_earnings_with_mock_fixture_json_contains_forecast_and_history() {
         .args(["-o", "json", "stocks", "earnings", "BBCA"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
         .stdout(predicate::str::contains("\"forecast\""))
         .stdout(predicate::str::contains("\"history\""))
         .stdout(predicate::str::contains("Q12026"));
+}
+
+#[test]
+fn msn_earnings_with_filters_json_limits_rows() {
+    test_bin("msn-earnings-filter-json")
+        .env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args([
+            "-o",
+            "json",
+            "stocks",
+            "earnings",
+            "BBCA",
+            "--forecast",
+            "--annual",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
+        .stdout(predicate::str::contains("\"period_type\": \"2026\""))
+        .stdout(predicate::str::contains("\"history\": []"))
+        .stdout(predicate::str::contains("Q12026").not())
+        .stdout(predicate::str::contains("Q42025").not());
 }
 
 #[test]
@@ -550,6 +747,7 @@ fn msn_insights_with_mock_fixture_json_contains_summary_and_last_updated() {
         .args(["-o", "json", "stocks", "insights", "BBCA"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
         .stdout(predicate::str::contains(
             "\"summary\": \"Mixed analyst signals",
         ))
@@ -580,6 +778,7 @@ fn msn_news_with_mock_fixture_json_contains_provider_and_timestamp() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"id\": \"news-1\""))
+        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
         .stdout(predicate::str::contains(
             "\"title\": \"BCA reports steady growth\"",
         ))
@@ -854,6 +1053,24 @@ fn ownership_import_fetch_bing_reports_unsupported() {
 }
 
 #[test]
+fn ownership_releases_uses_xdg_data_home_default_db_path() {
+    let root = test_env_dir("ownership-xdg-data-home");
+    let data_home = root.join("xdg-data");
+
+    bin_with_root(&root)
+        .env("XDG_DATA_HOME", &data_home)
+        .args(["ownership", "releases"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No ownership releases imported yet."));
+
+    assert!(
+        data_home.join("idx").join("ownership.db").exists(),
+        "ownership db should be created under XDG_DATA_HOME when no custom path is configured"
+    );
+}
+
+#[test]
 fn ownership_discover_lists_fixture_candidates() {
     let body = fs::read_to_string("tests/fixtures/idx_announcement_kepemilikan.json")
         .expect("read ownership discovery fixture");
@@ -1112,6 +1329,46 @@ fn ownership_import_url_supported_pdf_succeeds_with_fake_mutool() {
 }
 
 #[test]
+fn ownership_import_url_caches_download_under_xdg_cache_home() {
+    let root = test_env_dir("ownership-import-xdg-cache");
+    let db_path = root.join("ownership.db");
+    let cache_home = root.join("xdg-cache");
+    let fake_mutool_dir = install_fake_mutool(
+        &root,
+        include_str!("fixtures/ksei_above1_stext_excerpt.xml"),
+    );
+    let pdf_base = spawn_single_response_server("application/pdf", fake_pdf_bytes());
+    let pdf_url = pdf_url(&pdf_base, "cached-raw");
+
+    bin_with_root(&root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            db_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .env("PATH", prepend_path(&fake_mutool_dir))
+        .env("XDG_CACHE_HOME", &cache_home)
+        .args(["ownership", "import", "--url", &pdf_url])
+        .assert()
+        .success();
+
+    assert!(
+        cache_home
+            .join("idx")
+            .join("ownership")
+            .join("raw")
+            .join("cached-raw.pdf")
+            .exists(),
+        "downloaded remote PDF should be cached under XDG_CACHE_HOME"
+    );
+}
+
+#[test]
 fn ownership_import_url_duplicate_release_is_skipped() {
     let root = test_env_dir("ownership-import-duplicate-release");
     let db_path = root.join("ownership.db");
@@ -1146,6 +1403,55 @@ fn ownership_import_url_duplicate_release_is_skipped() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Release already imported"));
+}
+
+#[test]
+fn ownership_import_force_reimports_existing_release() {
+    let root = test_env_dir("ownership-import-force");
+    let db_path = root.join("ownership.db");
+    let pdf_path = root.join("force.pdf");
+    let fake_mutool_dir = install_fake_mutool(
+        &root,
+        include_str!("fixtures/ksei_above1_stext_excerpt.xml"),
+    );
+    fs::write(&pdf_path, fake_pdf_bytes()).expect("write local pdf fixture");
+
+    bin_with_root(&root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            db_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .env("PATH", prepend_path(&fake_mutool_dir))
+        .args(["ownership", "import", "--file", pdf_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .env("PATH", prepend_path(&fake_mutool_dir))
+        .args([
+            "ownership",
+            "import",
+            "--force",
+            "--file",
+            pdf_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Imported 1 rows for 1 tickers"));
+
+    let output = bin_with_root(&root)
+        .args(["-o", "json", "ownership", "releases"])
+        .output()
+        .expect("ownership releases json output");
+    assert!(output.status.success());
+    let releases: Value = serde_json::from_slice(&output.stdout).expect("parse releases json");
+    assert_eq!(releases.as_array().unwrap().len(), 1);
 }
 
 #[test]
@@ -1276,6 +1582,26 @@ fn ownership_import_file_zip_archive_supports_releases_ticker_and_changes() {
         .success()
         .stdout(predicate::str::contains("KSEI AGGREGATE LOCAL CP"))
         .stdout(predicate::str::contains("KSEI AGGREGATE FOREIGN MF"));
+
+    let ticker_output = bin_with_root(&root)
+        .args(["-o", "json", "ownership", "ticker", "AADI", "--source", "ksei"])
+        .output()
+        .expect("ownership ticker json output");
+    assert!(ticker_output.status.success());
+    let ticker: Value =
+        serde_json::from_slice(&ticker_output.stdout).expect("parse ownership ticker json");
+    let holders = ticker["holders"].as_array().expect("holders array");
+    assert_eq!(ticker["ksei_as_of"].as_str(), Some("2026-02-27"));
+    assert_eq!(holders.len(), 18);
+    assert_eq!(ticker["concentration"]["top1_bps"].as_i64(), Some(6467));
+    assert!(holders.iter().any(|row| {
+        row["name"].as_str() == Some("KSEI AGGREGATE LOCAL CP")
+            && row["percentage_bps"].as_i64() == Some(6467)
+    }));
+    assert!(!holders.iter().any(|row| {
+        row["name"].as_str() == Some("KSEI AGGREGATE LOCAL CP")
+            && row["percentage_bps"].as_i64() == Some(6481)
+    }));
 
     bin_with_root(&root)
         .args([
@@ -1434,6 +1760,31 @@ fn technical_serves_stale_cache_on_provider_failure_with_warning() {
 }
 
 #[test]
+fn quiet_suppresses_non_essential_history_messages() {
+    let root = test_env_dir("quiet-history-messages");
+    let cache_home = root.join("cache");
+
+    bin_with_root(&root)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .env("IDX_CACHE_QUOTE_TTL", "0")
+        .args(["stocks", "technical", "BBCA"])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .env("IDX_CACHE_QUOTE_TTL", "0")
+        .env("IDX_MOCK_ERROR", "1")
+        .args(["--quiet", "stocks", "technical", "BBCA"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("info:").not())
+        .stderr(predicate::str::contains("warning:").not());
+}
+
+#[test]
 fn cache_namespace_isolated_by_provider() {
     let root = test_env_dir("provider-cache");
     let cache_home = root.join("cache");
@@ -1500,6 +1851,29 @@ fn invalid_provider_env_honors_json_output() {
         .failure()
         .stderr(predicate::str::contains("\"error\": true"))
         .stderr(predicate::str::contains("invalid provider"));
+}
+
+#[test]
+fn invalid_quote_ttl_env_returns_non_zero() {
+    test_bin("invalid-quote-ttl")
+        .env("IDX_CACHE_QUOTE_TTL", "bogus")
+        .args(["version"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid IDX_CACHE_QUOTE_TTL value"));
+}
+
+#[test]
+fn invalid_fundamental_ttl_env_honors_json_output() {
+    test_bin("invalid-fundamental-ttl-json")
+        .env("IDX_CACHE_FUNDAMENTAL_TTL", "bogus")
+        .args(["-o", "json", "version"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("\"error\": true"))
+        .stderr(predicate::str::contains(
+            "invalid IDX_CACHE_FUNDAMENTAL_TTL value",
+        ));
 }
 
 #[test]
@@ -1584,4 +1958,93 @@ fn msn_screen_rejects_invalid_region_in_json_mode() {
         .failure()
         .stderr(predicate::str::contains("\"error\": true"))
         .stderr(predicate::str::contains("invalid screener region"));
+}
+
+#[test]
+fn verbose_history_surfaces_yahoo_dropped_row_diagnostics() {
+    let history_fixture = fixture_path("chart_bbca_with_gap.json");
+
+    test_bin("verbose-history-diagnostics")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .env("IDX_MOCK_YAHOO_HISTORY_FIXTURE", &history_fixture)
+        .args(["-v", "stocks", "history", "BBCA", "--period", "3mo"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("dropped 1 OHLC row(s)"));
+}
+
+#[test]
+fn yahoo_provider_rejects_msn_only_stock_commands() {
+    let cases = [
+        (
+            "yahoo-profile-unsupported",
+            vec!["stocks", "profile", "BBCA"],
+        ),
+        (
+            "yahoo-financials-unsupported",
+            vec!["stocks", "financials", "BBCA"],
+        ),
+        (
+            "yahoo-earnings-unsupported",
+            vec!["stocks", "earnings", "BBCA"],
+        ),
+        (
+            "yahoo-sentiment-unsupported",
+            vec!["stocks", "sentiment", "BBCA"],
+        ),
+        (
+            "yahoo-insights-unsupported",
+            vec!["stocks", "insights", "BBCA"],
+        ),
+        ("yahoo-news-unsupported", vec!["stocks", "news", "BBCA"]),
+        ("yahoo-screen-unsupported", vec!["stocks", "screen"]),
+    ];
+
+    for (name, args) in cases {
+        test_bin(name)
+            .env("IDX_PROVIDER", "yahoo")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(args)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("command requires --provider msn"));
+    }
+}
+
+#[test]
+fn industry_only_msn_mock_fundamentals_are_rejected_for_analysis_commands() {
+    let fixture = fixture_path("msn_keyratios_industry_only.json");
+    let fixture_str = fixture
+        .to_str()
+        .expect("fixture path should be valid unicode")
+        .to_string();
+    let cases = [
+        ("growth-industry-only", vec!["stocks", "growth", "BBCA"]),
+        (
+            "valuation-industry-only",
+            vec!["stocks", "valuation", "BBCA"],
+        ),
+        ("risk-industry-only", vec!["stocks", "risk", "BBCA"]),
+        (
+            "fundamental-industry-only",
+            vec!["stocks", "fundamental", "BBCA"],
+        ),
+        (
+            "compare-industry-only",
+            vec!["stocks", "compare", "BBCA,BBRI"],
+        ),
+    ];
+
+    for (name, args) in cases {
+        test_bin(name)
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .env("IDX_MOCK_MSN_KEYRATIOS_FIXTURE", &fixture_str)
+            .args(args)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "company fundamentals unavailable from MSN; industry fallback is disabled",
+            ));
+    }
 }

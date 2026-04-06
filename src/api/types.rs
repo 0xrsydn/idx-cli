@@ -143,6 +143,8 @@ pub struct StatementSection {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EarningsReport {
+    #[serde(default)]
+    pub symbol: String,
     pub eps_last_year: f64,
     pub revenue_last_year: f64,
     pub forecast: Vec<EarningsData>,
@@ -183,6 +185,8 @@ pub struct SentimentPeriod {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InsightData {
     pub id: String,
+    #[serde(default)]
+    pub symbol: String,
     pub summary: String,
     pub highlights: Vec<String>,
     pub risks: Vec<String>,
@@ -193,6 +197,8 @@ pub struct InsightData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewsItem {
     pub id: String,
+    #[serde(default)]
+    pub symbol: String,
     pub title: String,
     pub url: String,
     pub description: String,

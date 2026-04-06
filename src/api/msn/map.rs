@@ -65,13 +65,11 @@ pub(super) fn parse_fundamentals(
     quote: Option<&MsnQuote>,
 ) -> Result<Fundamentals, IdxError> {
     let ratios = ratios.first().ok_or(IdxError::ProviderUnavailable)?;
-    let metrics = if ratios.company_metrics.is_empty() {
-        &ratios.industry_metrics
-    } else {
-        &ratios.company_metrics
-    };
-    if preferred_metric(metrics).is_none() {
-        return Err(IdxError::ProviderUnavailable);
+    let metrics = &ratios.company_metrics;
+    if metrics.is_empty() || !metrics.iter().any(metric_has_supported_values) {
+        return Err(IdxError::Unsupported(
+            "company fundamentals unavailable from MSN; industry fallback is disabled".into(),
+        ));
     }
 
     Ok(Fundamentals {
@@ -105,8 +103,31 @@ pub(super) fn parse_fundamentals(
     })
 }
 
-fn preferred_metric(metrics: &[IndustryMetric]) -> Option<&IndustryMetric> {
-    metrics.iter().max_by_key(|metric| metric_rank(metric))
+fn metric_has_supported_values(metric: &IndustryMetric) -> bool {
+    [
+        metric
+            .price_to_earnings_ratio
+            .filter(|value| value.is_finite()),
+        metric
+            .forward_price_to_eps
+            .filter(|value| value.is_finite()),
+        metric.price_to_book_ratio.filter(|value| value.is_finite()),
+        normalize_percentish(metric.roe),
+        normalize_percentish(metric.profit_margin.or(metric.net_margin)),
+        normalize_percentish(metric.roa_ttm.or(metric.return_on_asset_current)),
+        normalize_percentish(metric.revenue_ytd_ytd.or(metric.revenue_growth_rate)),
+        normalize_percentish(
+            metric
+                .net_income_ytd_ytd_growth_rate
+                .or(metric.earnings_growth_rate),
+        ),
+        metric
+            .debt_to_equity_ratio
+            .filter(|value| value.is_finite()),
+        sanitize_current_ratio(metric.current_ratio),
+    ]
+    .into_iter()
+    .any(|value| value.is_some())
 }
 
 fn best_metric_value<T: Copy>(
@@ -398,7 +419,8 @@ pub(super) fn parse_financial_statements(
                 .and_then(|v| v.instrument_id.clone())
                 .unwrap_or_default(),
             symbol: instrument
-                .and_then(|v| v.symbol.clone())
+                .and_then(|v| v.symbol.as_deref().and_then(ticker_from_symbol))
+                .map(|ticker| normalized_symbol(symbol, &ticker))
                 .unwrap_or_else(|| symbol.to_string()),
             name: instrument
                 .and_then(|v| v.display_name.clone().or_else(|| v.short_name.clone()))
@@ -411,7 +433,7 @@ pub(super) fn parse_financial_statements(
 }
 
 pub(super) fn parse_earnings(
-    _symbol: &str,
+    symbol: &str,
     raw: &RawEarningsResponse,
 ) -> Result<EarningsReport, IdxError> {
     let mut forecast = Vec::new();
@@ -430,6 +452,7 @@ pub(super) fn parse_earnings(
     history.sort_by_key(|row| row.earning_release_date.clone().unwrap_or_default());
 
     Ok(EarningsReport {
+        symbol: symbol.to_string(),
         eps_last_year: raw.eps_last_year.unwrap_or_default(),
         revenue_last_year: raw.revenue_last_year.unwrap_or_default(),
         forecast,
@@ -504,6 +527,7 @@ pub(super) fn parse_insights(symbol: &str, raw: &[RawInsight]) -> Result<Insight
             .instrument_id
             .clone()
             .unwrap_or_else(|| symbol.to_string()),
+        symbol: symbol.to_string(),
         summary: insight_overview(item.display_name.as_deref(), positive, negative, neutral),
         highlights,
         risks,
@@ -518,7 +542,7 @@ pub(super) fn parse_insights(symbol: &str, raw: &[RawInsight]) -> Result<Insight
     })
 }
 
-pub(super) fn parse_news(raw: &RawNewsFeed) -> Result<Vec<NewsItem>, IdxError> {
+pub(super) fn parse_news(symbol: &str, raw: &RawNewsFeed) -> Result<Vec<NewsItem>, IdxError> {
     let source = raw
         .sub_cards
         .as_ref()
@@ -529,6 +553,7 @@ pub(super) fn parse_news(raw: &RawNewsFeed) -> Result<Vec<NewsItem>, IdxError> {
         .iter()
         .map(|item| NewsItem {
             id: item.id.clone().unwrap_or_default(),
+            symbol: symbol.to_string(),
             title: item.title.clone().unwrap_or_default(),
             url: item.url.clone().unwrap_or_default(),
             description: item.description.clone().unwrap_or_default(),
@@ -549,12 +574,10 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
         .as_ref()
         .ok_or_else(|| IdxError::ParseError("no screener data".into()))?;
 
-    // Build Quote directly from screener MsnQuote data; default price to 0 if missing
-    // (do not route through parse_quote which errors on missing price)
     let results: Vec<Quote> = quotes
         .iter()
-        .map(|q| {
-            let raw_price = q.price.unwrap_or(0.0);
+        .filter_map(|q| {
+            let raw_price = q.price.filter(|price| price.is_finite() && *price > 0.0)?;
             let price = round_price(raw_price);
             let prev_close = q.price_previous_close.map(round_price);
             let change = prev_close
@@ -565,7 +588,7 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
                 .symbol
                 .as_deref()
                 .and_then(ticker_from_symbol)
-                .unwrap_or_default();
+                .filter(|ticker| !ticker.is_empty())?;
             let (week52_position, range_signal) = match (q.price_52w_low, q.price_52w_high) {
                 (Some(low), Some(high)) if high > low => {
                     let pos = (raw_price - low) / (high - low);
@@ -580,7 +603,7 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
                 }
                 _ => (None, None),
             };
-            Quote {
+            Some(Quote {
                 symbol: normalized_symbol(&ticker, &ticker),
                 price,
                 change,
@@ -593,7 +616,7 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
                 range_signal,
                 prev_close,
                 avg_volume: round_u64(q.average_volume),
-            }
+            })
         })
         .collect();
 
@@ -682,9 +705,11 @@ fn collect_earnings(
 #[cfg(test)]
 mod tests {
     use super::{
-        RawNewsFeed, RawScreenerResponse, RawSentiment, parse_news, parse_screener_results,
+        KeyRatios, RawFinancialStatement, RawNewsFeed, RawScreenerResponse, RawSentiment,
+        parse_financial_statements, parse_fundamentals, parse_news, parse_screener_results,
         parse_sentiment,
     };
+    use crate::error::IdxError;
 
     #[test]
     fn parses_sentiment_fixture_statistics() {
@@ -709,14 +734,44 @@ mod tests {
             serde_json::from_str(include_str!("../../../tests/fixtures/msn_news_bbca.json"))
                 .expect("news fixture should deserialize");
 
-        let items = parse_news(&raw).expect("news should parse");
+        let items = parse_news("BBCA.JK", &raw).expect("news should parse");
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].id, "news-1");
+        assert_eq!(items[0].symbol, "BBCA.JK");
         assert_eq!(items[0].title, "BCA reports steady growth");
         assert_eq!(items[0].provider, "Contoso News");
         assert_eq!(items[0].published_at, "2026-03-20T10:00:00Z");
         assert_eq!(items[0].read_time_min, Some(3));
+    }
+
+    #[test]
+    fn parse_financial_statements_normalizes_instrument_symbol() {
+        let raw: Vec<RawFinancialStatement> = serde_json::from_str(
+            r#"[
+                {
+                    "underlyingInstrument": {
+                        "instrumentId": "bn91jc",
+                        "displayName": "Bank Central Asia Tbk PT",
+                        "symbol": "BBCA"
+                    },
+                    "balanceSheets": {
+                        "currency": "IDR",
+                        "reportDate": "2025-03-31T00:00:00Z",
+                        "endDate": "2025-03-31T00:00:00Z",
+                        "totalAssets": 1533763445000000.0
+                    }
+                }
+            ]"#,
+        )
+        .expect("financial statements should deserialize");
+
+        let financials =
+            parse_financial_statements("BBCA.JK", &raw).expect("financials should parse");
+
+        assert_eq!(financials.instrument.id, "bn91jc");
+        assert_eq!(financials.instrument.symbol, "BBCA.JK");
+        assert_eq!(financials.instrument.name, "Bank Central Asia Tbk PT");
     }
 
     #[test]
@@ -735,5 +790,75 @@ mod tests {
         assert_eq!(quotes[0].market_cap, Some(1_215_200_000_000_000));
         assert_eq!(quotes[0].range_signal.as_deref(), Some("upper"));
         assert_eq!(quotes[0].avg_volume, Some(10_000_000));
+    }
+
+    #[test]
+    fn parse_screener_results_filters_invalid_rows() {
+        let raw: RawScreenerResponse = serde_json::from_str(
+            r#"{
+                "quote": [
+                    { "symbol": "BBCA", "price": 9875, "pricePreviousClose": 9758 },
+                    { "symbol": "BBRI", "price": 0 },
+                    { "symbol": "BMRI" },
+                    { "symbol": "", "price": 5150 }
+                ]
+            }"#,
+        )
+        .expect("screener fixture should deserialize");
+
+        let quotes = parse_screener_results(&raw).expect("screener should parse");
+
+        assert_eq!(quotes.len(), 1);
+        assert_eq!(quotes[0].symbol, "BBCA.JK");
+        assert_eq!(quotes[0].price, 9_875);
+    }
+
+    #[test]
+    fn parse_screener_results_errors_when_all_rows_are_invalid() {
+        let raw: RawScreenerResponse = serde_json::from_str(
+            r#"{
+                "quote": [
+                    { "symbol": "BBRI", "price": 0 },
+                    { "symbol": "BMRI" }
+                ]
+            }"#,
+        )
+        .expect("screener fixture should deserialize");
+
+        let err = parse_screener_results(&raw).expect_err("invalid screener rows should fail");
+
+        assert!(matches!(err, IdxError::ParseError(_)));
+        assert_eq!(
+            err.to_string(),
+            "parse error: screener returned no priced stocks"
+        );
+    }
+
+    #[test]
+    fn parse_fundamentals_rejects_industry_only_metrics() {
+        let raw: Vec<KeyRatios> = serde_json::from_str(
+            r#"[
+                {
+                    "industryMetrics": [
+                        {
+                            "year": "2025",
+                            "fiscalPeriodType": "TTM",
+                            "priceToEarningsRatio": 12.5,
+                            "priceToBookRatio": 1.7
+                        }
+                    ],
+                    "companyMetrics": []
+                }
+            ]"#,
+        )
+        .expect("key ratios should deserialize");
+
+        let err = parse_fundamentals(&raw, None).expect_err("industry fallback should be rejected");
+
+        assert!(matches!(err, IdxError::Unsupported(_)));
+        assert_eq!(
+            err.to_string(),
+            "unsupported: company fundamentals unavailable from MSN; industry fallback is disabled"
+        );
     }
 }

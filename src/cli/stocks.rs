@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::analysis::fundamental::{
@@ -9,17 +9,13 @@ use crate::analysis::fundamental::{
 };
 use crate::analysis::signals::{self, Signal, TechnicalSignal};
 use crate::analysis::technical;
-use crate::api::msn::MsnProvider;
 use crate::api::types::{
     CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, Interval,
     NewsItem, Ohlc, Period, Quote, SentimentData,
 };
-use crate::api::{
-    EarningsProvider, FinancialsProvider, InsightsProvider, MarketDataProvider, NewsProvider,
-    ProfileProvider, SentimentProvider, history_provider,
-};
+use crate::api::{MarketDataProvider, SelectedProvider, history_provider};
 use crate::cache::Cache;
-use crate::config::{HistoryProviderKind, IdxConfig};
+use crate::config::{HistoryProviderKind, IdxConfig, ProviderKind};
 use crate::error::IdxError;
 use crate::output::{
     MacdSnapshot, TechnicalReport, VolumeSnapshot, render_compare, render_earnings,
@@ -27,6 +23,7 @@ use crate::output::{
     render_news, render_profile, render_quotes, render_risk, render_screener, render_sentiment,
     render_technical, render_valuation,
 };
+use crate::runtime;
 
 struct FundamentalCacheSpec {
     bucket: String,
@@ -53,8 +50,67 @@ const SCREENER_FILTERS: &[&str] = &[
 
 const SCREENER_REGIONS: &[&str] = &["id", "us", "sg", "hk", "jp"];
 
-fn cache_bucket(config: &IdxConfig, key: &str) -> String {
-    format!("{}-{key}", config.provider.as_str())
+fn cache_bucket(provider: ProviderKind, key: &str) -> String {
+    format!("{}-{key}", provider.as_str())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum FinancialStatementKind {
+    Income,
+    Balance,
+    Cashflow,
+}
+
+#[derive(Debug, Clone, Args, Default)]
+pub struct FinancialsFilterArgs {
+    /// Limit output to one or more statements.
+    #[arg(long, value_enum, value_delimiter = ',', num_args = 1..)]
+    statement: Vec<FinancialStatementKind>,
+}
+
+#[derive(Debug, Clone, Copy, Args, Default)]
+pub struct EarningsFilterArgs {
+    /// Only include forward earnings rows.
+    #[arg(long)]
+    forecast: bool,
+    /// Only include historical earnings rows.
+    #[arg(long)]
+    history: bool,
+    /// Only include annual periods.
+    #[arg(long)]
+    annual: bool,
+    /// Only include quarterly periods.
+    #[arg(long)]
+    quarterly: bool,
+}
+
+impl EarningsFilterArgs {
+    fn include_forecast(self) -> bool {
+        self.forecast || !self.history
+    }
+
+    fn include_history(self) -> bool {
+        self.history || !self.forecast
+    }
+
+    fn includes_period(self, period_type: &str) -> bool {
+        if !self.annual && !self.quarterly {
+            return true;
+        }
+
+        match classify_earnings_period(period_type) {
+            EarningsPeriodKind::Annual => self.annual || !self.quarterly,
+            EarningsPeriodKind::Quarterly => self.quarterly || !self.annual,
+            EarningsPeriodKind::Unknown => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EarningsPeriodKind {
+    Annual,
+    Quarterly,
+    Unknown,
 }
 
 #[derive(Debug, Args)]
@@ -132,10 +188,24 @@ pub enum StocksSubcommand {
     },
     #[command(about = "Get company profile")]
     Profile { symbol: String },
-    #[command(about = "Get financial statements")]
-    Financials { symbol: String },
-    #[command(about = "Get earnings report")]
-    Earnings { symbol: String },
+    #[command(
+        about = "Get financial statements",
+        after_help = "Examples:\n  idx stocks financials BBCA\n  idx stocks financials BBCA --statement income\n  idx stocks financials BBCA --statement income,balance"
+    )]
+    Financials {
+        symbol: String,
+        #[command(flatten)]
+        filters: FinancialsFilterArgs,
+    },
+    #[command(
+        about = "Get earnings report",
+        after_help = "Examples:\n  idx stocks earnings BBCA\n  idx stocks earnings BBCA --history --quarterly\n  idx -o json stocks earnings BBCA --forecast --annual"
+    )]
+    Earnings {
+        symbol: String,
+        #[command(flatten)]
+        filters: EarningsFilterArgs,
+    },
     #[command(about = "Get crowd sentiment")]
     Sentiment { symbol: String },
     #[command(about = "Get AI insights")]
@@ -168,9 +238,10 @@ pub enum StocksSubcommand {
 pub fn handle(
     cmd: &StocksCmd,
     config: &IdxConfig,
-    provider: &dyn MarketDataProvider,
+    provider: &SelectedProvider,
     offline: bool,
     no_cache: bool,
+    verbose: bool,
 ) -> Result<(), IdxError> {
     if offline && no_cache {
         return Err(IdxError::InvalidInput(
@@ -182,7 +253,7 @@ pub fn handle(
 
     match &cmd.command {
         StocksSubcommand::Quote { symbols } => {
-            let quote_bucket = cache_bucket(config, "quote");
+            let quote_bucket = cache_bucket(provider.kind(), "quote");
             let mut quotes = Vec::new();
             for sym in symbols.iter().flat_map(|s| s.split(',')) {
                 let resolved = crate::api::resolve_symbol(sym, &config.exchange)?;
@@ -198,7 +269,7 @@ pub fn handle(
                     continue;
                 }
 
-                match provider.quote(&resolved) {
+                match provider.market().quote(&resolved) {
                     Ok(q) => {
                         if !no_cache {
                             cache.put(&quote_bucket, &resolved, &q, config.quote_ttl)?;
@@ -209,9 +280,9 @@ pub fn handle(
                         if !no_cache
                             && let Some(stale) = cache.get_stale(&quote_bucket, &resolved)?
                         {
-                            eprintln!(
-                                "warning: network failed, serving stale cache for {resolved}"
-                            );
+                            runtime::warn(format!(
+                                "network failed, serving stale cache for {resolved}"
+                            ));
                             quotes.push(stale);
                             continue;
                         }
@@ -229,16 +300,16 @@ pub fn handle(
         } => {
             let history_mode = history_provider_override.unwrap_or(config.history_provider);
             let (history_source, hist_provider) =
-                history_provider(config.provider, history_mode, false)?;
+                history_provider(provider.kind(), history_mode, verbose)?;
             if matches!(history_mode, HistoryProviderKind::Auto)
-                && history_source != config.provider
+                && history_source != provider.kind()
                 && !matches!(config.output, crate::output::OutputFormat::Json)
             {
-                eprintln!(
-                    "info: history provider fallback active ({} -> {})",
-                    config.provider.as_str(),
+                runtime::info(format!(
+                    "history provider fallback active ({} -> {})",
+                    provider.kind().as_str(),
                     history_source.as_str()
-                );
+                ));
             }
             let history_bucket = format!("{}-history", history_source.as_str());
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
@@ -282,7 +353,9 @@ pub fn handle(
                             &format!("{resolved}-{key}"),
                         )?
                     {
-                        eprintln!("warning: network failed, serving stale cache for {resolved}");
+                        runtime::warn(format!(
+                            "network failed, serving stale cache for {resolved}"
+                        ));
                         return render_history(&resolved, &stale, &config.output);
                     }
                     Err(err)
@@ -295,16 +368,16 @@ pub fn handle(
         } => {
             let history_mode = history_provider_override.unwrap_or(config.history_provider);
             let (history_source, hist_provider) =
-                history_provider(config.provider, history_mode, false)?;
+                history_provider(provider.kind(), history_mode, verbose)?;
             if matches!(history_mode, HistoryProviderKind::Auto)
-                && history_source != config.provider
+                && history_source != provider.kind()
                 && !matches!(config.output, crate::output::OutputFormat::Json)
             {
-                eprintln!(
-                    "info: history provider fallback active ({} -> {})",
-                    config.provider.as_str(),
+                runtime::info(format!(
+                    "history provider fallback active ({} -> {})",
+                    provider.kind().as_str(),
                     history_source.as_str()
-                );
+                ));
             }
             let technical_bucket = format!("{}-technical", history_source.as_str());
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
@@ -333,7 +406,9 @@ pub fn handle(
                         && let Some(stale) =
                             cache.get_stale::<TechnicalReport>(&technical_bucket, &resolved)?
                     {
-                        eprintln!("warning: network failed, serving stale cache for {resolved}");
+                        runtime::warn(format!(
+                            "network failed, serving stale cache for {resolved}"
+                        ));
                         return render_technical(&stale, &config.output, config.no_color);
                     }
                     Err(err)
@@ -344,10 +419,10 @@ pub fn handle(
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let report: GrowthReport = fetch_fundamental_analysis_report(
                 &cache,
-                provider,
+                provider.market(),
                 &resolved,
                 FundamentalCacheSpec {
-                    bucket: cache_bucket(config, "growth"),
+                    bucket: cache_bucket(provider.kind(), "growth"),
                     ttl_secs: config.fundamental_ttl,
                 },
                 offline,
@@ -360,10 +435,10 @@ pub fn handle(
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let report: ValuationReport = fetch_fundamental_analysis_report(
                 &cache,
-                provider,
+                provider.market(),
                 &resolved,
                 FundamentalCacheSpec {
-                    bucket: cache_bucket(config, "valuation"),
+                    bucket: cache_bucket(provider.kind(), "valuation"),
                     ttl_secs: config.fundamental_ttl,
                 },
                 offline,
@@ -376,10 +451,10 @@ pub fn handle(
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let report: RiskReport = fetch_fundamental_analysis_report(
                 &cache,
-                provider,
+                provider.market(),
                 &resolved,
                 FundamentalCacheSpec {
-                    bucket: cache_bucket(config, "risk"),
+                    bucket: cache_bucket(provider.kind(), "risk"),
                     ttl_secs: config.fundamental_ttl,
                 },
                 offline,
@@ -392,10 +467,10 @@ pub fn handle(
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
             let report: FundamentalReport = fetch_fundamental_analysis_report(
                 &cache,
-                provider,
+                provider.market(),
                 &resolved,
                 FundamentalCacheSpec {
-                    bucket: cache_bucket(config, "fundamental"),
+                    bucket: cache_bucket(provider.kind(), "fundamental"),
                     ttl_secs: config.fundamental_ttl,
                 },
                 offline,
@@ -406,10 +481,10 @@ pub fn handle(
         }
         StocksSubcommand::Profile { symbol } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
-            let bucket = cache_bucket(config, "profile-v2");
-            let profile: CompanyProfile = fetch_msn_with_cache(
+            let bucket = cache_bucket(provider.kind(), "profile-v2");
+            let profile_provider = provider.profile_provider(&resolved)?;
+            let profile: CompanyProfile = fetch_with_cache(
                 &cache,
-                config.provider,
                 CacheFetchSpec {
                     bucket: &bucket,
                     key: &resolved,
@@ -418,16 +493,16 @@ pub fn handle(
                 },
                 offline,
                 no_cache,
-                || MsnProvider::new(false).profile(&resolved),
+                || profile_provider.profile(&resolved),
             )?;
             render_profile(&profile, &config.output)
         }
-        StocksSubcommand::Financials { symbol } => {
+        StocksSubcommand::Financials { symbol, filters } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
-            let bucket = cache_bucket(config, "financials");
-            let financials: FinancialStatements = fetch_msn_with_cache(
+            let bucket = cache_bucket(provider.kind(), "financials");
+            let financials_provider = provider.financials_provider(&resolved)?;
+            let mut financials: FinancialStatements = fetch_with_cache(
                 &cache,
-                config.provider,
                 CacheFetchSpec {
                     bucket: &bucket,
                     key: &resolved,
@@ -436,16 +511,22 @@ pub fn handle(
                 },
                 offline,
                 no_cache,
-                || MsnProvider::new(false).financials(&resolved),
+                || financials_provider.financials(&resolved),
             )?;
-            render_financials(&financials, &config.output)
+            if financials.instrument.symbol.trim().is_empty()
+                || !financials.instrument.symbol.contains('.')
+            {
+                financials.instrument.symbol = resolved.clone();
+            }
+            let filtered = filter_financial_statements(&financials, filters);
+            render_financials(&filtered, &config.output)
         }
-        StocksSubcommand::Earnings { symbol } => {
+        StocksSubcommand::Earnings { symbol, filters } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
-            let bucket = cache_bucket(config, "earnings");
-            let earnings: EarningsReport = fetch_msn_with_cache(
+            let bucket = cache_bucket(provider.kind(), "earnings");
+            let earnings_provider = provider.earnings_provider(&resolved)?;
+            let mut earnings: EarningsReport = fetch_with_cache(
                 &cache,
-                config.provider,
                 CacheFetchSpec {
                     bucket: &bucket,
                     key: &resolved,
@@ -454,16 +535,20 @@ pub fn handle(
                 },
                 offline,
                 no_cache,
-                || MsnProvider::new(false).earnings(&resolved),
+                || earnings_provider.earnings(&resolved),
             )?;
-            render_earnings(&earnings, &config.output)
+            if earnings.symbol.is_empty() {
+                earnings.symbol = resolved.clone();
+            }
+            let filtered = filter_earnings_report(&earnings, filters);
+            render_earnings(&filtered, &config.output)
         }
         StocksSubcommand::Sentiment { symbol } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
-            let bucket = cache_bucket(config, "sentiment");
-            let sentiment: SentimentData = fetch_msn_with_cache(
+            let bucket = cache_bucket(provider.kind(), "sentiment");
+            let sentiment_provider = provider.sentiment_provider(&resolved)?;
+            let sentiment: SentimentData = fetch_with_cache(
                 &cache,
-                config.provider,
                 CacheFetchSpec {
                     bucket: &bucket,
                     key: &resolved,
@@ -472,16 +557,16 @@ pub fn handle(
                 },
                 offline,
                 no_cache,
-                || MsnProvider::new(false).sentiment(&resolved),
+                || sentiment_provider.sentiment(&resolved),
             )?;
             render_sentiment(&sentiment, &config.output)
         }
         StocksSubcommand::Insights { symbol } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
-            let bucket = cache_bucket(config, "insights-v2");
-            let insights: InsightData = fetch_msn_with_cache(
+            let bucket = cache_bucket(provider.kind(), "insights-v2");
+            let insights_provider = provider.insights_provider(&resolved)?;
+            let mut insights: InsightData = fetch_with_cache(
                 &cache,
-                config.provider,
                 CacheFetchSpec {
                     bucket: &bucket,
                     key: &resolved,
@@ -490,17 +575,20 @@ pub fn handle(
                 },
                 offline,
                 no_cache,
-                || MsnProvider::new(false).insights(&resolved),
+                || insights_provider.insights(&resolved),
             )?;
+            if insights.symbol.is_empty() {
+                insights.symbol = resolved.clone();
+            }
             render_insights(&insights, &config.output)
         }
         StocksSubcommand::News { symbol, limit } => {
             let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
-            let bucket = cache_bucket(config, "news");
+            let bucket = cache_bucket(provider.kind(), "news");
             let key = format!("{resolved}-{limit}");
-            let news: Vec<NewsItem> = fetch_msn_with_cache(
+            let news_provider = provider.news_provider(&resolved)?;
+            let mut news: Vec<NewsItem> = fetch_with_cache(
                 &cache,
-                config.provider,
                 CacheFetchSpec {
                     bucket: &bucket,
                     key: &key,
@@ -509,8 +597,13 @@ pub fn handle(
                 },
                 offline,
                 no_cache,
-                || MsnProvider::new(false).news(&resolved, *limit),
+                || news_provider.news(&resolved, *limit),
             )?;
+            for item in &mut news {
+                if item.symbol.is_empty() {
+                    item.symbol = resolved.clone();
+                }
+            }
             render_news(&news, &config.output)
         }
         StocksSubcommand::Screen {
@@ -524,11 +617,11 @@ pub fn handle(
             // client-side sorting picks the correct top N.
             let needs_full_fetch = matches!(filter.as_str(), "high-volume" | "large-cap");
             let fetch_limit = if needs_full_fetch { 500 } else { *limit };
-            let bucket = cache_bucket(config, "screen");
+            let bucket = cache_bucket(provider.kind(), "screen");
             let key = format!("{filter}:{region}:{fetch_limit}");
-            let mut quotes: Vec<Quote> = fetch_msn_with_cache(
+            let screener_provider = provider.screener_provider("screen")?;
+            let mut quotes: Vec<Quote> = fetch_with_cache(
                 &cache,
-                config.provider,
                 CacheFetchSpec {
                     bucket: &bucket,
                     key: &key,
@@ -537,7 +630,7 @@ pub fn handle(
                 },
                 offline,
                 no_cache,
-                || MsnProvider::new(false).screener(filter_key, region_key, fetch_limit),
+                || screener_provider.screener(filter_key, region_key, fetch_limit),
             )?;
             sort_screener_quotes(&mut quotes, filter);
             quotes.truncate(*limit);
@@ -551,10 +644,10 @@ pub fn handle(
                 let resolved = crate::api::resolve_symbol(sym, &config.exchange)?;
                 match fetch_fundamental_analysis_report(
                     &cache,
-                    provider,
+                    provider.market(),
                     &resolved,
                     FundamentalCacheSpec {
-                        bucket: cache_bucket(config, "fundamental"),
+                        bucket: cache_bucket(provider.kind(), "fundamental"),
                         ttl_secs: config.fundamental_ttl,
                     },
                     offline,
@@ -563,7 +656,9 @@ pub fn handle(
                 ) {
                     Ok(report) => reports.push(report),
                     Err(err) => {
-                        eprintln!("warning: failed to fetch fundamentals for {resolved}: {err}");
+                        runtime::warn(format!(
+                            "failed to fetch fundamentals for {resolved}: {err}"
+                        ));
                         last_error = Some(err);
                     }
                 }
@@ -628,10 +723,10 @@ where
             if !no_cache
                 && let Some(stale) = cache.get_stale::<T>(cache_spec.bucket, cache_spec.key)?
             {
-                eprintln!(
-                    "warning: network failed, serving stale cache for {}",
+                runtime::warn(format!(
+                    "network failed, serving stale cache for {}",
                     cache_spec.subject
-                );
+                ));
                 return Ok(stale);
             }
             Err(err)
@@ -672,7 +767,9 @@ where
         }
         Err(err) => {
             if !no_cache && let Some(stale) = cache.get_stale::<T>(&cache_spec.bucket, resolved)? {
-                eprintln!("warning: network failed, serving stale cache for {resolved}");
+                runtime::warn(format!(
+                    "network failed, serving stale cache for {resolved}"
+                ));
                 return Ok(stale);
             }
             Err(err)
@@ -759,32 +856,69 @@ fn average_last(values: &[f64], period: usize) -> Option<f64> {
     Some(values[start..].iter().sum::<f64>() / period as f64)
 }
 
-fn fetch_msn_with_cache<T, F>(
-    cache: &Cache,
-    provider: crate::config::ProviderKind,
-    cache_spec: CacheFetchSpec<'_>,
-    offline: bool,
-    no_cache: bool,
-    fetch_fn: F,
-) -> Result<T, IdxError>
-where
-    T: Serialize + DeserializeOwned,
-    F: FnOnce() -> Result<T, IdxError>,
-{
-    ensure_msn_provider(cache_spec.subject, provider)?;
-    fetch_with_cache(cache, cache_spec, offline, no_cache, fetch_fn)
+fn filter_financial_statements(
+    financials: &FinancialStatements,
+    filters: &FinancialsFilterArgs,
+) -> FinancialStatements {
+    let includes = |kind: FinancialStatementKind| {
+        filters.statement.is_empty() || filters.statement.contains(&kind)
+    };
+
+    FinancialStatements {
+        instrument: financials.instrument.clone(),
+        balance_sheet: includes(FinancialStatementKind::Balance)
+            .then(|| financials.balance_sheet.clone())
+            .flatten(),
+        cash_flow: includes(FinancialStatementKind::Cashflow)
+            .then(|| financials.cash_flow.clone())
+            .flatten(),
+        income_statement: includes(FinancialStatementKind::Income)
+            .then(|| financials.income_statement.clone())
+            .flatten(),
+    }
 }
 
-fn ensure_msn_provider(
-    subject: &str,
-    provider: crate::config::ProviderKind,
-) -> Result<(), IdxError> {
-    if !matches!(provider, crate::config::ProviderKind::Msn) {
-        return Err(IdxError::Unsupported(format!(
-            "{subject}: command requires --provider msn"
-        )));
+fn filter_earnings_report(report: &EarningsReport, filters: &EarningsFilterArgs) -> EarningsReport {
+    let filter_rows = |rows: &[crate::api::types::EarningsData]| {
+        rows.iter()
+            .filter(|row| filters.includes_period(&row.period_type))
+            .cloned()
+            .collect()
+    };
+
+    EarningsReport {
+        symbol: report.symbol.clone(),
+        eps_last_year: report.eps_last_year,
+        revenue_last_year: report.revenue_last_year,
+        forecast: if filters.include_forecast() {
+            filter_rows(&report.forecast)
+        } else {
+            Vec::new()
+        },
+        history: if filters.include_history() {
+            filter_rows(&report.history)
+        } else {
+            Vec::new()
+        },
     }
-    Ok(())
+}
+
+fn classify_earnings_period(period_type: &str) -> EarningsPeriodKind {
+    let trimmed = period_type.trim();
+    if trimmed.is_empty() {
+        return EarningsPeriodKind::Unknown;
+    }
+
+    let upper = trimmed.to_ascii_uppercase();
+    if upper.starts_with('Q') {
+        return EarningsPeriodKind::Quarterly;
+    }
+    if upper.starts_with("FY") || (upper.len() == 4 && upper.chars().all(|ch| ch.is_ascii_digit()))
+    {
+        return EarningsPeriodKind::Annual;
+    }
+
+    EarningsPeriodKind::Unknown
 }
 
 fn screener_filter_key(filter: &str) -> Result<&'static str, IdxError> {
@@ -860,11 +994,19 @@ fn sort_screener_quotes(quotes: &mut [Quote], filter: &str) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use chrono::{Days, NaiveDate};
 
-    use super::build_technical_report;
+    use super::{
+        EarningsFilterArgs, EarningsPeriodKind, FinancialStatementKind, FinancialsFilterArgs,
+        build_technical_report, classify_earnings_period, filter_earnings_report,
+        filter_financial_statements,
+    };
     use crate::analysis::signals::Signal;
-    use crate::api::types::Ohlc;
+    use crate::api::types::{
+        EarningsData, EarningsReport, FinancialStatements, InstrumentInfo, Ohlc, StatementSection,
+    };
     use crate::error::IdxError;
 
     #[test]
@@ -1015,5 +1157,119 @@ mod tests {
         let err = super::screener_region_key("eu").expect_err("invalid region should fail");
         assert!(matches!(err, IdxError::InvalidInput(_)));
         assert!(err.to_string().contains("invalid screener region"));
+    }
+
+    #[test]
+    fn filters_financial_statements_to_requested_sections() {
+        let sample = FinancialStatements {
+            instrument: InstrumentInfo {
+                id: "123".into(),
+                symbol: "BBCA.JK".into(),
+                name: "BCA".into(),
+            },
+            balance_sheet: Some(StatementSection {
+                values: HashMap::from([("assets".into(), 1.0)]),
+                currency: "IDR".into(),
+                report_date: "2026-01-01".into(),
+                end_date: "2025-12-31".into(),
+            }),
+            cash_flow: Some(StatementSection {
+                values: HashMap::from([("cash".into(), 2.0)]),
+                currency: "IDR".into(),
+                report_date: "2026-01-01".into(),
+                end_date: "2025-12-31".into(),
+            }),
+            income_statement: Some(StatementSection {
+                values: HashMap::from([("income".into(), 3.0)]),
+                currency: "IDR".into(),
+                report_date: "2026-01-01".into(),
+                end_date: "2025-12-31".into(),
+            }),
+        };
+
+        let filtered = filter_financial_statements(
+            &sample,
+            &FinancialsFilterArgs {
+                statement: vec![FinancialStatementKind::Cashflow],
+            },
+        );
+
+        assert!(filtered.cash_flow.is_some());
+        assert!(filtered.income_statement.is_none());
+        assert!(filtered.balance_sheet.is_none());
+        assert_eq!(filtered.instrument.symbol, "BBCA.JK");
+    }
+
+    #[test]
+    fn filters_earnings_by_scope_and_period() {
+        let report = EarningsReport {
+            symbol: "BBCA.JK".into(),
+            eps_last_year: 1_200.0,
+            revenue_last_year: 100_000_000_000.0,
+            forecast: vec![
+                EarningsData {
+                    eps_actual: None,
+                    eps_forecast: Some(1_300.0),
+                    eps_surprise: None,
+                    eps_surprise_pct: None,
+                    revenue_actual: None,
+                    revenue_forecast: Some(110_000_000_000.0),
+                    revenue_surprise: None,
+                    earning_release_date: Some("2026-03-15".into()),
+                    period_type: "2026".into(),
+                },
+                EarningsData {
+                    eps_actual: None,
+                    eps_forecast: Some(330.0),
+                    eps_surprise: None,
+                    eps_surprise_pct: None,
+                    revenue_actual: None,
+                    revenue_forecast: Some(28_000_000_000.0),
+                    revenue_surprise: None,
+                    earning_release_date: Some("2026-04-20".into()),
+                    period_type: "Q12026".into(),
+                },
+            ],
+            history: vec![EarningsData {
+                eps_actual: Some(1_250.0),
+                eps_forecast: None,
+                eps_surprise: Some(20.0),
+                eps_surprise_pct: Some(1.6),
+                revenue_actual: Some(105_000_000_000.0),
+                revenue_forecast: None,
+                revenue_surprise: Some(500_000_000.0),
+                earning_release_date: Some("2025-03-15".into()),
+                period_type: "2025".into(),
+            }],
+        };
+
+        let filtered = filter_earnings_report(
+            &report,
+            &EarningsFilterArgs {
+                forecast: true,
+                history: false,
+                annual: true,
+                quarterly: false,
+            },
+        );
+
+        assert_eq!(filtered.symbol, "BBCA.JK");
+        assert!(filtered.history.is_empty());
+        assert_eq!(filtered.forecast.len(), 1);
+        assert_eq!(filtered.forecast[0].period_type, "2026");
+    }
+
+    #[test]
+    fn classifies_earnings_periods() {
+        assert_eq!(classify_earnings_period("2025"), EarningsPeriodKind::Annual);
+        assert_eq!(
+            classify_earnings_period("FY2026"),
+            EarningsPeriodKind::Annual
+        );
+        assert_eq!(
+            classify_earnings_period("Q12026"),
+            EarningsPeriodKind::Quarterly
+        );
+        assert_eq!(classify_earnings_period(""), EarningsPeriodKind::Unknown);
     }
 }

@@ -10,10 +10,19 @@ pub(crate) fn parse_quote_from_str(symbol: &str, raw: &str) -> Result<Quote, Idx
     parse_quote(symbol, &chart)
 }
 
+#[cfg(test)]
 pub(crate) fn parse_history_from_str(symbol: &str, raw: &str) -> Result<Vec<Ohlc>, IdxError> {
+    parse_history_from_str_with_verbose(symbol, raw, false)
+}
+
+pub(crate) fn parse_history_from_str_with_verbose(
+    symbol: &str,
+    raw: &str,
+    verbose: bool,
+) -> Result<Vec<Ohlc>, IdxError> {
     let chart: ChartResponse =
         serde_json::from_str(raw).map_err(|e| IdxError::ParseError(e.to_string()))?;
-    parse_history_with_verbose(symbol, &chart, false)
+    parse_history_with_verbose(symbol, &chart, verbose)
 }
 
 pub(crate) fn parse_fundamentals_from_str(
@@ -32,9 +41,9 @@ pub(super) fn parse_history_with_verbose(
 ) -> Result<Vec<Ohlc>, IdxError> {
     let (history, dropped) = parse_history(symbol, chart)?;
     if dropped > 0 && verbose {
-        eprintln!(
-            "warning: dropped {dropped} OHLC row(s) from Yahoo response due to missing fields"
-        );
+        crate::runtime::warn(format!(
+            "dropped {dropped} OHLC row(s) from Yahoo response due to missing fields"
+        ));
     }
     Ok(history)
 }
@@ -43,7 +52,8 @@ pub(super) fn parse_history_with_verbose(
 mod tests {
     use super::{
         ChartResponse, parse_fundamentals_from_str, parse_history_from_str,
-        parse_history_with_verbose, parse_quote, parse_quote_from_str,
+        parse_history_from_str_with_verbose, parse_history_with_verbose, parse_quote,
+        parse_quote_from_str,
     };
 
     const SAMPLE: &str = r#"{
@@ -99,6 +109,11 @@ mod tests {
         let history =
             parse_history_from_str("BBCA.JK", &history_raw).expect("fixture history parsed");
         assert!(!history.is_empty());
+
+        let verbose_history = parse_history_from_str_with_verbose("BBCA.JK", &history_raw, true)
+            .expect("fixture history parsed in verbose mode");
+        assert_eq!(verbose_history.len(), history.len());
+        assert_eq!(verbose_history[0].close, history[0].close);
 
         let fundamentals = parse_fundamentals_from_str("BBCA.JK", &fundamentals_raw)
             .expect("fixture fundamentals parsed");

@@ -17,6 +17,7 @@ scripts/live-smoke.sh --mode mock
 scripts/live-smoke.sh --group live-table --group live-json
 scripts/live-smoke.sh --group cache --symbol BBRI
 scripts/live-smoke.sh --dry-run --mode full
+scripts/live-smoke.sh --bin ./tmp/release-install/bin/idx --no-build --mode mock
 ```
 
 ## Modes
@@ -41,6 +42,8 @@ scripts/live-smoke.sh --dry-run --mode full
 
 - The runner forces `IDX_OUTPUT=table` as its default environment so table cases stay stable; JSON checks use `-o json` explicitly.
 - Cache-group warm cases clear the smoke cache before they run so each warm/offline/stale sequence starts clean and stale-cache assertions are not masked by earlier groups.
+- Use `--bin <path> --no-build` when you want to validate an installed binary instead of the workspace `target/debug/idx` build.
 - Ownership commands that need imported data are intentionally not part of the baseline runner yet. The current baseline only covers `ownership releases` and the known unsupported `ownership import --fetch-bing`.
+- `ownership sync` is still primarily covered by fixture-backed CLI tests rather than the reusable smoke runner.
 - The new `ownership-import` group is intentionally opt-in for explicit `--group ownership-import` runs or `--mode full`; it discovers live URLs first, imports the supported `above1` attachment into the temp DB, then asserts the current `above5` and `investor-type` URLs fail with explicit unsupported-schema UX.
 - When a case fails, inspect the per-case log in `tmp/live-smoke/.../logs/` before updating `TODO.md` or `FEATURE_SPEC.md`.

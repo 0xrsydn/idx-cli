@@ -48,7 +48,7 @@ pub enum Commands {
     #[command(about = "Manage local cache")]
     Cache(cache::CacheCmd),
     #[cfg(feature = "ownership")]
-    #[command(about = "Ownership intelligence (KSEI + Bing)")]
+    #[command(about = "Ownership intelligence (bootstrap with `ownership sync`)")]
     Ownership(ownership::OwnershipCmd),
     #[command(about = "Generate shell completions")]
     Completions { shell: Shell },
