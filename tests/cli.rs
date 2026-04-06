@@ -77,7 +77,8 @@ fn candidate_is_idx_binary(path: &Path) -> bool {
         return false;
     };
 
-    output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == env!("CARGO_PKG_VERSION")
+    output.status.success()
+        && String::from_utf8_lossy(&output.stdout).trim() == env!("CARGO_PKG_VERSION")
 }
 
 #[cfg(unix)]
@@ -1062,7 +1063,9 @@ fn ownership_releases_uses_xdg_data_home_default_db_path() {
         .args(["ownership", "releases"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("No ownership releases imported yet."));
+        .stdout(predicate::str::contains(
+            "No ownership releases imported yet.",
+        ));
 
     assert!(
         data_home.join("idx").join("ownership.db").exists(),
@@ -1584,7 +1587,15 @@ fn ownership_import_file_zip_archive_supports_releases_ticker_and_changes() {
         .stdout(predicate::str::contains("KSEI AGGREGATE FOREIGN MF"));
 
     let ticker_output = bin_with_root(&root)
-        .args(["-o", "json", "ownership", "ticker", "AADI", "--source", "ksei"])
+        .args([
+            "-o",
+            "json",
+            "ownership",
+            "ticker",
+            "AADI",
+            "--source",
+            "ksei",
+        ])
         .output()
         .expect("ownership ticker json output");
     assert!(ticker_output.status.success());
@@ -1860,7 +1871,9 @@ fn invalid_quote_ttl_env_returns_non_zero() {
         .args(["version"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("invalid IDX_CACHE_QUOTE_TTL value"));
+        .stderr(predicate::str::contains(
+            "invalid IDX_CACHE_QUOTE_TTL value",
+        ));
 }
 
 #[test]

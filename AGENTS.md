@@ -1,95 +1,102 @@
 # AGENTS.md
 
 ## Project
-`idx-cli` — CLI tool for Indonesian stock market (IDX) analysis. Built in Rust for humans and AI agents. Single binary, schema-driven, functional architecture.
+`idx-cli` is a Rust CLI for Indonesian stock market analysis and ownership workflows.
+
+The repo currently has two main product areas:
+- `stocks`: live market data and analysis
+- `ownership`: import/sync once, then query locally from SQLite
 
 ## Stack
-- **Language:** Rust (stable, via rust-overlay)
-- **CLI:** clap 4 (derive)
-- **HTTP:** ureq 3 (sync, no async runtime)
-- **Output:** comfy-table, owo-colors
-- **DB:** rusqlite (bundled SQLite, FTS5) — ownership module
-- **Config:** TOML (`~/.config/idx/config.toml`)
-- **Cache:** JSON file-based (`~/.cache/idx/`)
-- **Testing:** cargo test, assert_cmd, predicates
-- **Hooks:** prek (pre-commit: fmt+clippy, pre-push: test)
-- **VCS:** jj (Jujutsu, colocated with git)
+- Rust stable
+- `clap` 4 for CLI
+- `ureq` 3 for HTTP
+- `comfy-table` and `owo-colors` for output
+- `rusqlite` + bundled SQLite/FTS5 for ownership
+- TOML config in `~/.config/idx/config.toml`
+- file cache in `~/.cache/idx/`
 
-## Structure
-```
+## Source Map
+```text
 src/
-├── main.rs              # Entry point, command dispatch
-├── cli/                 # Command handlers (clap derive structs)
-│   ├── stocks.rs        # stocks quote/history/technical/fundamental/...
-│   ├── config.rs        # config get/set/init/path
-│   ├── cache.rs         # cache info/clear
-│   └── ownership.rs     # ownership import/query commands
-├── api/                 # Data providers (trait-based abstraction)
-│   ├── mod.rs           # MarketDataProvider trait + factory functions
-│   ├── types.rs         # All domain types (Quote, Ohlc, Fundamentals, ...)
-│   ├── yahoo/           # Yahoo Finance provider (history/OHLCV)
-│   └── msn/             # MSN Finance provider (quotes, fundamentals, ++)
-├── analysis/            # Technical & fundamental analysis (pure functions)
-├── ownership/           # Ownership intelligence module (SQLite-backed)
-│   ├── types.rs         # Ownership domain types
-│   └── db.rs            # Schema, migrations, queries
-├── output/              # Rendering (table, json)
-├── cache.rs             # File-based TTL cache
-├── config.rs            # Config loading (flags > env > file > defaults)
-└── error.rs             # IdxError enum (thiserror)
+├── main.rs
+├── cli/
+│   ├── stocks.rs
+│   ├── ownership.rs
+│   ├── config.rs
+│   └── cache.rs
+├── api/
+│   ├── mod.rs
+│   ├── types.rs
+│   ├── yahoo/
+│   └── msn/
+├── analysis/
+├── ownership/
+│   ├── archive.rs
+│   ├── db.rs
+│   ├── entities.rs
+│   ├── parser.rs
+│   ├── remote.rs
+│   ├── snapshot.rs
+│   └── types.rs
+├── output/
+├── cache.rs
+├── config.rs
+└── error.rs
 ```
 
-## Providers
-- **MSN** = default provider (quotes, fundamentals, profile, earnings, financials, sentiment, insights, news, screener)
-- **Yahoo** = automatic fallback for history/OHLCV (MSN doesn't support IDX history)
-- Configurable: `IDX_PROVIDER=msn|yahoo`, `IDX_HISTORY_PROVIDER=auto|yahoo|msn`
+## Provider Model
+- `MSN` is the primary/default provider for quotes, fundamentals, profile, earnings, financials, sentiment, insights, news, and screener data.
+- `Yahoo` is the fallback provider for history/OHLCV because MSN history for IDX is still not supported.
+- Current config knobs:
+  - `IDX_PROVIDER=msn|yahoo`
+  - `IDX_HISTORY_PROVIDER=auto|yahoo|msn`
 
-## Current Status
-- Automated coverage is healthy: `cargo test` currently passes with 122 tests (86 unit, 36 integration).
-- Live `stocks` commands are implemented and smoke-tested for: `quote`, `history`, `technical`, `growth`, `valuation`, `risk`, `fundamental`, `compare`, `profile`, `financials`, `earnings`, `sentiment`, `insights`, `news`, `screen`.
-- `stocks history --history-provider msn` is intentionally unsupported for IDX; `auto` falls back to Yahoo.
-- `ownership import --fetch-bing` is still intentionally unsupported; Bing client groundwork exists but the CLI path is deferred.
+## Ownership Model
+Ownership is local-first after bootstrap.
 
-## Known Hardening Gaps
-- MSN-only commands still bypass the shared cache/offline path in `src/cli/stocks.rs`; `--offline` is not reliable for `profile`/`financials`/`earnings`/`sentiment`/`insights`/`news`/`screen`.
-- Core quote flow has a verified `--offline --no-cache` bug: stale cache can still be served.
-- Startup/config failures do not yet honor the JSON error contract; runtime failures do.
-- `stocks screen --filter` and `--region` still silently coerce invalid values instead of rejecting them.
-- Some live MSN output is incomplete or misleading:
-  - `profile` can return sparse fields.
-  - `insights.last_updated` is still empty.
-  - `financials` table output has malformed negative-number formatting in some rows.
+Preferred bootstrap/update path:
+1. `idx ownership sync`
+2. if no snapshot manifest is available: `idx ownership discover` then `idx ownership import --url <pdf-url>`
+3. local `--file` imports remain available for manual/fallback use
 
-## Development
-```bash
-nix develop                                    # enter dev shell
-cargo build                                    # build
-cargo run -- stocks quote BBCA                 # run
-cargo run -- -o json stocks history BBCA       # JSON output
-cargo test                                     # test
-cargo fmt --check && cargo clippy -- -D warnings  # lint
-```
+Ownership input paths:
+- primary remote source: discoverable IDX `above1` holder-register PDF
+- maintained snapshot path: `ownership sync`
+- local fallback path: PDF, plus local archive `.zip` / `.txt`
+
+Important scope note:
+- archive ZIP/TXT ingest is a fallback/backstop path, not the primary product ingest surface
+- `ownership import --fetch-bing` is still intentionally unsupported
+
+## Working Principles
+1. Keep data access provider-driven where possible; avoid adding new ad hoc fetch paths at the CLI layer.
+2. Prefer pure parse/normalize transforms over hidden state.
+3. Use fixtures in tests; do not hit live network in automated tests.
+4. Preserve the output contract: table to stdout, JSON with `--output json`, errors to stderr.
+5. Treat ownership schema/query compatibility as important: `releases`, `ticker`, and `changes` should keep working across ingest paths.
 
 ## Verification
+Core verification:
 ```bash
-cargo build              # must compile
-cargo clippy -- -D warnings  # zero warnings
-cargo test               # all tests pass
+nix develop
+cargo build
+cargo clippy -- -D warnings
+cargo test
 ```
 
-## Principles
-1. **Schema-driven** — define types first, build logic around them. Types are the spec.
-2. **Functional approach** — pure parse/transform functions (`parse_*`, `normalize_*`), no hidden state.
-3. **Data types heavy** — rich enums, newtypes, composite structs. Precision via integer representations (basis points for %, i64 for shares).
-4. **Provider abstraction first** — all data access should flow through traits/factories. Note: current MSN-only stock commands still instantiate `MsnProvider` directly in `src/cli/stocks.rs`; removing that split path is an active hardening target.
-5. **Sync only** — no tokio/async. CLI tool, ureq is sufficient.
-6. **Test with fixtures** — never hit live APIs in tests. Mock provider + fixture JSON.
-7. **Output contract** — table to stdout (humans), `--output json` (machines), errors to stderr.
-8. **Feature-gated modules** — `ownership` feature for SQLite dep, keeps base binary lean.
+Smoke tooling:
+```bash
+scripts/live-smoke.sh
+scripts/live-smoke.sh --mode mock
+scripts/live-smoke.sh --mode full
+```
 
-## Docs
-Start with the repo-visible docs:
-- `FEATURE_SPEC.md` — current hardening backlog and CLI truth-pass expectations
-- `TODO.md` — working task list, including latest smoke findings
-- `docs/ARCHITECTURE.md` — provider/capability design and error strategy
+## Read First
+Start with these repo docs before making changes:
+- `FEATURE_SPEC.md` — active implementation backlog and remaining core gaps
+- `TODO.md` — execution tracker and smoke notes
+- `docs/ARCHITECTURE.md` — provider and ownership flow
+- `docs/OWNERSHIP_SYNC.md` — snapshot sync contract
+- `docs/SMOKE.md` — reusable smoke commands
 - `docs/CONVENTIONS.md` — repo conventions

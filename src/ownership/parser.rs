@@ -355,23 +355,23 @@ fn parse_row_segments(texts: &[String]) -> KseiRawRow {
     {
         row.percentage = remaining.pop().unwrap_or_default();
     }
-    if remaining
-        .last()
-        .is_some_and(|segment| is_id_number_like(segment))
-    {
-        row.total_holding_shares = remaining.pop().unwrap_or_default();
-    }
-    if remaining
-        .last()
-        .is_some_and(|segment| is_id_number_like(segment))
-    {
-        row.holdings_scrip = remaining.pop().unwrap_or_default();
-    }
-    if remaining
-        .last()
-        .is_some_and(|segment| is_id_number_like(segment))
-    {
-        row.holdings_scripless = remaining.pop().unwrap_or_default();
+    let numeric_tail = pop_numeric_tail(&mut remaining);
+    match numeric_tail.as_slice() {
+        [scripless, scrip, total] => {
+            row.holdings_scripless = scripless.clone();
+            row.holdings_scrip = scrip.clone();
+            row.total_holding_shares = total.clone();
+        }
+        // Some PDFs omit the zero-valued scrip column entirely.
+        [scripless, total] => {
+            row.holdings_scripless = scripless.clone();
+            row.holdings_scrip = "0".to_string();
+            row.total_holding_shares = total.clone();
+        }
+        [total] => {
+            row.total_holding_shares = total.clone();
+        }
+        _ => {}
     }
 
     let mut geo_fields = Vec::new();
@@ -437,6 +437,19 @@ fn is_share_code_like(value: &str) -> bool {
         && trimmed
             .chars()
             .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit())
+}
+
+fn pop_numeric_tail(remaining: &mut Vec<String>) -> Vec<String> {
+    let mut numeric_tail = Vec::new();
+    while numeric_tail.len() < 3
+        && remaining
+            .last()
+            .is_some_and(|segment| is_id_number_like(segment))
+    {
+        numeric_tail.push(remaining.pop().unwrap_or_default());
+    }
+    numeric_tail.reverse();
+    numeric_tail
 }
 
 fn is_id_number_like(value: &str) -> bool {
@@ -554,8 +567,11 @@ fn is_percentage_like(s: &str) -> bool {
 mod tests {
     use std::path::Path;
 
+    use crate::ownership::entities::normalize_ksei_row;
+
     use super::{
-        OwnershipPdfSchema, check_mutool, classify_stext_xml, parse_ksei_pdf, parse_stext_xml,
+        OwnershipPdfSchema, check_mutool, classify_stext_xml, parse_ksei_pdf, parse_row_segments,
+        parse_stext_xml,
     };
 
     #[test]
@@ -606,6 +622,51 @@ mod tests {
         assert_eq!(row.holdings_scrip, "0");
         assert_eq!(row.total_holding_shares, "3.200.142.830");
         assert_eq!(row.percentage, "41,10");
+    }
+
+    #[test]
+    fn test_parse_row_segments_missing_scrip_defaults_to_zero() {
+        let texts = vec![
+            "27-Apr-2026 AADI".to_string(),
+            "ADARO ANDALAN INDONESIA Tbk".to_string(),
+            "ADARO STRATEGIC INVESTMENTS".to_string(),
+            "CP".to_string(),
+            "D".to_string(),
+            "INDONESIA".to_string(),
+            "3.200.142.830".to_string(),
+            "3.200.142.830".to_string(),
+            "66,18".to_string(),
+        ];
+
+        let row = parse_row_segments(&texts);
+        assert_eq!(row.date, "27-Apr-2026");
+        assert_eq!(row.share_code, "AADI");
+        assert_eq!(row.holdings_scripless, "3.200.142.830");
+        assert_eq!(row.holdings_scrip, "0");
+        assert_eq!(row.total_holding_shares, "3.200.142.830");
+        assert_eq!(row.percentage, "66,18");
+    }
+
+    #[test]
+    fn test_parse_row_segments_missing_scrip_normalizes_without_error() {
+        let texts = vec![
+            "27-Apr-2026 AADI".to_string(),
+            "ADARO ANDALAN INDONESIA Tbk".to_string(),
+            "ADARO STRATEGIC INVESTMENTS".to_string(),
+            "CP".to_string(),
+            "D".to_string(),
+            "INDONESIA".to_string(),
+            "3.200.142.830".to_string(),
+            "3.200.142.830".to_string(),
+            "66,18".to_string(),
+        ];
+
+        let row = parse_row_segments(&texts);
+        let draft = normalize_ksei_row(&row).expect("missing scrip column should normalize");
+
+        assert_eq!(draft.holdings_scripless, 3_200_142_830);
+        assert_eq!(draft.holdings_scrip, 0);
+        assert_eq!(draft.total_shares, 3_200_142_830);
     }
 
     #[test]

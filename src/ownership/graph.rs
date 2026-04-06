@@ -223,16 +223,14 @@ fn detect_root_node(conn: &Connection, root: &str) -> Result<String, IdxError> {
 fn query_all_edges(conn: &Connection) -> Result<Vec<GraphEdge>, IdxError> {
     let mut out = Vec::new();
 
-    if let Ok(release_sha) = conn
-        .query_row(
-            "SELECT sha256
+    if let Ok(release_sha) = conn.query_row(
+        "SELECT sha256
              FROM ownership_releases
              ORDER BY as_of_date DESC, imported_at DESC
              LIMIT 1",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-    {
+        [],
+        |row| row.get::<_, String>(0),
+    ) {
         let mut stmt = conn
             .prepare(
                 "SELECT 'entity:' || k.entity_id,
@@ -371,7 +369,7 @@ mod tests {
     use chrono::NaiveDate;
     use rusqlite::Connection;
 
-    use crate::ownership::db::{ensure_schema, write_ksei_release, upsert_ticker};
+    use crate::ownership::db::{ensure_schema, upsert_ticker, write_ksei_release};
     use crate::ownership::types::{KseiHolding, OwnershipRelease};
 
     use super::query_ownership_graph;

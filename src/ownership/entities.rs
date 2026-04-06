@@ -28,6 +28,14 @@ pub fn parse_id_number(s: &str) -> Result<i64, IdxError> {
         .map_err(|e| IdxError::ParseError(format!("failed to parse Indonesian number '{s}': {e}")))
 }
 
+fn parse_id_number_or_zero(s: &str) -> Result<i64, IdxError> {
+    if s.trim().is_empty() {
+        Ok(0)
+    } else {
+        parse_id_number(s)
+    }
+}
+
 /// Parse Indonesian locale percentage to basis points (i64).
 /// "54,94" → 5494, "0,00" → 0, "100,00" → 10000
 pub fn parse_id_percentage(s: &str) -> Result<i64, IdxError> {
@@ -141,8 +149,8 @@ pub fn normalize_ksei_row(raw: &KseiRawRow) -> Result<KseiHoldingDraft, IdxError
         locality,
         nationality: optional_string(&raw.nationality),
         domicile: optional_string(&raw.domicile),
-        holdings_scripless: parse_id_number(&raw.holdings_scripless)?,
-        holdings_scrip: parse_id_number(&raw.holdings_scrip)?,
+        holdings_scripless: parse_id_number_or_zero(&raw.holdings_scripless)?,
+        holdings_scrip: parse_id_number_or_zero(&raw.holdings_scrip)?,
         total_shares: parse_id_number(&raw.total_holding_shares)?,
         percentage_bps: parse_id_percentage(&raw.percentage)?,
         report_date: parse_ksei_date(&raw.date)?,
@@ -297,9 +305,10 @@ mod tests {
     use rusqlite::Connection;
 
     use crate::ownership::entities::{
-        normalize_name, parse_id_number, parse_id_percentage, parse_ksei_date, resolve_entity,
+        normalize_ksei_row, normalize_name, parse_id_number, parse_id_percentage, parse_ksei_date,
+        resolve_entity,
     };
-    use crate::ownership::types::OwnershipSource;
+    use crate::ownership::types::{KseiRawRow, OwnershipSource};
 
     #[test]
     fn test_parse_id_number() {
@@ -400,5 +409,48 @@ mod tests {
             resolve_entity(&conn, "PT. ASTRA INTERNATIONAL TBK", OwnershipSource::Ksei).unwrap();
 
         assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn test_normalize_ksei_row_defaults_empty_component_shares_to_zero() {
+        let raw = KseiRawRow {
+            date: "27-Apr-2026".to_string(),
+            share_code: "AADI".to_string(),
+            issuer_name: "ADARO ANDALAN INDONESIA Tbk".to_string(),
+            investor_name: "ADARO STRATEGIC INVESTMENTS".to_string(),
+            investor_type: "CP".to_string(),
+            local_foreign: "D".to_string(),
+            nationality: "INDONESIA".to_string(),
+            domicile: String::new(),
+            holdings_scripless: String::new(),
+            holdings_scrip: String::new(),
+            total_holding_shares: "3.200.142.830".to_string(),
+            percentage: "66,18".to_string(),
+        };
+
+        let draft = normalize_ksei_row(&raw).expect("empty component shares should normalize");
+        assert_eq!(draft.holdings_scripless, 0);
+        assert_eq!(draft.holdings_scrip, 0);
+        assert_eq!(draft.total_shares, 3_200_142_830);
+    }
+
+    #[test]
+    fn test_normalize_ksei_row_still_requires_total_shares() {
+        let raw = KseiRawRow {
+            date: "27-Apr-2026".to_string(),
+            share_code: "AADI".to_string(),
+            issuer_name: "ADARO ANDALAN INDONESIA Tbk".to_string(),
+            investor_name: "ADARO STRATEGIC INVESTMENTS".to_string(),
+            investor_type: "CP".to_string(),
+            local_foreign: "D".to_string(),
+            nationality: "INDONESIA".to_string(),
+            domicile: String::new(),
+            holdings_scripless: String::new(),
+            holdings_scrip: String::new(),
+            total_holding_shares: String::new(),
+            percentage: "66,18".to_string(),
+        };
+
+        assert!(normalize_ksei_row(&raw).is_err());
     }
 }

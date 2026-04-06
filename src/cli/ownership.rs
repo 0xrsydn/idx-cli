@@ -14,11 +14,11 @@ use crate::error::IdxError;
 use crate::output::OutputFormat;
 use crate::output::json;
 use crate::output::table::format_idr;
-use crate::runtime;
 use crate::ownership::types::{
     ChangeType, FlowSignal, HolderRow, KseiHolding, OwnershipRelease, OwnershipSource,
 };
 use crate::ownership::{archive, db, entities, graph, parser, remote, search, snapshot};
+use crate::runtime;
 
 #[derive(Debug, Args)]
 #[command(

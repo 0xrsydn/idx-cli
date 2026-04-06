@@ -159,7 +159,10 @@ pub fn upsert_ticker(conn: &Connection, code: &str, name: Option<&str>) -> Resul
     .map_err(|e| IdxError::DatabaseError(e.to_string()))
 }
 
-fn insert_ksei_holdings_rows(conn: &Connection, holdings: &[KseiHolding]) -> Result<usize, IdxError> {
+fn insert_ksei_holdings_rows(
+    conn: &Connection,
+    holdings: &[KseiHolding],
+) -> Result<usize, IdxError> {
     if holdings.is_empty() {
         return Ok(0);
     }
@@ -591,8 +594,10 @@ pub fn query_cross_holders(
     min_tickers: usize,
     limit: usize,
 ) -> Result<Vec<CrossHolderRow>, IdxError> {
-    let mut aggregates: std::collections::BTreeMap<i64, (Entity, std::collections::BTreeSet<i64>, i64)> =
-        std::collections::BTreeMap::new();
+    let mut aggregates: std::collections::BTreeMap<
+        i64,
+        (Entity, std::collections::BTreeSet<i64>, i64),
+    > = std::collections::BTreeMap::new();
 
     if let Some(latest_ksei) = latest_ksei_release(conn)? {
         let mut stmt = conn
@@ -1437,7 +1442,10 @@ mod tests {
             row_count: holdings.len(),
             imported_at: 1,
         };
-        assert_eq!(write_ksei_release(&conn, &release, &holdings, false).unwrap(), 2);
+        assert_eq!(
+            write_ksei_release(&conn, &release, &holdings, false).unwrap(),
+            2
+        );
 
         let data = query_ticker_holdings(&conn, "BBCA").unwrap();
         assert_eq!(data.ticker.code, "BBCA");
@@ -1512,8 +1520,13 @@ mod tests {
         };
 
         assert_eq!(
-            write_ksei_release(&conn, &initial_release, std::slice::from_ref(&initial), false)
-                .unwrap(),
+            write_ksei_release(
+                &conn,
+                &initial_release,
+                std::slice::from_ref(&initial),
+                false
+            )
+            .unwrap(),
             1
         );
 
@@ -1794,21 +1807,21 @@ mod tests {
         let holdings = rows
             .into_iter()
             .map(|(tid, bps, name)| KseiHolding {
-                    id: 0,
-                    ticker_id: tid,
-                    entity_id: None,
-                    raw_investor_name: name.to_string(),
-                    investor_type: None,
-                    locality: None,
-                    nationality: None,
-                    domicile: None,
-                    holdings_scripless: 1,
-                    holdings_scrip: 0,
-                    total_shares: 1,
-                    percentage_bps: bps,
-                    report_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
-                    release_sha256: "current-release".to_string(),
-                })
+                id: 0,
+                ticker_id: tid,
+                entity_id: None,
+                raw_investor_name: name.to_string(),
+                investor_type: None,
+                locality: None,
+                nationality: None,
+                domicile: None,
+                holdings_scripless: 1,
+                holdings_scrip: 0,
+                total_shares: 1,
+                percentage_bps: bps,
+                report_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
+                release_sha256: "current-release".to_string(),
+            })
             .collect::<Vec<_>>();
         let release = OwnershipRelease {
             id: 0,
