@@ -21,7 +21,21 @@ const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 pub struct OwnershipSnapshotManifest {
     pub schema_version: u32,
     pub generated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<OwnershipSnapshotSource>,
     pub snapshot: OwnershipSnapshotArtifact,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OwnershipSnapshotSource {
+    pub family: String,
+    pub listing_page_url: String,
+    pub query_url: String,
+    pub pdf_url: String,
+    pub title: String,
+    pub publish_date: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_filename: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -194,6 +208,39 @@ fn validate_manifest(manifest: &OwnershipSnapshotManifest) -> Result<(), IdxErro
         return Err(IdxError::ParseError(
             "ownership snapshot manifest is missing generated_at".to_string(),
         ));
+    }
+
+    if let Some(source) = &manifest.source {
+        if source.family.trim().is_empty() {
+            return Err(IdxError::ParseError(
+                "ownership snapshot manifest is missing source.family".to_string(),
+            ));
+        }
+        if source.listing_page_url.trim().is_empty() {
+            return Err(IdxError::ParseError(
+                "ownership snapshot manifest is missing source.listing_page_url".to_string(),
+            ));
+        }
+        if source.query_url.trim().is_empty() {
+            return Err(IdxError::ParseError(
+                "ownership snapshot manifest is missing source.query_url".to_string(),
+            ));
+        }
+        if source.pdf_url.trim().is_empty() {
+            return Err(IdxError::ParseError(
+                "ownership snapshot manifest is missing source.pdf_url".to_string(),
+            ));
+        }
+        if source.title.trim().is_empty() {
+            return Err(IdxError::ParseError(
+                "ownership snapshot manifest is missing source.title".to_string(),
+            ));
+        }
+        if source.publish_date.trim().is_empty() {
+            return Err(IdxError::ParseError(
+                "ownership snapshot manifest is missing source.publish_date".to_string(),
+            ));
+        }
     }
 
     let snapshot = &manifest.snapshot;
@@ -640,8 +687,8 @@ mod tests {
     use rusqlite::Connection;
 
     use super::{
-        OwnershipSnapshotArtifact, OwnershipSnapshotManifest, OwnershipSyncAction,
-        SNAPSHOT_MANIFEST_SCHEMA_VERSION, build_sync_decision, parse_manifest,
+        OwnershipSnapshotArtifact, OwnershipSnapshotManifest, OwnershipSnapshotSource,
+        OwnershipSyncAction, SNAPSHOT_MANIFEST_SCHEMA_VERSION, build_sync_decision, parse_manifest,
     };
     use crate::ownership::db::{ensure_schema, insert_release};
     use crate::ownership::types::OwnershipRelease;
@@ -713,6 +760,15 @@ mod tests {
         let manifest = OwnershipSnapshotManifest {
             schema_version: SNAPSHOT_MANIFEST_SCHEMA_VERSION,
             generated_at: "2026-03-31T12:00:00Z".to_string(),
+            source: Some(OwnershipSnapshotSource {
+                family: "above1".to_string(),
+                listing_page_url: "https://www.idx.co.id/id/berita/pengumuman/".to_string(),
+                query_url: "https://www.idx.co.id/primary/NewsAnnouncement/GetAllAnnouncement?keywords=pemegang%20saham%20di%20atas%201&pageNumber=1&pageSize=10&lang=id".to_string(),
+                pdf_url: "https://www.idx.co.id/StaticData/sample.pdf".to_string(),
+                title: "Pemegang Saham di atas 1% (KSEI)".to_string(),
+                publish_date: "2026-03-10T00:00:00".to_string(),
+                original_filename: Some("sample.pdf".to_string()),
+            }),
             snapshot: OwnershipSnapshotArtifact {
                 kind: "sqlite".to_string(),
                 compression: "none".to_string(),
@@ -733,6 +789,30 @@ mod tests {
         let raw = serde_json::to_string(&manifest).unwrap();
         let parsed = parse_manifest(&raw).expect("valid manifest");
         assert_eq!(parsed, manifest);
+    }
+
+    #[test]
+    fn manifest_without_source_metadata_still_parses() {
+        let raw = r#"{
+          "schema_version": 1,
+          "generated_at": "2026-03-31T12:00:00Z",
+          "snapshot": {
+            "kind": "sqlite",
+            "compression": "none",
+            "version": "2026-02-27",
+            "download_url": "/tmp/ownership.sqlite",
+            "sqlite_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "size_bytes": 123,
+            "release_count": 1,
+            "latest_as_of_date": "2026-02-27",
+            "latest_release_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "latest_row_count": 7261,
+            "ticker_count": 955
+          }
+        }"#;
+
+        let parsed = parse_manifest(raw).expect("old manifest shape should still parse");
+        assert!(parsed.source.is_none());
     }
 
     #[test]
