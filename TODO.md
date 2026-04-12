@@ -163,6 +163,7 @@
 - [ ] Additional providers (Alpha Vantage, Twelve Data, IDX official)
 
 ## 🔬 Latest Smoke Findings (2026-04-02)
+- [x] `ownership sync` now falls back to the built-in published manifest URL on `2026-04-12`, so plain `idx ownership sync` works on a clean machine once the public snapshot release is available
 - [x] Ownership snapshot publishing now has a live-source maintainer path on `2026-04-11`: `scripts/build-latest-ownership-snapshot.sh` discovers the current supported `above1` IDX/KSEI PDF, imports it into an isolated temp DB, emits release-ready SQLite + manifest artifacts, and records the source IDX metadata in the manifest
 - [x] Verification on `2026-04-11`: `nix develop --command cargo test`, `bash -n scripts/build-latest-ownership-snapshot.sh`, and a real `nix develop --command scripts/build-latest-ownership-snapshot.sh --idx-bin ./target/debug/idx --output-dir tmp/ownership-snapshot-live` run all passed; the current live source produced `7214` rows for `955` tickers with `as_of_date=2026-03-31`
 - [x] Final release-hygiene pass on `2026-04-06`: crate metadata now declares `rust-version = 1.85`, README install docs now spell out Cargo helper-runtime expectations plus persistent `nix profile install`, and CI install smoke now runs the mock smoke matrix against the installed binary instead of only checking `idx version`

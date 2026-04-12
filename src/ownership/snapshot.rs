@@ -14,6 +14,7 @@ use crate::ownership::types::OwnershipRelease;
 pub const SNAPSHOT_MANIFEST_CONFIG_KEY: &str = "ownership.snapshot_manifest";
 pub const SNAPSHOT_MANIFEST_ENV: &str = "IDX_OWNERSHIP_SNAPSHOT_MANIFEST";
 pub const SNAPSHOT_MANIFEST_SCHEMA_VERSION: u32 = 1;
+pub const DEFAULT_SNAPSHOT_MANIFEST_URL: &str = "https://github.com/0xrsydn/idx-cli/releases/download/ownership-snapshot-current/ownership-snapshot-manifest.json";
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
@@ -90,30 +91,27 @@ struct SyncDecision {
 }
 
 pub fn resolve_manifest_source(explicit: Option<&str>) -> Result<String, IdxError> {
-    if let Some(value) = explicit {
-        let trimmed = value.trim();
-        if !trimmed.is_empty() {
-            return Ok(trimmed.to_string());
+    let env_value = std::env::var(SNAPSHOT_MANIFEST_ENV).ok();
+    let config_value = get_config_value(SNAPSHOT_MANIFEST_CONFIG_KEY)?;
+
+    resolve_manifest_source_with(explicit, env_value.as_deref(), config_value.as_deref())
+}
+
+fn resolve_manifest_source_with(
+    explicit: Option<&str>,
+    env_value: Option<&str>,
+    config_value: Option<&str>,
+) -> Result<String, IdxError> {
+    for value in [explicit, env_value, config_value] {
+        if let Some(value) = value {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Ok(trimmed.to_string());
+            }
         }
     }
 
-    if let Ok(value) = std::env::var(SNAPSHOT_MANIFEST_ENV) {
-        let trimmed = value.trim();
-        if !trimmed.is_empty() {
-            return Ok(trimmed.to_string());
-        }
-    }
-
-    if let Some(value) = get_config_value(SNAPSHOT_MANIFEST_CONFIG_KEY)? {
-        let trimmed = value.trim();
-        if !trimmed.is_empty() {
-            return Ok(trimmed.to_string());
-        }
-    }
-
-    Err(IdxError::InvalidInput(format!(
-        "ownership sync needs a snapshot manifest; pass `--manifest` or set `{SNAPSHOT_MANIFEST_CONFIG_KEY}` / `{SNAPSHOT_MANIFEST_ENV}`"
-    )))
+    Ok(DEFAULT_SNAPSHOT_MANIFEST_URL.to_string())
 }
 
 pub fn fetch_manifest(source: &str) -> Result<OwnershipSnapshotManifest, IdxError> {
@@ -687,8 +685,9 @@ mod tests {
     use rusqlite::Connection;
 
     use super::{
-        OwnershipSnapshotArtifact, OwnershipSnapshotManifest, OwnershipSnapshotSource,
-        OwnershipSyncAction, SNAPSHOT_MANIFEST_SCHEMA_VERSION, build_sync_decision, parse_manifest,
+        DEFAULT_SNAPSHOT_MANIFEST_URL, OwnershipSnapshotArtifact, OwnershipSnapshotManifest,
+        OwnershipSnapshotSource, OwnershipSyncAction, SNAPSHOT_MANIFEST_SCHEMA_VERSION,
+        build_sync_decision, parse_manifest, resolve_manifest_source_with,
     };
     use crate::ownership::db::{ensure_schema, insert_release};
     use crate::ownership::types::OwnershipRelease;
@@ -813,6 +812,36 @@ mod tests {
 
         let parsed = parse_manifest(raw).expect("old manifest shape should still parse");
         assert!(parsed.source.is_none());
+    }
+
+    #[test]
+    fn resolve_manifest_source_uses_built_in_default_when_unset() {
+        let resolved = resolve_manifest_source_with(None, None, None).expect("default manifest");
+        assert_eq!(resolved, DEFAULT_SNAPSHOT_MANIFEST_URL);
+    }
+
+    #[test]
+    fn resolve_manifest_source_prefers_explicit_then_env_then_config() {
+        let explicit = resolve_manifest_source_with(
+            Some("https://example.com/explicit.json"),
+            Some("https://example.com/env.json"),
+            Some("https://example.com/config.json"),
+        )
+        .expect("explicit manifest");
+        assert_eq!(explicit, "https://example.com/explicit.json");
+
+        let env = resolve_manifest_source_with(
+            Some("   "),
+            Some("https://example.com/env.json"),
+            Some("https://example.com/config.json"),
+        )
+        .expect("env manifest");
+        assert_eq!(env, "https://example.com/env.json");
+
+        let config =
+            resolve_manifest_source_with(None, Some(" "), Some("https://example.com/config.json"))
+                .expect("config manifest");
+        assert_eq!(config, "https://example.com/config.json");
     }
 
     #[test]

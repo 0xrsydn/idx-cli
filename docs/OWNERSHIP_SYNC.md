@@ -14,6 +14,8 @@ The manifest location is resolved in this order:
 1. `idx ownership sync --manifest <path-or-url>`
 2. `IDX_OWNERSHIP_SNAPSHOT_MANIFEST`
 3. `ownership.snapshot_manifest` in `config.toml`
+4. built-in published manifest URL:
+   `https://github.com/0xrsydn/idx-cli/releases/download/ownership-snapshot-current/ownership-snapshot-manifest.json`
 
 The value can be either:
 - a local path to a manifest JSON file

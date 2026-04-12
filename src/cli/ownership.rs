@@ -47,7 +47,7 @@ pub enum OwnershipCommand {
     #[command(
         about = "Install or refresh a maintained ownership SQLite snapshot",
         long_about = "Install or refresh a maintained ownership SQLite snapshot.\n\nThis is the normal bootstrap/update path for ownership data.\n\nManifest lookup order:\n  1. `--manifest`\n  2. `IDX_OWNERSHIP_SNAPSHOT_MANIFEST`\n  3. `ownership.snapshot_manifest` in config",
-        after_help = "Examples:\n  idx ownership sync\n  idx ownership sync --manifest /path/to/ownership-snapshot-manifest.json\n  IDX_OWNERSHIP_SNAPSHOT_MANIFEST=https://example.com/latest.json idx ownership sync"
+        after_help = "Examples:\n  idx ownership sync\n  idx ownership sync --manifest /path/to/ownership-snapshot-manifest.json\n  IDX_OWNERSHIP_SNAPSHOT_MANIFEST=https://example.com/latest.json idx ownership sync\n\nIf none of the above are set, `ownership sync` falls back to the built-in published manifest URL."
     )]
     Sync(SyncArgs),
     /// Show all holders for a ticker (KSEI + Bing combined).
@@ -100,7 +100,7 @@ pub struct ImportArgs {
 
 #[derive(Debug, Args)]
 pub struct SyncArgs {
-    /// Snapshot manifest location (URL or local path). If omitted, config/env lookup is used.
+    /// Snapshot manifest location (URL or local path). If omitted, idx falls back through env/config and then the published default URL.
     #[arg(long)]
     pub manifest: Option<String>,
     /// Replace the local DB even when it is already current or newer than the snapshot.
