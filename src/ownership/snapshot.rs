@@ -102,12 +102,10 @@ fn resolve_manifest_source_with(
     env_value: Option<&str>,
     config_value: Option<&str>,
 ) -> Result<String, IdxError> {
-    for value in [explicit, env_value, config_value] {
-        if let Some(value) = value {
-            let trimmed = value.trim();
-            if !trimmed.is_empty() {
-                return Ok(trimmed.to_string());
-            }
+    for value in [explicit, env_value, config_value].into_iter().flatten() {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
         }
     }
 
