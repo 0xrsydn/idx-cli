@@ -4,6 +4,9 @@
 
 The command is intentionally manifest-driven so the repo can publish snapshots in GitHub releases, object storage, or a local filesystem path without changing the CLI.
 
+The recommended GitHub publish layout and maintainer workflow are documented in
+`docs/OWNERSHIP_PUBLISH.md`.
+
 ## Consumer Inputs
 
 The manifest location is resolved in this order:
@@ -24,6 +27,15 @@ Current schema version: `1`
 {
   "schema_version": 1,
   "generated_at": "2026-03-31T12:00:00Z",
+  "source": {
+    "family": "above1",
+    "listing_page_url": "https://www.idx.co.id/id/berita/pengumuman/",
+    "query_url": "https://www.idx.co.id/primary/NewsAnnouncement/GetAllAnnouncement?...",
+    "pdf_url": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/...pdf",
+    "title": "Pemegang Saham di atas 1% (KSEI)",
+    "publish_date": "2026-03-10T00:00:00",
+    "original_filename": "b9b638e5a8_8928aca255.pdf"
+  },
   "snapshot": {
     "kind": "sqlite",
     "compression": "none",
@@ -41,6 +53,7 @@ Current schema version: `1`
 ```
 
 Semantics:
+- `source` is optional provenance metadata describing the IDX/KSEI PDF used to build the snapshot.
 - `download_url` points to the SQLite artifact itself.
 - `sqlite_sha256` and `size_bytes` are validated before install.
 - `latest_*` and `release_count` are validated against the downloaded SQLite contents before replacement.
@@ -71,3 +84,7 @@ scripts/build-ownership-snapshot.sh \
 ```
 
 If `--base-url` is omitted, the generated manifest uses the local artifact path as `download_url`, which is useful for local testing.
+
+For the maintainer flow that discovers the latest supported IDX/KSEI source
+first and then builds GitHub-release-ready assets, use
+`scripts/build-latest-ownership-snapshot.sh`.

@@ -1,0 +1,79 @@
+name: Publish Ownership Snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Stable GitHub release tag to publish the snapshot assets to
+        required: true
+        default: ownership-snapshot-current
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ownership-snapshot-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+
+      - name: Build idx
+        run: nix develop --command cargo build
+
+      - name: Build snapshot artifacts from latest supported IDX/KSEI source
+        run: |
+          nix develop --command scripts/build-latest-ownership-snapshot.sh \
+            --idx-bin ./target/debug/idx \
+            --output-dir dist/ownership-snapshot \
+            --repo "${{ github.repository }}" \
+            --release-tag "${{ inputs.release_tag }}"
+
+      - name: Upload workflow artifact copy
+        uses: actions/upload-artifact@v4
+        with:
+          name: ownership-snapshot-${{ github.run_id }}
+          path: dist/ownership-snapshot/*
+          if-no-files-found: error
+
+      - name: Ensure stable snapshot release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          tag="${{ inputs.release_tag }}"
+          repo="${{ github.repository }}"
+
+          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            echo "Release $tag already exists."
+            exit 0
+          fi
+
+          gh release create "$tag" \
+            --repo "$repo" \
+            --target "${{ github.sha }}" \
+            --title "Ownership Snapshot Current" \
+            --notes "Stable release for idx ownership snapshot artifacts consumed by \`idx ownership sync\`." \
+            --latest=false
+
+      - name: Upload snapshot assets to stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh release upload "${{ inputs.release_tag }}" \
+            dist/ownership-snapshot/ownership-snapshot-manifest.json \
+            dist/ownership-snapshot/ownership-snapshot-*.sqlite \
+            --repo "${{ github.repository }}" \
+            --clobber
