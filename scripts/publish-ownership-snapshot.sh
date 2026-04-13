@@ -28,6 +28,7 @@ REPO_FULL_NAME="0xrsydn/idx-cli"
 RELEASE_TAG="ownership-snapshot-current"
 BUILD_FIRST="0"
 KEEP_WORKDIR="0"
+PUBLISH_WORKDIR=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -86,6 +87,23 @@ if [[ ! -x "$BUILDER" ]]; then
     exit 1
 fi
 
+mkdir -p "$OUTPUT_DIR"
+
+PUBLISH_WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/idx-ownership-publish.XXXXXX")"
+cleanup() {
+    if [[ -z "$PUBLISH_WORKDIR" ]]; then
+        return
+    fi
+
+    if [[ "$KEEP_WORKDIR" == "1" ]]; then
+        printf 'Kept publish workdir: %s\n' "$PUBLISH_WORKDIR"
+        return
+    fi
+
+    rm -rf "$PUBLISH_WORKDIR"
+}
+trap cleanup EXIT
+
 if [[ "$BUILD_FIRST" == "1" ]]; then
     printf 'Building idx...\n'
     cargo build
@@ -99,7 +117,7 @@ fi
 
 build_args=(
     --idx-bin "$IDX_BIN"
-    --output-dir "$OUTPUT_DIR"
+    --output-dir "$PUBLISH_WORKDIR"
     --repo "$REPO_FULL_NAME"
     --release-tag "$RELEASE_TAG"
 )
@@ -111,22 +129,34 @@ fi
 printf 'Preparing latest ownership snapshot artifacts...\n'
 "$BUILDER" "${build_args[@]}"
 
-MANIFEST_PATH="$OUTPUT_DIR/ownership-snapshot-manifest.json"
-if [[ ! -f "$MANIFEST_PATH" ]]; then
-    echo "manifest was not generated: $MANIFEST_PATH" >&2
+STAGED_MANIFEST_PATH="$PUBLISH_WORKDIR/ownership-snapshot-manifest.json"
+if [[ ! -f "$STAGED_MANIFEST_PATH" ]]; then
+    echo "manifest was not generated: $STAGED_MANIFEST_PATH" >&2
     exit 1
 fi
 
 shopt -s nullglob
-sqlite_matches=("$OUTPUT_DIR"/ownership-snapshot-*.sqlite)
+sqlite_matches=("$PUBLISH_WORKDIR"/ownership-snapshot-*.sqlite)
+existing_snapshot_paths=("$OUTPUT_DIR"/ownership-snapshot-*.sqlite)
 shopt -u nullglob
 
 if [[ "${#sqlite_matches[@]}" -ne 1 ]]; then
-    echo "expected exactly one SQLite artifact in $OUTPUT_DIR" >&2
+    echo "expected exactly one SQLite artifact in $PUBLISH_WORKDIR" >&2
     exit 1
 fi
 
-SQLITE_PATH="${sqlite_matches[0]}"
+STAGED_SQLITE_PATH="${sqlite_matches[0]}"
+
+rm -f "$OUTPUT_DIR/ownership-snapshot-manifest.json"
+if [[ "${#existing_snapshot_paths[@]}" -gt 0 ]]; then
+    rm -f "${existing_snapshot_paths[@]}"
+fi
+
+cp "$STAGED_MANIFEST_PATH" "$OUTPUT_DIR/ownership-snapshot-manifest.json"
+cp "$STAGED_SQLITE_PATH" "$OUTPUT_DIR/"
+
+MANIFEST_PATH="$OUTPUT_DIR/ownership-snapshot-manifest.json"
+SQLITE_PATH="$OUTPUT_DIR/$(basename "$STAGED_SQLITE_PATH")"
 
 if gh release view "$RELEASE_TAG" --repo "$REPO_FULL_NAME" >/dev/null 2>&1; then
     printf 'Release %s already exists.\n' "$RELEASE_TAG"
