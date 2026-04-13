@@ -1,0 +1,11 @@
+[Unit]
+Description=Publish idx ownership snapshot to GitHub Releases
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/idx-cli
+Environment=HOME=/var/lib/idx-ownership-snapshot
+EnvironmentFile=/etc/idx-ownership-snapshot.env
+ExecStart=/bin/sh -lc 'nix develop --command scripts/publish-ownership-snapshot.sh --build --idx-bin ./target/debug/idx --output-dir /var/lib/idx-ownership-snapshot/current --repo 0xrsydn/idx-cli --release-tag ownership-snapshot-current'

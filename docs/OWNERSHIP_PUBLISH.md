@@ -93,3 +93,18 @@ Current behavior:
 
 This is intentionally manual-first. Add a schedule only after a few successful
 publish runs confirm the live source remains stable enough.
+
+## Self-Hosted Automation
+
+GitHub-hosted Actions are still not sufficient for this job on their own. Live
+verification has shown IDX returning `403` to GitHub-hosted runners during
+discovery/import.
+
+The recommended unattended path is therefore:
+
+- keep the public artifacts on GitHub Releases
+- run the publish job from a self-hosted machine that IDX accepts
+- use a `systemd` oneshot service plus `systemd.timer` on that machine
+
+See `docs/OWNERSHIP_SELF_HOSTED.md` for the reusable helper script, sample
+systemd units, and the recommended split between this repo and `clan-private`.
