@@ -1,0 +1,4 @@
+interface:
+  display_name: "IDX Release"
+  short_description: "Publish and repair idx-cli app releases"
+  default_prompt: "Use $idx-release to prepare, publish, or repair an idx-cli versioned app release."
