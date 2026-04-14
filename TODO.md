@@ -205,6 +205,9 @@
 - [x] Product decision on `2026-04-02`: keep `screen` under `stocks` for now; revisit a dedicated surface only when `screen query` / `screen presets` graduate from backlog into a richer workflow
 - [x] Fixture-backed parser and CLI JSON regression coverage now covers the remaining MSN-only `sentiment`, `news`, and `screen` commands
 - [x] Fresh post-coverage live MSN smoke rerun still passes for table and JSON surfaces: 30/30 (`tmp/live-smoke/20260327-163403`)
+- [x] MSN key-ratios parsing now tolerates stringified non-finite numeric sentinels (`Infinity`, `-Infinity`, `NaN`) as missing data instead of failing the entire fundamentals payload
+- [x] Live direct CLI repros on `2026-04-13` confirmed the original failure class on `BUMI`, `ADRO`, and `AIMS`; an opt-in `scripts/live-smoke.sh --group live-nonfinite` group now covers those real ticker paths
+- [x] Added `scripts/audit-msn-fundamentals.sh` for a full CLI valuation sweep across the IDX MSN symbol map; keep it as a provider-health audit, not part of the default smoke baseline
 - [ ] `ownership import --fetch-bing` is still deferred and returns unsupported
 - [x] Real KSEI PDF import from local file now works again: `ownership import --file /Users/rasyidanakbar/Downloads/ksei_raw_data.pdf` imported `7261` rows for `955` tickers on `2026-03-28`, replacing the previous `6`-row/`1`-ticker failure mode
 - [x] KSEI parser no longer depends on the old hardcoded column bounds fixture layout; it now reconstructs rows from `mutool` line output and handles the live `DATE + SHARE_CODE` merged segment plus `D`/`A` locality markers

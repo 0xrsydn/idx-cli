@@ -61,6 +61,7 @@ Groups:
   cache        deterministic cache/offline/stale-cache checks
   routing      provider routing and explicit unsupported checks
   errors       JSON error contract and invalid-flag checks
+  live-nonfinite  opt-in live MSN fundamentals checks for known non-finite tickers
   ownership    ownership commands that are safe without imported data
   ownership-import  live ownership discovery/import hardening checks
 
@@ -69,6 +70,7 @@ Examples:
   scripts/live-smoke.sh --mode full
   scripts/live-smoke.sh --mode mock --group cache
   scripts/live-smoke.sh --group live-table --group live-json --symbol BBRI
+  scripts/live-smoke.sh --group live-nonfinite
 EOF
 }
 
@@ -197,6 +199,11 @@ register_cases() {
     add_case "live-json" "insights" "0" "$live_env" "-o json stocks insights $live_symbol" ""
     add_case "live-json" "news" "0" "$live_env" "-o json $news_args" ""
     add_case "live-json" "screen" "0" "$live_env" "-o json $screen_args" ""
+
+    add_case "live-nonfinite" "valuation-bumi" "0" "$live_env" "-o json stocks valuation BUMI" "\"overall_signal\""
+    add_case "live-nonfinite" "valuation-adro" "0" "$live_env" "-o json stocks valuation ADRO" "\"overall_signal\""
+    add_case "live-nonfinite" "valuation-aims" "0" "$live_env" "-o json stocks valuation AIMS" "\"overall_signal\""
+    add_case "live-nonfinite" "compare-bad-tickers" "0" "$live_env" "-o json stocks compare BUMI,ADRO,AIMS" "\"symbol\": \"BUMI.JK\""
 
     add_case "mock" "quote-table" "0" "$mock_env" "stocks quote $live_symbol" ""
     add_case "mock" "quote-json" "0" "$mock_env" "-o json stocks quote $live_symbol" ""

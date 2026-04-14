@@ -128,6 +128,17 @@ fn fixture_path(name: &str) -> PathBuf {
         .join(name)
 }
 
+fn run_success_stdout(cmd: &mut Command) -> String {
+    let output = cmd.output().expect("run command");
+    assert!(
+        output.status.success(),
+        "command failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    String::from_utf8(output.stdout).expect("utf8 stdout")
+}
+
 fn spawn_single_response_server(content_type: &str, body: impl Into<Vec<u8>>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind local test server");
     let addr = listener.local_addr().expect("local addr");
@@ -901,6 +912,112 @@ fn compare_with_mock_provider_table_contains_resolved_symbol() {
 }
 
 #[test]
+fn infinity_msn_mock_fundamentals_succeed_for_analysis_commands() {
+    let fixture = fixture_path("msn_keyratios_infinity.json");
+    let fixture_str = fixture
+        .to_str()
+        .expect("fixture path should be valid unicode")
+        .to_string();
+    let cases = [
+        (
+            "growth-infinity-json",
+            vec!["-o", "json", "stocks", "growth", "BBCA"],
+            vec!["\"revenue_growth\"", "\"overall_signal\""],
+        ),
+        (
+            "valuation-infinity-json",
+            vec!["-o", "json", "stocks", "valuation", "BBCA"],
+            vec!["\"pe_trailing\": null", "\"overall_signal\""],
+        ),
+        (
+            "risk-infinity-json",
+            vec!["-o", "json", "stocks", "risk", "BBCA"],
+            vec!["\"debt_to_equity\"", "\"overall_signal\""],
+        ),
+        (
+            "fundamental-infinity-json",
+            vec!["-o", "json", "stocks", "fundamental", "BBCA"],
+            vec!["\"symbol\": \"BBCA.JK\"", "\"overall_signal\""],
+        ),
+        (
+            "compare-infinity-json",
+            vec!["-o", "json", "stocks", "compare", "BBCA,BBRI"],
+            vec!["\"symbol\": \"BBCA.JK\"", "\"symbol\": \"BBRI.JK\""],
+        ),
+    ];
+
+    for (name, args, needles) in cases {
+        let stdout = run_success_stdout(
+            test_bin(name)
+                .env("IDX_PROVIDER", "msn")
+                .env("IDX_USE_MOCK_PROVIDER", "1")
+                .env("IDX_MOCK_MSN_KEYRATIOS_FIXTURE", &fixture_str)
+                .args(args),
+        );
+
+        for needle in needles {
+            assert!(
+                stdout.contains(needle),
+                "missing `{needle}` in output: {stdout}"
+            );
+        }
+    }
+}
+
+#[test]
+fn negative_infinity_msn_mock_fundamentals_succeed_for_analysis_commands() {
+    let fixture = fixture_path("msn_keyratios_negative_infinity.json");
+    let fixture_str = fixture
+        .to_str()
+        .expect("fixture path should be valid unicode")
+        .to_string();
+    let cases = [
+        (
+            "growth-negative-infinity-json",
+            vec!["-o", "json", "stocks", "growth", "BBCA"],
+            vec!["\"revenue_growth\"", "\"overall_signal\""],
+        ),
+        (
+            "valuation-negative-infinity-json",
+            vec!["-o", "json", "stocks", "valuation", "BBCA"],
+            vec!["\"pe_trailing\": null", "\"overall_signal\""],
+        ),
+        (
+            "risk-negative-infinity-json",
+            vec!["-o", "json", "stocks", "risk", "BBCA"],
+            vec!["\"debt_to_equity\": null", "\"overall_signal\""],
+        ),
+        (
+            "fundamental-negative-infinity-json",
+            vec!["-o", "json", "stocks", "fundamental", "BBCA"],
+            vec!["\"symbol\": \"BBCA.JK\"", "\"overall_signal\""],
+        ),
+        (
+            "compare-negative-infinity-json",
+            vec!["-o", "json", "stocks", "compare", "BBCA,BBRI"],
+            vec!["\"symbol\": \"BBCA.JK\"", "\"symbol\": \"BBRI.JK\""],
+        ),
+    ];
+
+    for (name, args, needles) in cases {
+        let stdout = run_success_stdout(
+            test_bin(name)
+                .env("IDX_PROVIDER", "msn")
+                .env("IDX_USE_MOCK_PROVIDER", "1")
+                .env("IDX_MOCK_MSN_KEYRATIOS_FIXTURE", &fixture_str)
+                .args(args),
+        );
+
+        for needle in needles {
+            assert!(
+                stdout.contains(needle),
+                "missing `{needle}` in output: {stdout}"
+            );
+        }
+    }
+}
+
+#[test]
 fn config_path_prints_path() {
     test_bin("config-path")
         .args(["config", "path"])
@@ -1460,6 +1577,7 @@ fn ownership_import_force_reimports_existing_release() {
 #[test]
 fn ownership_import_url_rejects_legacy_above5_pdf_schema() {
     let root = test_env_dir("ownership-import-above5-unsupported");
+    let data_home = root.join("data");
     let fake_mutool_dir = install_fake_mutool(
         &root,
         include_str!("fixtures/ksei_above5_stext_excerpt.xml"),
@@ -1469,6 +1587,7 @@ fn ownership_import_url_rejects_legacy_above5_pdf_schema() {
 
     bin_with_root(&root)
         .env("PATH", prepend_path(&fake_mutool_dir))
+        .env("XDG_DATA_HOME", &data_home)
         .args(["ownership", "import", "--url", &pdf_url])
         .assert()
         .failure()
@@ -1480,6 +1599,7 @@ fn ownership_import_url_rejects_legacy_above5_pdf_schema() {
 #[test]
 fn ownership_import_url_rejects_legacy_investor_type_pdf_schema() {
     let root = test_env_dir("ownership-import-investor-type-unsupported");
+    let data_home = root.join("data");
     let fake_mutool_dir = install_fake_mutool(
         &root,
         include_str!("fixtures/ksei_investor_type_stext_excerpt.xml"),
@@ -1489,6 +1609,7 @@ fn ownership_import_url_rejects_legacy_investor_type_pdf_schema() {
 
     bin_with_root(&root)
         .env("PATH", prepend_path(&fake_mutool_dir))
+        .env("XDG_DATA_HOME", &data_home)
         .args(["ownership", "import", "--url", &pdf_url])
         .assert()
         .failure()

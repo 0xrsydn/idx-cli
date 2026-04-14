@@ -47,33 +47,45 @@ pub(crate) struct KeyRatios {
 pub(crate) struct IndustryMetric {
     pub(crate) year: Option<String>,
     pub(crate) fiscal_period_type: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_f64_lenient")]
     pub(crate) revenue_growth_rate: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_f64_lenient")]
     pub(crate) earnings_growth_rate: Option<f64>,
-    #[serde(default, rename = "netIncomeYTDYTDGrowthRate")]
+    #[serde(
+        default,
+        rename = "netIncomeYTDYTDGrowthRate",
+        deserialize_with = "de_opt_f64_lenient"
+    )]
     pub(crate) net_income_ytd_ytd_growth_rate: Option<f64>,
-    #[serde(default, rename = "revenueYTDYTD")]
+    #[serde(
+        default,
+        rename = "revenueYTDYTD",
+        deserialize_with = "de_opt_f64_lenient"
+    )]
     pub(crate) revenue_ytd_ytd: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_f64_lenient")]
     pub(crate) net_margin: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_f64_lenient")]
     pub(crate) profit_margin: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_f64_lenient")]
     pub(crate) roe: Option<f64>,
-    #[serde(default, rename = "roaTTM")]
+    #[serde(default, rename = "roaTTM", deserialize_with = "de_opt_f64_lenient")]
     pub(crate) roa_ttm: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_f64_lenient")]
     pub(crate) return_on_asset_current: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_f64_lenient")]
     pub(crate) debt_to_equity_ratio: Option<f64>,
     #[serde(default, deserialize_with = "de_opt_f64_lenient")]
     pub(crate) current_ratio: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_f64_lenient")]
     pub(crate) price_to_earnings_ratio: Option<f64>,
-    #[serde(default, rename = "forwardPriceToEPS")]
+    #[serde(
+        default,
+        rename = "forwardPriceToEPS",
+        deserialize_with = "de_opt_f64_lenient"
+    )]
     pub(crate) forward_price_to_eps: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_f64_lenient")]
     pub(crate) price_to_book_ratio: Option<f64>,
 }
 
@@ -324,10 +336,23 @@ where
         Some(NumberLike::F64(_)) => Ok(None),
         Some(NumberLike::String(raw)) => {
             let trimmed = raw.trim();
-            if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("nan") {
+            if trimmed.is_empty()
+                || trimmed.eq_ignore_ascii_case("nan")
+                || trimmed.eq_ignore_ascii_case("infinity")
+                || trimmed.eq_ignore_ascii_case("-infinity")
+            {
                 Ok(None)
             } else {
-                trimmed.parse::<f64>().map(Some).map_err(D::Error::custom)
+                trimmed
+                    .parse::<f64>()
+                    .map_err(D::Error::custom)
+                    .map(|number| {
+                        if number.is_finite() {
+                            Some(number)
+                        } else {
+                            None
+                        }
+                    })
             }
         }
         None => Ok(None),

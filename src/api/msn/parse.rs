@@ -31,6 +31,10 @@ pub(crate) fn parse_fundamentals_from_str(
 mod tests {
     use super::{parse_fundamentals_from_str, parse_quote_from_str};
 
+    fn minimal_quote_raw() -> &'static str {
+        r#"[{"symbol":"BBCA","marketCap":1215200000000000}]"#
+    }
+
     #[test]
     fn parses_quote_fixture_json() {
         let raw = std::fs::read_to_string("tests/fixtures/msn_quote_bbca.json")
@@ -58,5 +62,85 @@ mod tests {
         assert_eq!(fundamentals.revenue_growth, Some(0.081));
         assert_eq!(fundamentals.earnings_growth, Some(0.121));
         assert_eq!(fundamentals.market_cap, Some(1_215_200_000_000_000));
+    }
+
+    #[test]
+    fn parses_fundamentals_with_infinity_string_as_missing_data() {
+        let raw = r#"[
+            {
+                "companyMetrics": [
+                    {
+                        "year": "2025",
+                        "fiscalPeriodType": "TTM",
+                        "priceToEarningsRatio": "Infinity",
+                        "priceToBookRatio": 4.6,
+                        "roe": 19.8,
+                        "profitMargin": 44.2,
+                        "debtToEquityRatio": 0.75,
+                        "currentRatio": 1.4
+                    }
+                ]
+            }
+        ]"#;
+
+        let fundamentals = parse_fundamentals_from_str(raw, Some(minimal_quote_raw()))
+            .expect("fundamentals parsed");
+
+        assert_eq!(fundamentals.trailing_pe, None);
+        assert_eq!(fundamentals.price_to_book, Some(4.6));
+        assert_eq!(fundamentals.return_on_equity, Some(0.198));
+    }
+
+    #[test]
+    fn parses_fundamentals_with_negative_infinity_string_as_missing_data() {
+        let raw = r#"[
+            {
+                "companyMetrics": [
+                    {
+                        "year": "2025",
+                        "fiscalPeriodType": "TTM",
+                        "priceToEarningsRatio": 12.5,
+                        "debtToEquityRatio": "-Infinity",
+                        "roe": 19.8,
+                        "profitMargin": 44.2,
+                        "currentRatio": 1.4
+                    }
+                ]
+            }
+        ]"#;
+
+        let fundamentals = parse_fundamentals_from_str(raw, Some(minimal_quote_raw()))
+            .expect("fundamentals parsed");
+
+        assert_eq!(fundamentals.trailing_pe, Some(12.5));
+        assert_eq!(fundamentals.debt_to_equity, None);
+        assert_eq!(fundamentals.return_on_equity, Some(0.198));
+    }
+
+    #[test]
+    fn parses_fundamentals_with_nan_string_as_missing_data() {
+        let raw = r#"[
+            {
+                "companyMetrics": [
+                    {
+                        "year": "2025",
+                        "fiscalPeriodType": "TTM",
+                        "revenueGrowthRate": "NaN",
+                        "earningsGrowthRate": 12.1,
+                        "roe": 19.8,
+                        "profitMargin": 44.2,
+                        "debtToEquityRatio": 0.75,
+                        "currentRatio": 1.4
+                    }
+                ]
+            }
+        ]"#;
+
+        let fundamentals = parse_fundamentals_from_str(raw, Some(minimal_quote_raw()))
+            .expect("fundamentals parsed");
+
+        assert_eq!(fundamentals.revenue_growth, None);
+        assert_eq!(fundamentals.earnings_growth, Some(0.121));
+        assert_eq!(fundamentals.return_on_equity, Some(0.198));
     }
 }
