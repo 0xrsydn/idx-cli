@@ -215,8 +215,8 @@ fn msn_capability_error(subject: &str) -> IdxError {
 /// Resolves a history provider based on the selected market data provider and
 /// history provider strategy.
 ///
-/// `history_mode=auto` means: use the selected provider when it supports history,
-/// otherwise transparently fallback to Yahoo.
+/// `history_mode=auto` keeps using Yahoo for IDX history because Yahoo provides
+/// full OHLCV candles. Explicit `msn` opts into MSN's price-only chart feed.
 pub fn history_provider(
     provider: ProviderKind,
     history_mode: HistoryProviderKind,
@@ -232,12 +232,6 @@ pub fn history_provider(
     };
 
     if std::env::var("IDX_USE_MOCK_PROVIDER").is_ok() {
-        if matches!(resolved, ProviderKind::Msn) {
-            return Err(IdxError::Unsupported(
-                "MSN does not provide price history for IDX stocks. Use --history-provider yahoo or auto."
-                    .into(),
-            ));
-        }
         return Ok((
             resolved,
             Box::new(MockProvider::from_fixtures_with_history_verbose(
@@ -248,10 +242,7 @@ pub fn history_provider(
 
     match resolved {
         ProviderKind::Yahoo => Ok((resolved, Box::new(yahoo::YahooProvider::new(verbose)))),
-        ProviderKind::Msn => Err(IdxError::Unsupported(
-            "MSN does not provide price history for IDX stocks. Use --history-provider yahoo or auto."
-                .into(),
-        )),
+        ProviderKind::Msn => Ok((resolved, Box::new(msn::MsnProvider::new(verbose)))),
     }
 }
 
@@ -317,10 +308,10 @@ impl MockProvider {
             .map_err(|e| IdxError::ParseError(e.to_string()));
         let fundamentals = msn::parse_fundamentals_from_str(&fundamentals_raw, Some(&quote_raw))
             .map_err(|e| IdxError::ParseError(e.to_string()));
-        // MSN Finance/Charts returns 404 for IDX (XIDX) — history not supported
-        let history = Err(IdxError::Unsupported(
-            "MSN does not provide price history for IDX stocks. Use --history-provider yahoo or auto.".into(),
-        ));
+        let history_raw = std::fs::read_to_string("tests/fixtures/msn_chart_bbca_3m.json")
+            .unwrap_or_else(|_| "[]".to_string());
+        let history = msn::parse_history_from_str("BBCA.JK", &history_raw)
+            .map_err(|e| IdxError::ParseError(e.to_string()));
 
         Self {
             quote,

@@ -6,10 +6,12 @@ use serde::de::DeserializeOwned;
 use crate::error::IdxError;
 
 use super::raw_types::{
-    KeyRatios, MsnQuote, RawEarningsResponse, RawEquity, RawFinancialStatement, RawInsight,
-    RawNewsFeed, RawScreenerResponse, RawSentiment, ScreenerFilter, ScreenerOrder, ScreenerRequest,
+    KeyRatios, MsnQuote, RawChartResponse, RawEarningsResponse, RawEquity, RawFinancialStatement,
+    RawInsight, RawNewsFeed, RawScreenerResponse, RawSentiment, ScreenerFilter, ScreenerOrder,
+    ScreenerRequest,
 };
 use super::symbols::resolve_msn_id;
+use crate::api::types::{Interval, Period};
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const MSN_ASSETS_BASE_URL: &str = "https://assets.msn.com/service/";
@@ -58,6 +60,7 @@ impl MsnClient {
             "insights" => include_str!("../../../tests/fixtures/msn_insights_bbca.json"),
             "news" => include_str!("../../../tests/fixtures/msn_news_bbca.json"),
             "screener" => include_str!("../../../tests/fixtures/msn_screener_id_topperfs.json"),
+            "chart" => include_str!("../../../tests/fixtures/msn_chart_bbca_3m.json"),
             _ => return None,
         })
     }
@@ -295,5 +298,69 @@ impl MsnClient {
         };
 
         self.post_json(&url, &req, "SCREENER", "screener")
+    }
+
+    pub(super) fn fetch_chart(
+        &self,
+        symbol: &str,
+        period: &Period,
+        interval: &Interval,
+    ) -> Result<Vec<RawChartResponse>, IdxError> {
+        let id =
+            resolve_msn_id(symbol).ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
+        let chart_type = msn_chart_type(period, interval)?;
+        let url = format!(
+            "{MSN_ASSETS_BASE_URL}Finance/Charts?apikey={MSN_API_KEY}&cm=id-id&ids={id}&type={chart_type}&wrapodata=false"
+        );
+        self.get_json(&url, symbol, "chart")
+    }
+}
+
+fn msn_chart_type(period: &Period, interval: &Interval) -> Result<&'static str, IdxError> {
+    if !matches!(interval, Interval::Day) {
+        return Err(IdxError::Unsupported(
+            "MSN charts currently support only --interval 1d for IDX history".into(),
+        ));
+    }
+
+    match period {
+        Period::OneMonth => Ok("1M"),
+        Period::ThreeMonths => Ok("3M"),
+        Period::OneYear => Ok("1Y"),
+        _ => Err(IdxError::Unsupported(
+            "MSN charts currently support --period 1mo, 3mo, or 1y with --interval 1d".into(),
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::msn_chart_type;
+    use crate::api::types::{Interval, Period};
+    use crate::error::IdxError;
+
+    #[test]
+    fn maps_supported_msn_chart_types() {
+        assert_eq!(
+            msn_chart_type(&Period::OneMonth, &Interval::Day).unwrap(),
+            "1M"
+        );
+        assert_eq!(
+            msn_chart_type(&Period::ThreeMonths, &Interval::Day).unwrap(),
+            "3M"
+        );
+        assert_eq!(
+            msn_chart_type(&Period::OneYear, &Interval::Day).unwrap(),
+            "1Y"
+        );
+    }
+
+    #[test]
+    fn rejects_unsupported_msn_chart_types() {
+        let err = msn_chart_type(&Period::ThreeMonths, &Interval::Week).unwrap_err();
+        assert!(matches!(err, IdxError::Unsupported(_)));
+
+        let err = msn_chart_type(&Period::SixMonths, &Interval::Day).unwrap_err();
+        assert!(matches!(err, IdxError::Unsupported(_)));
     }
 }

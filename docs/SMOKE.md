@@ -35,7 +35,7 @@ scripts/audit-msn-fundamentals.sh --tickers BUMI,ADRO,AIMS
 - `live-json`: all shipped `stocks` commands in live JSON mode
 - `mock`: all shipped `stocks` commands against the mock provider in both table and JSON mode
 - `cache`: cache warm, `--offline`, and stale-cache fallback checks for quote, technical, and MSN `profile`
-- `routing`: Yahoo/MSN provider routing plus explicit MSN history unsupported behavior
+- `routing`: Yahoo/MSN provider routing plus explicit MSN history behavior
 - `errors`: JSON error contract and invalid flag/input checks
 - `live-nonfinite`: opt-in live MSN fundamentals checks for known non-finite ticker payloads (`BUMI`, `ADRO`, `AIMS`)
 - `ownership`: safe ownership smoke checks that do not require imported ownership data

@@ -7,22 +7,22 @@ mod raw_types;
 mod symbols;
 
 use crate::api::types::{
-    CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, NewsItem,
-    Quote, SentimentData,
+    Bar, CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, Interval,
+    NewsItem, Period, Quote, SentimentData,
 };
 use crate::api::{
-    EarningsProvider, FinancialsProvider, FundamentalsProvider, InsightsProvider, NewsProvider,
-    ProfileProvider, QuoteProvider, ScreenerProvider, SentimentProvider,
+    EarningsProvider, FinancialsProvider, FundamentalsProvider, HistoryProvider, InsightsProvider,
+    NewsProvider, ProfileProvider, QuoteProvider, ScreenerProvider, SentimentProvider,
 };
 use crate::error::IdxError;
 
 use client::MsnClient;
 use map::{
-    parse_earnings, parse_financial_statements, parse_fundamentals, parse_insights, parse_news,
-    parse_profile, parse_quote, parse_screener_results, parse_sentiment,
+    parse_earnings, parse_financial_statements, parse_fundamentals, parse_history, parse_insights,
+    parse_news, parse_profile, parse_quote, parse_screener_results, parse_sentiment,
 };
 
-pub(crate) use parse::{parse_fundamentals_from_str, parse_quote_from_str};
+pub(crate) use parse::{parse_fundamentals_from_str, parse_history_from_str, parse_quote_from_str};
 
 pub struct MsnProvider {
     client: MsnClient,
@@ -48,6 +48,18 @@ impl FundamentalsProvider for MsnProvider {
         let ratios = self.client.fetch_key_ratios(symbol)?;
         let quote = self.client.fetch_quotes(symbol)?;
         parse_fundamentals(&ratios, quote.first())
+    }
+}
+
+impl HistoryProvider for MsnProvider {
+    fn history(
+        &self,
+        symbol: &str,
+        period: &Period,
+        interval: &Interval,
+    ) -> Result<Vec<Bar>, IdxError> {
+        let raw = self.client.fetch_chart(symbol, period, interval)?;
+        parse_history(symbol, &raw)
     }
 }
 

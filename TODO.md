@@ -129,8 +129,7 @@
 - [x] Decide whether `screen` stays under `stocks` long term or graduates into a richer dedicated surface later
 
 ### P2 — Deferred but real work
-- [ ] Add MSN chart/history support through `stocks history --history-provider msn`
-- [ ] Define and implement `ownership import --fetch-bing`
+- [x] Add MSN chart/history support through `stocks history --history-provider msn` for supported price-only daily chart windows (`1mo`, `3mo`, `1y`)
 - [ ] Decide whether richer financial statements should stay single-period or grow into multi-period fetch support
 
 ## 🚀 Publish Readiness (2026-04-03)
@@ -182,7 +181,7 @@
 - [x] Verification on `2026-04-02`: `nix develop --command cargo build`, `nix develop --command cargo clippy -- -D warnings`, `nix develop --command cargo test`, `scripts/live-smoke.sh --mode mock`, and `scripts/live-smoke.sh --group live-table --group live-json --group routing --group cache --group errors` all passed (`tmp/live-smoke/20260402-122215`, `tmp/live-smoke/20260402-122218`)
 - [x] Live smoke passed for shipped `stocks` commands: `quote`, `history`, `technical`, `growth`, `valuation`, `risk`, `fundamental`, `compare`, `profile`, `financials`, `earnings`, `sentiment`, `insights`, `news`, `screen`
 - [x] Yahoo routing verified for live `quote` and `history`
-- [x] `stocks history --history-provider msn` correctly fails for IDX as unsupported
+- [x] `stocks history --history-provider msn` now works for supported MSN price-only chart windows; Yahoo remains the auto history source for full OHLCV
 - [x] `ownership releases` works with a writable `ownership.db_path` and an empty DB
 - [x] Regression coverage now verifies offline/cache parity for MSN-only commands (`stocks profile BBCA`)
 - [x] `--offline --no-cache` now fails fast as an invalid flag combination instead of serving cache
@@ -208,7 +207,6 @@
 - [x] MSN key-ratios parsing now tolerates stringified non-finite numeric sentinels (`Infinity`, `-Infinity`, `NaN`) as missing data instead of failing the entire fundamentals payload
 - [x] Live direct CLI repros on `2026-04-13` confirmed the original failure class on `BUMI`, `ADRO`, and `AIMS`; an opt-in `scripts/live-smoke.sh --group live-nonfinite` group now covers those real ticker paths
 - [x] Added `scripts/audit-msn-fundamentals.sh` for a full CLI valuation sweep across the IDX MSN symbol map; keep it as a provider-health audit, not part of the default smoke baseline
-- [ ] `ownership import --fetch-bing` is still deferred and returns unsupported
 - [x] Real KSEI PDF import from local file now works again: `ownership import --file /Users/rasyidanakbar/Downloads/ksei_raw_data.pdf` imported `7261` rows for `955` tickers on `2026-03-28`, replacing the previous `6`-row/`1`-ticker failure mode
 - [x] KSEI parser no longer depends on the old hardcoded column bounds fixture layout; it now reconstructs rows from `mutool` line output and handles the live `DATE + SHARE_CODE` merged segment plus `D`/`A` locality markers
 - [x] A real IDX-hosted March 2026 ownership PDF URL was verified on `2026-03-29`, but only through `curl-impersonate` inside `nix develop`; plain `curl` still returns `403` from Cloudflare for the same asset

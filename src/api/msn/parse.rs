@@ -1,6 +1,6 @@
-use super::map::{parse_fundamentals, parse_quote};
-use super::raw_types::{KeyRatios, MsnQuote};
-use crate::api::types::{Fundamentals, Quote};
+use super::map::{parse_fundamentals, parse_history, parse_quote};
+use super::raw_types::{KeyRatios, MsnQuote, RawChartResponse};
+use crate::api::types::{Fundamentals, Ohlc, Quote};
 use crate::error::IdxError;
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -26,10 +26,17 @@ pub(crate) fn parse_fundamentals_from_str(
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn parse_history_from_str(symbol: &str, raw: &str) -> Result<Vec<Ohlc>, IdxError> {
+    let charts: Vec<RawChartResponse> =
+        serde_json::from_str(raw).map_err(|e| IdxError::ParseError(e.to_string()))?;
+    parse_history(symbol, &charts)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 #[allow(dead_code)]
 #[cfg(test)]
 mod tests {
-    use super::{parse_fundamentals_from_str, parse_quote_from_str};
+    use super::{parse_fundamentals_from_str, parse_history_from_str, parse_quote_from_str};
 
     fn minimal_quote_raw() -> &'static str {
         r#"[{"symbol":"BBCA","marketCap":1215200000000000}]"#
@@ -62,6 +69,17 @@ mod tests {
         assert_eq!(fundamentals.revenue_growth, Some(0.081));
         assert_eq!(fundamentals.earnings_growth, Some(0.121));
         assert_eq!(fundamentals.market_cap, Some(1_215_200_000_000_000));
+    }
+
+    #[test]
+    fn parses_history_fixture_json() {
+        let raw = std::fs::read_to_string("tests/fixtures/msn_chart_bbca_3m.json")
+            .expect("chart fixture exists");
+        let history = parse_history_from_str("BBCA.JK", &raw).expect("chart fixture parsed");
+
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0].date.to_string(), "2026-01-13");
+        assert_eq!(history[0].close, 8000);
     }
 
     #[test]

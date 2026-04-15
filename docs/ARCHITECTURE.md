@@ -31,14 +31,17 @@
 ## Provider Architecture
 
 ### Dual Provider Model
-- **MSN Finance** — default provider. Rich data: quotes, fundamentals, profile, earnings, financials, sentiment, insights, news, screener. No history for IDX stocks.
-- **Yahoo Finance** — history fallback. Reliable OHLCV data via `/v8/finance/chart/`.
+- **MSN Finance** — default provider. Rich data: quotes, fundamentals, profile, earnings, financials, sentiment, insights, news, screener, and explicit price-only chart history for supported IDX windows.
+- **Yahoo Finance** — default/auto history source. Reliable OHLCV data via `/v8/finance/chart/`.
 
 ### Hybrid History Strategy
 When `history_provider = auto` (default):
-1. Check if current provider supports `HistoryProvider` trait
-2. MSN doesn't → transparently fallback to Yahoo
-3. Log info message: `"history provider fallback active (msn -> yahoo)"`
+1. Use Yahoo for history because it provides full OHLCV candles.
+2. Keep logging when provider selection falls back from MSN to Yahoo.
+3. Allow explicit `--history-provider msn` for supported MSN chart windows (`1mo`, `3mo`, `1y` with `1d` interval).
+
+MSN Charts are price-only for IDX. The CLI normalizes them into `Ohlc` rows by
+using the chart price as open/high/low/close and `0` volume.
 
 ### Capability Gating
 ```

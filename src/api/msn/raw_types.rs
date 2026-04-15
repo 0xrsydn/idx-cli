@@ -319,6 +319,37 @@ pub(super) struct RawScreenerResponse {
     pub(super) quote: Option<Vec<MsnQuote>>,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawChartResponse {
+    #[serde(rename = "_p")]
+    pub(super) id: Option<String>,
+    pub(super) chart_type: Option<String>,
+    pub(super) symbol: Option<String>,
+    pub(super) series: Option<RawChartSeries>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawChartSeries {
+    #[serde(default)]
+    pub(super) time_stamps: Vec<String>,
+    #[serde(default)]
+    pub(super) prices: Vec<Option<f64>>,
+    #[serde(default)]
+    pub(super) open_prices: Vec<Option<f64>>,
+    #[serde(default)]
+    pub(super) prices_high: Vec<Option<f64>>,
+    #[serde(default)]
+    pub(super) prices_low: Vec<Option<f64>>,
+    #[serde(default)]
+    pub(super) volumes: Vec<Option<f64>>,
+    pub(super) start_time: Option<String>,
+    pub(super) end_time: Option<String>,
+}
+
 fn de_opt_f64_lenient<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
 where
     D: Deserializer<'de>,

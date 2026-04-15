@@ -1,14 +1,16 @@
 use super::raw_types::{
-    IndustryMetric, KeyRatios, MsnQuote, RawEarningsData, RawEarningsResponse, RawEquity,
-    RawFinancialStatement, RawInsight, RawInsightItem, RawLocalizedAttribute, RawNewsFeed,
-    RawScreenerResponse, RawSentiment, RawStatementSection,
+    IndustryMetric, KeyRatios, MsnQuote, RawChartResponse, RawChartSeries, RawEarningsData,
+    RawEarningsResponse, RawEquity, RawFinancialStatement, RawInsight, RawInsightItem,
+    RawLocalizedAttribute, RawNewsFeed, RawScreenerResponse, RawSentiment, RawStatementSection,
 };
 use super::symbols::{normalized_symbol, ticker_from_symbol};
 use crate::api::types::{
     CompanyProfile, EarningsData, EarningsReport, FinancialStatements, Fundamentals, InsightData,
-    InstrumentInfo, NewsItem, Officer, Quote, SentimentData, SentimentPeriod, StatementSection,
+    InstrumentInfo, NewsItem, Officer, Ohlc, Quote, SentimentData, SentimentPeriod,
+    StatementSection,
 };
 use crate::error::IdxError;
+use chrono::DateTime;
 use std::collections::HashMap;
 
 pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, IdxError> {
@@ -628,6 +630,74 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
     Ok(results)
 }
 
+pub(super) fn parse_history(
+    symbol: &str,
+    charts: &[RawChartResponse],
+) -> Result<Vec<Ohlc>, IdxError> {
+    let chart = charts.first().ok_or(IdxError::ProviderUnavailable)?;
+    let series = chart.series.as_ref().ok_or(IdxError::ProviderUnavailable)?;
+    let mut out = Vec::new();
+
+    for (idx, raw_ts) in series.time_stamps.iter().enumerate() {
+        let Some(close_raw) = series.prices.get(idx).copied().flatten() else {
+            continue;
+        };
+        if !close_raw.is_finite() {
+            continue;
+        }
+        let timestamp = DateTime::parse_from_rfc3339(raw_ts)
+            .map_err(|e| IdxError::ParseError(format!("msn chart timestamp '{raw_ts}': {e}")))?;
+        let close = round_price(close_raw);
+        let open = series_price_at(&series.open_prices, idx).unwrap_or(close);
+        let high = series_price_at(&series.prices_high, idx).unwrap_or(close);
+        let low = series_price_at(&series.prices_low, idx).unwrap_or(close);
+        let volume = series_volume_at(series, idx);
+
+        out.push(Ohlc {
+            date: timestamp.date_naive(),
+            open,
+            high,
+            low,
+            close,
+            volume,
+        });
+    }
+
+    if out.is_empty() {
+        return Err(IdxError::ProviderUnavailable);
+    }
+
+    if let Some(raw_symbol) = chart.symbol.as_deref()
+        && let (Some(expected), Some(actual)) =
+            (ticker_from_symbol(symbol), ticker_from_symbol(raw_symbol))
+        && expected != actual
+    {
+        return Err(IdxError::SymbolNotFound(symbol.to_string()));
+    }
+
+    Ok(out)
+}
+
+fn series_price_at(values: &[Option<f64>], idx: usize) -> Option<i64> {
+    values
+        .get(idx)
+        .copied()
+        .flatten()
+        .filter(|value| value.is_finite())
+        .map(round_price)
+}
+
+fn series_volume_at(series: &RawChartSeries, idx: usize) -> u64 {
+    series
+        .volumes
+        .get(idx)
+        .copied()
+        .flatten()
+        .filter(|value| value.is_finite() && !value.is_sign_negative())
+        .map(|value| value.round() as u64)
+        .unwrap_or(0)
+}
+
 fn parse_statement_section(section: &RawStatementSection) -> StatementSection {
     // MSN financial statement values are nested one level deep inside sub-objects
     // (e.g., incomeStatement.income.{lineItems}, incomeStatement.revenue.{lineItems})
@@ -705,9 +775,9 @@ fn collect_earnings(
 #[cfg(test)]
 mod tests {
     use super::{
-        KeyRatios, RawFinancialStatement, RawNewsFeed, RawScreenerResponse, RawSentiment,
-        parse_financial_statements, parse_fundamentals, parse_news, parse_screener_results,
-        parse_sentiment,
+        KeyRatios, RawChartResponse, RawFinancialStatement, RawNewsFeed, RawScreenerResponse,
+        RawSentiment, parse_financial_statements, parse_fundamentals, parse_history, parse_news,
+        parse_screener_results, parse_sentiment,
     };
     use crate::error::IdxError;
 
@@ -860,5 +930,22 @@ mod tests {
             err.to_string(),
             "unsupported: company fundamentals unavailable from MSN; industry fallback is disabled"
         );
+    }
+
+    #[test]
+    fn parses_msn_chart_price_only_fixture_as_synthetic_ohlc() {
+        let raw: Vec<RawChartResponse> = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/msn_chart_bbca_3m.json"
+        ))
+        .expect("chart fixture should deserialize");
+        let history = parse_history("BBCA.JK", &raw).expect("chart history should parse");
+
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0].date.to_string(), "2026-01-13");
+        assert_eq!(history[0].open, 8000);
+        assert_eq!(history[0].high, 8000);
+        assert_eq!(history[0].low, 8000);
+        assert_eq!(history[0].close, 8000);
+        assert_eq!(history[0].volume, 0);
     }
 }

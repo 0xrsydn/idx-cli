@@ -249,7 +249,7 @@ register_cases() {
     add_case "routing" "yahoo-quote" "0" "$yahoo_mock_env" "stocks quote $live_symbol" ""
     add_case "routing" "auto-history-fallback" "0" "$mock_env" "$history_args" ""
     add_case "routing" "auto-technical-fallback" "0" "$mock_env" "stocks technical $live_symbol" ""
-    add_case "routing" "explicit-msn-history-unsupported" "1" "$mock_env" "stocks history $live_symbol --period 3mo --history-provider msn" "MSN does not provide price history"
+    add_case "routing" "explicit-msn-history" "0" "$mock_env" "stocks history $live_symbol --period 3mo --history-provider msn" "History for"
 
     add_case "errors" "invalid-provider-json" "1" "IDX_PROVIDER=bogus" "-o json version" "\"error\": true"
     add_case "errors" "profile-provider-gate-json" "1" "IDX_PROVIDER=yahoo" "-o json stocks profile $live_symbol" "requires --provider msn"

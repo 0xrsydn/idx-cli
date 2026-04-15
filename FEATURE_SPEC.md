@@ -49,7 +49,7 @@ The remaining work is architecture cleanup, a few correctness edge cases, and se
 | Area | CLI | Status | Notes |
 | --- | --- | --- | --- |
 | Quotes | `idx stocks quote` | Implemented | Cached, smoke-tested, and covered by integration tests |
-| History | `idx stocks history` | Partial | Works today via Yahoo/history-provider routing; explicit MSN history remains unsupported for IDX |
+| History | `idx stocks history` | Implemented with provider-specific limits | Yahoo remains the default/auto OHLCV source; explicit MSN history works for supported price-only chart windows |
 | Technical | `idx stocks technical` | Implemented | Uses the cached history path |
 | Growth | `idx stocks growth` | Implemented | Shipped and exercised |
 | Valuation | `idx stocks valuation` | Implemented | Shipped and exercised |
@@ -63,11 +63,10 @@ The remaining work is architecture cleanup, a few correctness edge cases, and se
 | Insights | `idx stocks insights` | Implemented | Summary/highlights/risks/`last_updated` mapping was corrected and tested |
 | News | `idx stocks news` | Implemented | Fixture-backed CLI coverage exists |
 | Screener | `idx stocks screen` | Implemented with gaps | Validation landed; expression/preset workflow is still future work |
-| MSN charts | `idx stocks history --history-provider msn` | Missing | Explicit MSN history still returns unsupported for IDX |
+| MSN charts | `idx stocks history --history-provider msn` | Implemented with limits | Supports `--period 1mo|3mo|1y --interval 1d`; MSN provides price-only chart series, so OHLC is synthesized and volume is `0` |
 | KSEI ownership import/query | `idx ownership import --file`, `idx ownership import --url`, `idx ownership releases`, `idx ownership ticker` | Implemented | Local PDF import and SQLite-backed query flow are verified against the March 2026 KSEI release; remote IDX import now works for the discovered `above 1%` `lamp1` BEI attachment, and legacy `above 5%` / `investor-type` BEI report families are rejected explicitly |
 | KSEI archive fallback import | `idx ownership import --file <.zip|.txt>` | Implemented as fallback | Local archive ZIP/TXT ingest maps investor-type/locality buckets into synthetic aggregate holders for validation/backstop use, not the primary ingest surface |
 | Ownership snapshot sync | `idx ownership sync` | Implemented | Manifest-driven SQLite snapshot install with checksum validation, conservative replacement/no-op rules, and publisher helper script |
-| Bing ownership CLI | `idx ownership import --fetch-bing` | Not implemented | Client groundwork exists, CLI import path is still deferred |
 
 ---
 
@@ -166,18 +165,10 @@ Done when:
 
 Priority order:
 
-1. MSN Charts / `Finance/Charts`
-   - Reuse the existing `idx stocks history` command.
-   - Decide how to handle price-only timeframes safely.
-
-2. Bing ownership CLI integration
-   - Reuse the existing client groundwork in `src/api/msn/bing.rs`.
-   - Define the import shape and output contract for `idx ownership import --fetch-bing`.
-
-3. Richer financial statements
+1. Richer financial statements
    - Decide whether to stay with the current single-period model or add multi-period fetch support.
 
-4. New user-facing surfaces from `TODO.md`
+2. New user-facing surfaces from `TODO.md`
    - `market summary`
    - `market movers`
    - `market sectors`
@@ -215,7 +206,5 @@ MSN API key (public, embedded in MSN Money website):
 Base URLs:
 - `https://assets.msn.com/service/` - core market data (Quotes, Charts, Equities, Earnings, Sentiment, Screener)
 - `https://api.msn.com/msn/v0/pages/finance/` - extended data (key ratios, insights, news feed)
-- `https://services.bingapis.com/contentservices-finance.hedgefunddataprovider/api/v1/` - Bing ownership data
-
 Keep this appendix for endpoint discovery and future work.
 Use the sections above as the actual implementation plan.

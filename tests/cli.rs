@@ -520,8 +520,8 @@ fn msn_technical_auto_falls_back_to_yahoo() {
 }
 
 #[test]
-fn explicit_msn_history_provider_returns_unsupported() {
-    test_bin("msn-history-explicit-unsupported")
+fn explicit_msn_history_provider_uses_msn_chart_fixture() {
+    test_bin("msn-history-explicit")
         .env("IDX_PROVIDER", "msn")
         .env("IDX_USE_MOCK_PROVIDER", "1")
         .args([
@@ -534,10 +534,9 @@ fn explicit_msn_history_provider_returns_unsupported() {
             "msn",
         ])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "MSN does not provide price history",
-        ));
+        .success()
+        .stdout(predicate::str::contains("History for BBCA.JK"))
+        .stdout(predicate::str::contains("8,000"));
 }
 
 #[test]
