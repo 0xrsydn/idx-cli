@@ -29,10 +29,15 @@ const HEADER_LABELS: &[&str] = &[
 const HOLDER_REGISTER_SCHEMA_MARKERS: &[&str] = &[
     "TEXT=\"DATE\"",
     "TEXT=\"SHARE_CODE\"",
+    "TEXT=\"SHARE CODE\"",
     "TEXT=\"INVESTOR_NAME\"",
+    "TEXT=\"INVESTOR NAME\"",
     "TEXT=\"INVESTOR_TYPE\"",
+    "TEXT=\"INVESTOR CLASSIFICATION\"",
     "TEXT=\"LOCAL_FOREIGN\"",
+    "TEXT=\"LOCAL/FOREIGN\"",
     "TEXT=\"TOTAL_HOLDING_SHARES\"",
+    "TEXT=\"TOTAL HOLDING SHARES\"",
     "TEXT=\"PERCENTAGE\"",
 ];
 const ANNOUNCEMENT_WRAPPER_SCHEMA_MARKERS: &[&str] =
@@ -40,8 +45,9 @@ const ANNOUNCEMENT_WRAPPER_SCHEMA_MARKERS: &[&str] =
 const ABOVE_FIVE_SCHEMA_MARKERS: &[&str] =
     &["TEXT=\"INVS\"", "REKENING TAMPUNGAN KSEI", "CLOSED MEMBER-"];
 const INVESTOR_TYPE_SCHEMA_MARKERS: &[&str] = &[
-    "TEXT=\"STOCK_CODE\"",
-    "TEXT=\"NUMBER_OF_SHARES\"",
+    "STOCK_CODE",
+    "NUMBER_OF_SHARES",
+    "TEXT=\"DOMESTIC\"",
     "TEXT=\"FOREIGN\"",
 ];
 
@@ -460,8 +466,33 @@ fn is_id_number_like(value: &str) -> bool {
 }
 
 fn is_investor_type_marker(value: &str) -> bool {
-    let trimmed = value.trim();
-    !trimmed.is_empty() && trimmed.len() <= 4 && trimmed.chars().all(|ch| ch.is_ascii_uppercase())
+    let trimmed = value.trim().to_ascii_uppercase();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    if trimmed.len() <= 4 && trimmed.chars().all(|ch| ch.is_ascii_uppercase()) {
+        return true;
+    }
+
+    matches!(
+        trimmed.as_str(),
+        "CORPORATE"
+            | "INDIVIDUAL"
+            | "MUTUAL FUND"
+            | "PENSION FUND"
+            | "INSURANCE"
+            | "FOUNDATION"
+            | "SECURITIES COMPANY"
+            | "PRIVATE BANK"
+            | "PRIVATE EQUITY"
+            | "SOVEREIGN WEALTH FUND"
+            | "STATE OWNED ENTERPRISES"
+            | "BANK"
+            | "FIRM"
+            | "BROKER"
+            | "OTHER"
+    )
 }
 
 fn is_locality_marker(value: &str) -> bool {

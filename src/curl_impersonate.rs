@@ -3,9 +3,9 @@ use std::process::{Command, Output};
 use crate::error::IdxError;
 
 const CANDIDATES: &[&str] = &[
-    "curl_chrome142",
     "curl_chrome136",
     "curl_chrome133a",
+    "curl_chrome142",
     "curl_chrome131",
     "curl_chrome124",
     "curl_chrome120",

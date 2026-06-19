@@ -12,7 +12,6 @@ const DEFAULT_IDX_ANNOUNCEMENT_API_URL: &str =
 const IDX_ANNOUNCEMENT_API_ENV: &str = "IDX_OWNERSHIP_ANNOUNCEMENT_API_URL";
 const IDX_ANNOUNCEMENT_LISTING_ENV: &str = "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL";
 const IDX_ANNOUNCEMENT_PAGE_SIZE: usize = 10;
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AnnouncementPage {
@@ -383,7 +382,6 @@ fn fetch_bytes(stage: &str, url: &str, headers: &[(String, String)]) -> Result<V
 
 fn json_headers() -> Vec<(String, String)> {
     vec![
-        ("User-Agent".to_string(), USER_AGENT.to_string()),
         (
             "Accept".to_string(),
             "application/json,text/plain,*/*".to_string(),
@@ -398,7 +396,6 @@ fn json_headers() -> Vec<(String, String)> {
 
 fn pdf_headers() -> Vec<(String, String)> {
     vec![
-        ("User-Agent".to_string(), USER_AGENT.to_string()),
         (
             "Accept".to_string(),
             "application/pdf,application/octet-stream,*/*;q=0.8".to_string(),
