@@ -17,6 +17,7 @@ const HEADER_LABELS: &[&str] = &[
     "ISSUERNAME",
     "INVESTORNAME",
     "INVESTORTYPE",
+    "INVESTORCLASSIFICATION",
     "LOCALFOREIGN",
     "NATIONALITY",
     "DOMICILE",
@@ -31,14 +32,15 @@ const HOLDER_REGISTER_SCHEMA_MARKERS: &[&str] = &[
     "TEXT=\"SHARE_CODE\"",
     "TEXT=\"INVESTOR_NAME\"",
     "TEXT=\"INVESTOR_TYPE\"",
+    "TEXT=\"INVESTOR_CLASSIFICATION\"",
     "TEXT=\"LOCAL_FOREIGN\"",
     "TEXT=\"TOTAL_HOLDING_SHARES\"",
     "TEXT=\"PERCENTAGE\"",
 ];
 const ANNOUNCEMENT_WRAPPER_SCHEMA_MARKERS: &[&str] =
-    &["TEXT=\"PENGUMUMAN\"", "PT BURSA EFEK INDONESIA (BEI)"];
+    &["TEXT=\"PENGUMUMAN\"", "PT_BURSA_EFEK_INDONESIA_(BEI)"];
 const ABOVE_FIVE_SCHEMA_MARKERS: &[&str] =
-    &["TEXT=\"INVS\"", "REKENING TAMPUNGAN KSEI", "CLOSED MEMBER-"];
+    &["TEXT=\"INVS\"", "REKENING_TAMPUNGAN_KSEI", "CLOSED_MEMBER-"];
 const INVESTOR_TYPE_SCHEMA_MARKERS: &[&str] = &[
     "TEXT=\"STOCK_CODE\"",
     "TEXT=\"NUMBER_OF_SHARES\"",
@@ -103,7 +105,7 @@ pub fn extract_pdf_stext(path: &Path) -> Result<String, IdxError> {
 
 /// Classify a PDF schema from mutool stext XML before the row parser runs.
 pub fn classify_stext_xml(xml: &str) -> OwnershipPdfSchema {
-    let normalized = xml.to_ascii_uppercase();
+    let normalized = normalize_stext_for_classification(xml);
 
     if count_schema_markers(&normalized, HOLDER_REGISTER_SCHEMA_MARKERS) >= 5 {
         return OwnershipPdfSchema::HolderRegister;
@@ -119,6 +121,41 @@ pub fn classify_stext_xml(xml: &str) -> OwnershipPdfSchema {
     }
 
     OwnershipPdfSchema::Unknown
+}
+
+/// Normalize stext XML for schema classification.
+///
+/// Newer KSEI PDFs use spaces in header text (e.g. `SHARE CODE` instead of
+/// `SHARE_CODE`, `INVESTOR CLASSIFICATION` instead of `INVESTOR_TYPE`).  The
+/// schema markers use the underscored form, so we replace spaces with
+/// underscores inside `text="..."` attribute values to match both layouts.
+fn normalize_stext_for_classification(xml: &str) -> String {
+    let upper = xml.to_ascii_uppercase();
+    let mut result = String::with_capacity(upper.len());
+    let bytes = upper.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if bytes[i..].starts_with(b"TEXT=\"") {
+            result.push_str("TEXT=\"");
+            i += 6; // skip past TEXT="
+            // Collect everything until the closing quote.
+            while i < bytes.len() && bytes[i] != b'"' {
+                let ch = bytes[i] as char;
+                result.push(if ch == ' ' { '_' } else { ch });
+                i += 1;
+            }
+            if i < bytes.len() {
+                result.push('"');
+                i += 1; // skip closing quote
+            }
+        } else {
+            result.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+
+    result
 }
 
 /// Parse a KSEI ownership PDF into raw rows.
@@ -682,6 +719,12 @@ mod tests {
             classify_stext_xml(xml),
             OwnershipPdfSchema::AnnouncementWrapper
         );
+    }
+
+    #[test]
+    fn classify_stext_xml_detects_spaced_holder_register_schema() {
+        let xml = include_str!("../../tests/fixtures/ksei_above1_spaced_stext_excerpt.xml");
+        assert_eq!(classify_stext_xml(xml), OwnershipPdfSchema::HolderRegister);
     }
 
     #[test]
