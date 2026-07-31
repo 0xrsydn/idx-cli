@@ -983,10 +983,10 @@ fn sort_screener_quotes(quotes: &mut [Quote], filter: &str) {
             });
         }
         "high-volume" => {
-            quotes.sort_by(|a, b| b.volume.cmp(&a.volume));
+            quotes.sort_by_key(|quote| std::cmp::Reverse(quote.volume));
         }
         "large-cap" => {
-            quotes.sort_by(|a, b| b.market_cap.unwrap_or(0).cmp(&a.market_cap.unwrap_or(0)));
+            quotes.sort_by_key(|quote| std::cmp::Reverse(quote.market_cap.unwrap_or(0)));
         }
         _ => {}
     }

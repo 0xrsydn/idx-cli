@@ -196,10 +196,7 @@ fn insert_ksei_holdings_rows(
             )
             .map_err(|e| IdxError::DatabaseError(e.to_string()));
 
-        match changed {
-            Ok(n) => inserted += n,
-            Err(err) => return Err(err),
-        }
+        inserted += changed?;
     }
 
     Ok(inserted)

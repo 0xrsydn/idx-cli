@@ -122,7 +122,7 @@ pub fn format_graph_text(nodes: &[GraphNode], edges: &[GraphEdge]) -> String {
     out.push_str(&format!("nodes: {}  edges: {}\n", nodes.len(), edges.len()));
 
     for (ticker_id, mut rels) in ticker_to_entities {
-        rels.sort_by(|a, b| b.percentage_bps.cmp(&a.percentage_bps));
+        rels.sort_by_key(|edge| std::cmp::Reverse(edge.percentage_bps));
         let ticker_label = labels.get(ticker_id).map(|v| v.0).unwrap_or(ticker_id);
         out.push_str(&format!("\n{ticker_label} [TICKER]\n"));
 
