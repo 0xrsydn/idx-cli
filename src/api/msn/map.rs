@@ -186,13 +186,7 @@ fn normalize_percentish(value: Option<f64>) -> Option<f64> {
 }
 
 fn sanitize_current_ratio(value: Option<f64>) -> Option<f64> {
-    value.and_then(|number| {
-        if !number.is_finite() || number < 0.01 {
-            None
-        } else {
-            Some(number)
-        }
-    })
+    value.filter(|number| number.is_finite() && *number >= 0.01)
 }
 
 fn round_price(value: f64) -> i64 {

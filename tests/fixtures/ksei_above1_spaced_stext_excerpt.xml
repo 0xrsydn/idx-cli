@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<document>
+<page id="page1" width="612" height="792">
+<line bbox="58.2 135.37999 63.566404 137.78" wmode="0" dir="1 0" flags="0" text="DATE"></line>
+<line bbox="73.944 135.37999 87.46321 137.78" wmode="0" dir="1 0" flags="0" text="SHARE CODE"></line>
+<line bbox="111.26 135.37999 125.50881 137.78" wmode="0" dir="1 0" flags="0" text="ISSUER NAME"></line>
+<line bbox="199.73 135.37999 217.21158 137.78" wmode="0" dir="1 0" flags="0" text="INVESTOR NAME"></line>
+<line bbox="288.53 135.37999 315.77238 137.78" wmode="0" dir="1 0" flags="0" text="INVESTOR CLASSIFICATION"></line>
+<line bbox="337.63 135.37999 354.19963 137.78" wmode="0" dir="1 0" flags="0" text="LOCAL FOREIGN"></line>
+<line bbox="363.31 135.37999 376.7908 137.78" wmode="0" dir="1 0" flags="0" text="NATIONALITY"></line>
+<line bbox="398.11 135.37999 408.034 137.78" wmode="0" dir="1 0" flags="0" text="DOMICILE"></line>
+<line bbox="432.55 135.37999 454.30836 137.78" wmode="0" dir="1 0" flags="0" text="HOLDINGS SCRIPLESS"></line>
+<line bbox="466.78 135.37999 484.1248 137.78" wmode="0" dir="1 0" flags="0" text="HOLDINGS SCRIP"></line>
+<line bbox="496.9 135.37999 522.97366 137.78" wmode="0" dir="1 0" flags="0" text="TOTAL HOLDING SHARES"></line>
+<line bbox="534.34 135.37999 547.6168 137.78" wmode="0" dir="1 0" flags="0" text="PERCENTAGE"></line>
+<line bbox="55.68 138.49999 75.26399 140.9" wmode="0" dir="1 0" flags="0" text="29-May-2026 AADI"></line>
+<line bbox="91.944 138.49999 125.39758 140.9" wmode="0" dir="1 0" flags="0" text="ADARO ANDALAN INDONESIA Tbk"></line>
+<line bbox="145.7 138.49999 175.97843 140.9" wmode="0" dir="1 0" flags="0" text="PERSADA CAPITAL INVESTAMA"></line>
+<line bbox="272.09 138.49999 282.27076 140.9" wmode="0" dir="1 0" flags="0" text="Corporate"></line>
+<line bbox="330.0 138.49999 332.0 140.9" wmode="0" dir="1 0" flags="0" text="D"></line>
+<line bbox="360.0 138.49999 380.0 140.9" wmode="0" dir="1 0" flags="0" text="INDONESIA"></line>
+<line bbox="430.0 138.49999 460.0 140.9" wmode="0" dir="1 0" flags="0" text="3.200.142.830"></line>
+<line bbox="465.0 138.49999 470.0 140.9" wmode="0" dir="1 0" flags="0" text="0"></line>
+<line bbox="495.0 138.49999 525.0 140.9" wmode="0" dir="1 0" flags="0" text="3.200.142.830"></line>
+<line bbox="533.0 138.49999 548.0 140.9" wmode="0" dir="1 0" flags="0" text="41,10"></line>
+</page>
+</document>
