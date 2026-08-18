@@ -61,6 +61,7 @@
           inputsFrom = [ idxPackage ];
           packages = with pkgs; [
             rustToolchain
+            nodejs_22
             cargo-watch
             cargo-nextest
             prek
