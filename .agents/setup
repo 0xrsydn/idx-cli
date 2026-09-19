@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+#
+# Orb setup for idx-cli.
+#
+# A fresh orb has no Rust toolchain and no Nix, while the repository builds and
+# verifies through its flake dev shell (`nix develop`). This script installs Nix
+# (single-user), realizes the dev shell, makes that environment available to the
+# login shells Amp and orb services start, and warms the Cargo build so the
+# first agent command is incremental.
+#
+# Idempotent by design: an orb restored from a stale snapshot re-runs this and
+# keeps /nix, ~/.cargo, and target/ instead of rebuilding them.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+nix_profile="$HOME/.nix-profile"
+nix_bin="$nix_profile/bin/nix"
+nix_conf="$HOME/.config/nix/nix.conf"
+bash_profile="$HOME/.bash_profile"
+agent_guidance="$HOME/.config/amp/AGENTS.md"
+profile_marker="# idx-cli orb dev shell (managed by .agents/setup)"
+guidance_marker="<!-- idx-cli orb setup -->"
+
+step() { printf '\n==> %s\n' "$*"; }
+
+# Runs "$@" with timing so setup.log shows which step is slow or failing.
+run() {
+  local label="$1"
+  shift
+  local start=$SECONDS
+  if "$@"; then
+    printf '    ok: %s (%ss)\n' "$label" "$((SECONDS - start))"
+    return 0
+  fi
+  local status=$?
+  printf '    FAILED: %s (%ss, exit %s)\n' "$label" "$((SECONDS - start))" "$status" >&2
+  return "$status"
+}
+
+# Warm-up work whose failure should not stop snapshot publication.
+run_warn() {
+  if ! run "$@"; then
+    printf 'warning: %s failed; rerun .agents/setup once the cause is fixed\n' "$1" >&2
+  fi
+}
+
+step "Nix package manager"
+if [ -x "$nix_bin" ]; then
+  printf '    ok: already installed (%s)\n' "$("$nix_bin" --version)"
+else
+  installer="$(mktemp)"
+  curl -fsSL https://nixos.org/nix/install -o "$installer"
+  run "install nix (single-user)" sh "$installer" --no-daemon --no-modify-profile --yes
+  rm -f "$installer"
+fi
+
+# The installer cannot update the environment of this already-running script.
+# shellcheck source=/dev/null
+if [ -f "$nix_profile/etc/profile.d/nix.sh" ]; then
+  . "$nix_profile/etc/profile.d/nix.sh"
+fi
+
+step "Nix flake support"
+mkdir -p "$(dirname "$nix_conf")"
+touch "$nix_conf"
+if ! grep -qE '^[[:space:]]*experimental-features[[:space:]]*=.*nix-command' "$nix_conf"; then
+  printf 'experimental-features = nix-command flakes\n' >>"$nix_conf"
+fi
+if ! grep -qE '^[[:space:]]*warn-dirty[[:space:]]*=' "$nix_conf"; then
+  printf 'warn-dirty = false\n' >>"$nix_conf"
+fi
+printf '    ok: %s\n' "$nix_conf"
+
+step "Flake dev shell"
+run "realize dev shell" "$nix_bin" develop --command true
+
+step "Warm Cargo build (kept in the snapshot for the first agent command)"
+run_warn "cargo build --locked" "$nix_bin" develop --command bash -c 'cargo build --locked'
+run_warn "cargo test --no-run --locked" "$nix_bin" develop --command bash -c 'cargo test --no-run --locked'
+run_warn "cargo clippy --locked -- -D warnings" "$nix_bin" develop --command bash -c 'cargo clippy --locked -- -D warnings'
+
+step "Login shell environment"
+# Amp starts its login shells (the headless executor and orb services) from /,
+# so activate the dev shell by repository path instead of by $PWD. The
+# IN_NIX_SHELL guard keeps nested shells and `nix develop` itself cheap.
+profile_hook() {
+  cat <<EOF
+$profile_marker
+if [ -f "$nix_profile/etc/profile.d/nix.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$nix_profile/etc/profile.d/nix.sh"
+fi
+if [ -z "\${IN_NIX_SHELL:-}" ] && [ -f "$repo_root/flake.nix" ]; then
+  eval "\$("$nix_bin" print-dev-env "$repo_root")"
+fi
+if [ "\$PWD" = "$repo_root" ]; then
+  case ":\$PATH:" in
+    *":$repo_root/target/debug:"*) ;;
+    *) PATH="$repo_root/target/debug:\$PATH" ;;
+  esac
+  export PATH
+fi
+EOF
+}
+
+if grep -Fqx "$profile_marker" "$bash_profile" 2>/dev/null; then
+  printf '    ok: dev shell hook already present in %s\n' "$bash_profile"
+else
+  printf '\n' >>"$bash_profile"
+  profile_hook >>"$bash_profile"
+  printf '    ok: added dev shell hook to %s\n' "$bash_profile"
+fi
+
+step "Orb guidance for agents"
+mkdir -p "$(dirname "$agent_guidance")"
+if grep -Fq "$guidance_marker" "$agent_guidance" 2>/dev/null; then
+  printf '    ok: guidance already present in %s\n' "$agent_guidance"
+else
+  cat >>"$agent_guidance" <<EOF
+
+$guidance_marker
+# idx-cli inside the orb
+
+- The idx-cli Nix dev shell is already active for login shells: \`cargo\`, \`rustc\`, \`cargo clippy\`, \`cargo fmt\`, \`cargo nextest\`, \`prek\`, \`mutool\`, and the \`curl_chrome*\` binaries are on \`PATH\`.
+- \`.agents/setup\` already ran \`cargo build --locked\`, so \`target/\` is warm; run \`cargo build\`, \`cargo clippy -- -D warnings\`, and \`cargo test\` directly.
+- \`nix develop\` still works when you want the shell explicitly.
+EOF
+  printf '    ok: added orb guidance to %s\n' "$agent_guidance"
+fi
+
+step "Verify"
+# A minimal environment proves the hook works for the login shells Amp starts,
+# not just for this script's already-modified environment.
+if run "cargo resolves in a clean login shell" \
+  env -i HOME="$HOME" USER="${USER:-user}" PATH=/usr/bin:/bin /bin/bash -lc 'command -v cargo && cargo --version'; then
+  printf '    ok: orb environment ready\n'
+else
+  printf 'error: the Nix dev shell is not active in a clean login shell\n' >&2
+  exit 1
+fi

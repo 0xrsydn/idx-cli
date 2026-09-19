@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# Orb resume for idx-cli.
+#
+# The repository has no services and no private registries, so nothing here
+# needs credentials. This verifies quickly that the snapshot's toolchain is
+# still usable after a pause, and restores the Nix flake config if it vanished.
+# Keep it fast: Amp waits at most 10 seconds.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+nix_bin="$HOME/.nix-profile/bin/nix"
+nix_conf="$HOME/.config/nix/nix.conf"
+log="$HOME/.cache/amp/logs/resume-detail.log"
+
+mkdir -p "$(dirname "$log")"
+log_line() { printf '%s idx-cli resume: %s\n' "$(date -Is)" "$*" >>"$log"; }
+
+fail() {
+  log_line "FAILED: $*"
+  printf 'idx-cli orb: %s\nRepair it with %s/.agents/setup\n' "$*" "$repo_root" >&2
+  exit 1
+}
+
+if [ ! -x "$nix_bin" ]; then
+  fail "Nix is not installed"
+fi
+
+if ! grep -qE '^[[:space:]]*experimental-features[[:space:]]*=.*nix-command' "$nix_conf" 2>/dev/null; then
+  mkdir -p "$(dirname "$nix_conf")"
+  printf 'experimental-features = nix-command flakes\n' >>"$nix_conf"
+  log_line "restored $nix_conf"
+fi
+
+# The toolchain has to be on PATH in a clean login shell: that is the
+# environment Amp's executor and supervised orb services inherit.
+if ! env -i HOME="$HOME" USER="${USER:-user}" PATH=/usr/bin:/bin /bin/bash -lc 'command -v cargo >/dev/null 2>&1'; then
+  fail "cargo is not on PATH in a clean login shell"
+fi
+
+log_line "ok"

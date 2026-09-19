@@ -11,6 +11,8 @@ docs-internal/
 # Large research data files
 research/
 
+# Amp orb runtime files
+.amp/portals/
 
 # Added by cargo
 
