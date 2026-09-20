@@ -5,8 +5,9 @@
 # A fresh orb has no Rust toolchain and no Nix, while the repository builds and
 # verifies through its flake dev shell (`nix develop`). This script installs Nix
 # (single-user), realizes the dev shell, makes that environment available to the
-# login shells Amp and orb services start, and warms the Cargo build so the
-# first agent command is incremental.
+# login shells Amp and orb services start, warms the Cargo build, and pre-loads
+# local data (ownership snapshot + market cache) so the first agent command is
+# incremental and the shipped read commands have something to serve.
 #
 # Idempotent by design: an orb restored from a stale snapshot re-runs this and
 # keeps /nix, ~/.cargo, and target/ instead of rebuilding them.
@@ -19,7 +20,13 @@ nix_conf="$HOME/.config/nix/nix.conf"
 bash_profile="$HOME/.bash_profile"
 agent_guidance="$HOME/.config/amp/AGENTS.md"
 profile_marker="# idx-cli orb dev shell (managed by .agents/setup)"
-guidance_marker="<!-- idx-cli orb setup -->"
+idx_bin="$repo_root/target/debug/idx"
+guidance_start="<!-- idx-cli-orb-setup -->"
+guidance_end="<!-- idx-cli-orb-setup-end -->"
+
+# Amp runs setup from the repository root; be explicit so relative paths and
+# the dev shell shellHook behave the same however the script is invoked.
+cd "$repo_root"
 
 step() { printf '\n==> %s\n' "$*"; }
 
@@ -74,10 +81,56 @@ printf '    ok: %s\n' "$nix_conf"
 step "Flake dev shell"
 run "realize dev shell" "$nix_bin" develop --command true
 
+# Adopt the dev shell environment for the rest of this script. This is the same
+# `nix print-dev-env` mechanism the login-shell hook uses below, so a broken
+# dev shell fails setup loudly instead of only failing later for agents.
+dev_shell_env="$("$nix_bin" print-dev-env "$repo_root")"
+eval "$dev_shell_env"
+unset dev_shell_env
+
 step "Warm Cargo build (kept in the snapshot for the first agent command)"
-run_warn "cargo build --locked" "$nix_bin" develop --command bash -c 'cargo build --locked'
-run_warn "cargo test --no-run --locked" "$nix_bin" develop --command bash -c 'cargo test --no-run --locked'
-run_warn "cargo clippy --locked -- -D warnings" "$nix_bin" develop --command bash -c 'cargo clippy --locked -- -D warnings'
+run_warn "cargo build --locked" cargo build --locked
+run_warn "cargo test --no-run --locked" cargo test --no-run --locked
+run_warn "cargo clippy --locked -- -D warnings" cargo clippy --locked -- -D warnings
+
+step "Warm local data"
+# Preferred ownership bootstrap: installs the maintained SQLite snapshot from
+# the published manifest, so `ownership releases|ticker|changes` work in a
+# fresh orb without a first sync. Re-running against a current DB is a no-op.
+run_warn "ownership sync" "$idx_bin" -q ownership sync
+
+# Warm the file cache for the shipped read commands. TTLs are short (5 min for
+# quotes, 1 h for fundamentals), so this mainly keeps the first commands
+# instant and makes `--offline` work; a miss just refetches from the provider.
+warm_market_cache() {
+  local -a commands=(
+    "stocks quote BBCA"
+    "stocks history BBCA --period 1mo"
+    "stocks technical BBCA"
+    "stocks growth BBCA"
+    "stocks valuation BBCA"
+    "stocks risk BBCA"
+    "stocks fundamental BBCA"
+    "stocks profile BBCA"
+    "stocks financials BBCA"
+    "stocks earnings BBCA"
+    "stocks sentiment BBCA"
+    "stocks insights BBCA"
+    "stocks news BBCA --limit 5"
+    "stocks screen --limit 10"
+    "stocks compare BBCA,BBRI"
+  )
+  local failures=0 command
+  for command in "${commands[@]}"; do
+    # shellcheck disable=SC2086 # the command line is intentionally re-split
+    if ! "$idx_bin" -q $command >/dev/null 2>&1; then
+      printf '        could not warm: idx %s\n' "$command" >&2
+      failures=$((failures + 1))
+    fi
+  done
+  [ "$failures" -eq 0 ]
+}
+run_warn "market cache warm" warm_market_cache
 
 step "Login shell environment"
 # Amp starts its login shells (the headless executor and orb services) from /,
@@ -113,20 +166,24 @@ fi
 
 step "Orb guidance for agents"
 mkdir -p "$(dirname "$agent_guidance")"
-if grep -Fq "$guidance_marker" "$agent_guidance" 2>/dev/null; then
-  printf '    ok: guidance already present in %s\n' "$agent_guidance"
-else
-  cat >>"$agent_guidance" <<EOF
+if grep -Fq "$guidance_start" "$agent_guidance" 2>/dev/null; then
+  # Replace a previous block so text updates reach orbs that already have one.
+  sed -i "/$guidance_start/,/$guidance_end/d" "$agent_guidance"
+  # Drop the blank separator lines the removed block left at the end of file.
+  sed -i -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}' "$agent_guidance"
+fi
+cat >>"$agent_guidance" <<EOF
 
-$guidance_marker
+$guidance_start
 # idx-cli inside the orb
 
 - The idx-cli Nix dev shell is already active for login shells: \`cargo\`, \`rustc\`, \`cargo clippy\`, \`cargo fmt\`, \`cargo nextest\`, \`prek\`, \`mutool\`, and the \`curl_chrome*\` binaries are on \`PATH\`.
 - \`.agents/setup\` already ran \`cargo build --locked\`, so \`target/\` is warm; run \`cargo build\`, \`cargo clippy -- -D warnings\`, and \`cargo test\` directly.
+- The ownership DB is pre-synced from the published snapshot and \`~/.cache/idx\` is warmed for the \`stocks\` read commands, so \`idx ownership releases\` and friends work immediately (and with \`--offline\`).
 - \`nix develop\` still works when you want the shell explicitly.
+$guidance_end
 EOF
-  printf '    ok: added orb guidance to %s\n' "$agent_guidance"
-fi
+printf '    ok: wrote orb guidance to %s\n' "$agent_guidance"
 
 step "Verify"
 # A minimal environment proves the hook works for the login shells Amp starts,
@@ -137,4 +194,11 @@ if run "cargo resolves in a clean login shell" \
 else
   printf 'error: the Nix dev shell is not active in a clean login shell\n' >&2
   exit 1
+fi
+
+ownership_db="$HOME/.local/share/idx/ownership.db"
+if [ -f "$ownership_db" ]; then
+  printf '    ok: ownership DB present (%s)\n' "$ownership_db"
+else
+  printf 'warning: no ownership DB at %s; `idx ownership sync` will install it on demand\n' "$ownership_db" >&2
 fi
