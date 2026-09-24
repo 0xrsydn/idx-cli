@@ -57,6 +57,11 @@ jobs:
       - name: Run default app
         run: nix run .#default -- version
 
+      - name: Build ownership publisher
+        run: |
+          nix build .#ownership-publisher
+          ./result/bin/idx-ownership-publish --help
+
   install-script:
     runs-on: ${{ matrix.os }}
     strategy:

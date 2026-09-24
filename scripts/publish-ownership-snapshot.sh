@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeuo pipefail
 
 usage() {
     cat <<'EOF'
@@ -8,6 +8,13 @@ Usage: scripts/publish-ownership-snapshot.sh --output-dir <dir> [options]
 
 Build and publish the latest supported IDX/KSEI ownership snapshot to the stable
 GitHub release used by `idx ownership sync`.
+
+Safe to run daily: unless --force is given, it skips the upload when the
+published snapshot already has the latest as-of date. The last line is always
+one of:
+  RESULT: published <as-of>
+  RESULT: up-to-date <as-of>
+  RESULT: FAILED stage=<stage> (exit <code>)
 
 Options:
   --idx-bin <path>       idx binary to use (default: ./target/debug/idx)
@@ -18,6 +25,7 @@ Options:
                          (default: ownership-snapshot-current)
   --history <n>          Also include the <n> previous monthly above-1% reports
                          in the snapshot (passed to the builder; default: 0)
+  --force                Upload even if the published snapshot is up to date
   --build                Run `cargo build` before publishing
   --keep-workdir         Keep the temp workdir created by the builder helper
   --help                 Show this help
@@ -31,7 +39,16 @@ RELEASE_TAG="ownership-snapshot-current"
 BUILD_FIRST="0"
 KEEP_WORKDIR="0"
 HISTORY="0"
+FORCE="0"
 PUBLISH_WORKDIR=""
+STAGE="arguments"
+
+on_error() {
+    local status=$?
+    printf 'RESULT: FAILED stage=%s (exit %s)\n' "$STAGE" "$status" >&2
+    exit "$status"
+}
+trap on_error ERR
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -54,6 +71,10 @@ while [[ $# -gt 0 ]]; do
         --history)
             HISTORY="${2:-}"
             shift 2
+            ;;
+        --force)
+            FORCE="1"
+            shift
             ;;
         --build)
             BUILD_FIRST="1"
@@ -111,6 +132,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Published manifest, or empty when none exists yet.
+published_manifest() {
+    gh release download "$RELEASE_TAG" \
+        --repo "$REPO_FULL_NAME" \
+        --pattern ownership-snapshot-manifest.json \
+        --output - 2>/dev/null || true
+}
+
+STAGE="build"
 if [[ "$BUILD_FIRST" == "1" ]]; then
     printf 'Building idx...\n'
     cargo build
@@ -122,6 +152,27 @@ if ! "$IDX_BIN" version >/dev/null 2>&1; then
     exit 1
 fi
 
+STAGE="check-published"
+PUBLISHED_MANIFEST="$(published_manifest)"
+PUBLISHED_AS_OF="$(jq -r '.snapshot.latest_as_of_date // empty' <<< "$PUBLISHED_MANIFEST" 2>/dev/null || true)"
+
+if [[ "$FORCE" != "1" && -n "$PUBLISHED_AS_OF" ]]; then
+    STAGE="discover"
+    # Cheap pre-check: XLSX reports carry their as-of date, so an unchanged
+    # month is detected without downloading or building anything.
+    LATEST_AS_OF="$(
+        "$IDX_BIN" -o json ownership discover --family above1 --limit 1 |
+            jq -r '.[0] | select(.status == "supported") | .as_of_date // empty'
+    )"
+    if [[ -n "$LATEST_AS_OF" && ! "$LATEST_AS_OF" > "$PUBLISHED_AS_OF" ]]; then
+        printf 'Published snapshot %s is current (latest source report: %s).\n' \
+            "$PUBLISHED_AS_OF" "$LATEST_AS_OF"
+        printf 'RESULT: up-to-date %s\n' "$PUBLISHED_AS_OF"
+        exit 0
+    fi
+fi
+
+STAGE="build-snapshot"
 build_args=(
     --idx-bin "$IDX_BIN"
     --output-dir "$PUBLISH_WORKDIR"
@@ -154,6 +205,18 @@ if [[ "${#sqlite_matches[@]}" -ne 1 ]]; then
 fi
 
 STAGED_SQLITE_PATH="${sqlite_matches[0]}"
+BUILT_AS_OF="$(jq -r '.snapshot.latest_as_of_date' "$STAGED_MANIFEST_PATH")"
+
+# Post-build check covers legacy PDF sources, whose as-of date is only known
+# after import.
+if [[ "$FORCE" != "1" && -n "$PUBLISHED_AS_OF" && ! "$BUILT_AS_OF" > "$PUBLISHED_AS_OF" ]]; then
+    printf 'Built snapshot %s is not newer than published %s; skipping upload.\n' \
+        "$BUILT_AS_OF" "$PUBLISHED_AS_OF"
+    printf 'RESULT: up-to-date %s\n' "$PUBLISHED_AS_OF"
+    exit 0
+fi
+
+STAGE="stage-output"
 
 rm -f "$OUTPUT_DIR/ownership-snapshot-manifest.json"
 if [[ "${#existing_snapshot_paths[@]}" -gt 0 ]]; then
@@ -166,13 +229,19 @@ cp "$STAGED_SQLITE_PATH" "$OUTPUT_DIR/"
 MANIFEST_PATH="$OUTPUT_DIR/ownership-snapshot-manifest.json"
 SQLITE_PATH="$OUTPUT_DIR/$(basename "$STAGED_SQLITE_PATH")"
 
+STAGE="upload"
 if gh release view "$RELEASE_TAG" --repo "$REPO_FULL_NAME" >/dev/null 2>&1; then
     printf 'Release %s already exists.\n' "$RELEASE_TAG"
 else
     printf 'Creating stable snapshot release %s...\n' "$RELEASE_TAG"
+    target_args=()
+    # Packaged runs (Nix store) have no git checkout; let GitHub pick the default branch.
+    if git_head="$(git rev-parse HEAD 2>/dev/null)"; then
+        target_args=(--target "$git_head")
+    fi
     gh release create "$RELEASE_TAG" \
         --repo "$REPO_FULL_NAME" \
-        --target "$(git rev-parse HEAD)" \
+        "${target_args[@]}" \
         --title "Ownership Snapshot Current" \
         --notes "Stable release for idx ownership snapshot artifacts consumed by \`idx ownership sync\`." \
         --latest=false
@@ -188,3 +257,4 @@ gh release upload "$RELEASE_TAG" \
 printf 'Published manifest: https://github.com/%s/releases/download/%s/ownership-snapshot-manifest.json\n' \
     "$REPO_FULL_NAME" "$RELEASE_TAG"
 printf 'Published SQLite: %s\n' "$SQLITE_PATH"
+printf 'RESULT: published %s\n' "$BUILT_AS_OF"
