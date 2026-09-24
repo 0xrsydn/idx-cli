@@ -45,9 +45,11 @@ nix develop --command scripts/build-latest-ownership-snapshot.sh \
 
 The script performs these steps:
 
-1. `idx -o json ownership discover --family above1 --limit 1`
+1. `idx -o json ownership discover --family above1 --limit 50` (newest supported
+   report first; XLSX from the Data Kepemilikan Saham page since June 2026)
 2. verifies the discovered report is the current supported import path
-3. imports that PDF into an isolated temp ownership DB
+3. imports that report (plus `--history <n>` earlier months, oldest first) into
+   an isolated temp ownership DB
 4. checks that the imported release metadata is non-empty and tied to the same
    source URL
 5. runs `scripts/build-ownership-snapshot.sh` to emit the SQLite artifact and

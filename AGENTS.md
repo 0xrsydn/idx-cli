@@ -57,13 +57,13 @@ Ownership is local-first after bootstrap.
 
 Preferred bootstrap/update path:
 1. `idx ownership sync`
-2. if no snapshot manifest is available: `idx ownership discover` then `idx ownership import --url <pdf-url>`
+2. if no snapshot manifest is available: `idx ownership discover` then `idx ownership import --url <xlsx-or-pdf-url>`
 3. local `--file` imports remain available for manual/fallback use
 
 Ownership input paths:
-- primary remote source: discoverable IDX `above1` holder-register PDF
+- primary remote source: IDX `above1` holder register — monthly XLSX on the Data Kepemilikan Saham page (since the 2026-05-29 report), legacy PDF announcements before that; `ownership discover` checks both
 - maintained snapshot path: `ownership sync`
-- local fallback path: PDF, plus local archive `.zip` / `.txt`
+- local file imports: IDX above-1% `.xlsx` (current format since June 2026), legacy `.pdf`, plus local archive `.zip` / `.txt`
 
 Important scope note:
 - archive ZIP/TXT ingest is a fallback/backstop path, not the primary product ingest surface

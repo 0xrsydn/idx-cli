@@ -16,6 +16,8 @@ Options:
                          (default: 0xrsydn/idx-cli)
   --release-tag <tag>    Stable GitHub release tag used for snapshot assets
                          (default: ownership-snapshot-current)
+  --history <n>          Also include the <n> previous monthly above-1% reports
+                         in the snapshot (passed to the builder; default: 0)
   --build                Run `cargo build` before publishing
   --keep-workdir         Keep the temp workdir created by the builder helper
   --help                 Show this help
@@ -28,6 +30,7 @@ REPO_FULL_NAME="0xrsydn/idx-cli"
 RELEASE_TAG="ownership-snapshot-current"
 BUILD_FIRST="0"
 KEEP_WORKDIR="0"
+HISTORY="0"
 PUBLISH_WORKDIR=""
 
 while [[ $# -gt 0 ]]; do
@@ -46,6 +49,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --release-tag)
             RELEASE_TAG="${2:-}"
+            shift 2
+            ;;
+        --history)
+            HISTORY="${2:-}"
             shift 2
             ;;
         --build)
@@ -120,6 +127,7 @@ build_args=(
     --output-dir "$PUBLISH_WORKDIR"
     --repo "$REPO_FULL_NAME"
     --release-tag "$RELEASE_TAG"
+    --history "$HISTORY"
 )
 
 if [[ "$KEEP_WORKDIR" == "1" ]]; then

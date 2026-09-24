@@ -7,6 +7,10 @@ on:
         description: Stable GitHub release tag to publish the snapshot assets to
         required: true
         default: ownership-snapshot-current
+      history:
+        description: Number of earlier monthly above-1% reports to include for `ownership changes`
+        required: false
+        default: "5"
 
 permissions:
   contents: write
@@ -36,7 +40,8 @@ jobs:
             --idx-bin ./target/debug/idx \
             --output-dir dist/ownership-snapshot \
             --repo "${{ github.repository }}" \
-            --release-tag "${{ inputs.release_tag }}"
+            --release-tag "${{ inputs.release_tag }}" \
+            --history "${{ inputs.history }}"
 
       - name: Upload workflow artifact copy
         uses: actions/upload-artifact@v4

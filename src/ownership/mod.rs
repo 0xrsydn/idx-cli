@@ -7,3 +7,4 @@ pub mod remote;
 pub mod search;
 pub mod snapshot;
 pub mod types;
+pub mod xlsx;
