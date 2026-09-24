@@ -86,6 +86,8 @@ if ! [[ "$HISTORY" =~ ^[0-9]+$ ]]; then
     echo "--history must be a non-negative integer" >&2
     exit 2
 fi
+# Canonicalize so "08" is 8, not an invalid octal literal in (( )).
+HISTORY=$((10#$HISTORY))
 
 if [[ -z "$BASE_URL" ]]; then
     BASE_URL="https://github.com/${REPO_FULL_NAME}/releases/download/${RELEASE_TAG}"
@@ -167,7 +169,9 @@ DISCOVERED_ORIGINAL_FILENAME="${discovery_fields[6]:-}"
 
 if (( HISTORY > 0 )); then
     # Earlier supported XLSX months, one per as-of date, newest first; import oldest first.
-    mapfile -t history_urls < <(
+    # Run jq in a plain command substitution (not <(...)) so a jq failure
+    # stops the script under set -e instead of looking like zero months.
+    history_payload="$(
         jq -r --arg latest "$DISCOVERED_PDF_URL" --argjson n "$HISTORY" '
             (map(select(.pdf_url == $latest)) | .[0].as_of_date // "") as $latest_as_of
             | [ .[]
@@ -178,7 +182,11 @@ if (( HISTORY > 0 )); then
             | .[:$n] | reverse
             | .[].pdf_url
         ' "$DISCOVERY_JSON"
-    )
+    )"
+    history_urls=()
+    if [[ -n "$history_payload" ]]; then
+        mapfile -t history_urls <<< "$history_payload"
+    fi
     printf 'Importing %d earlier monthly report(s) for history...\n' "${#history_urls[@]}"
     for url in "${history_urls[@]}"; do
         "$IDX_BIN" ownership import --url "$url"

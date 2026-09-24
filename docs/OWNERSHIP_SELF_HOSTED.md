@@ -71,11 +71,11 @@ That is intentionally conservative. The ownership source is monthly, but the
 exact publish day can drift. Observed XLSX upload times (HTTP Last-Modified):
 2026-06-03, 2026-07-02 03:55Z, 2026-08-02 01:50Z, 2026-09-02 03:51Z, so a run
 on the 2nd can occasionally land before the file exists; the 3rd is safer.
+Start with an early-month schedule and adjust after observing a few real runs.
 
 Pass `--history <n>` (for example via `services.idxOwnershipPublish.extraArgs =
 [ "--history" "5" ];` in `clan-private`) to include earlier months so
-`idx ownership changes` works straight from the synced snapshot. Start with an early-month schedule and adjust after
-observing a few real runs.
+`idx ownership changes` works straight from the synced snapshot.
 
 ## Clan Integration Later
 
