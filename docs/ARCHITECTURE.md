@@ -63,12 +63,16 @@ Unlike the `stocks` module (live-fetch), ownership is **import-then-query**:
 4. Fully offline after import/sync
 
 ### Data Sources
-- **KSEI** — official ≥1% shareholder registry (monthly PDF from IDX)
+- **KSEI** — official ≥1% shareholder registry, published monthly by IDX. Through May 2026 it was a PDF announcement; from the 2026-05-29 report onward it is an XLSX workbook on the IDX "Data Kepemilikan Saham" page
 - **KSEI archive** — monthly ZIP/TXT balance-position matrix, used as a local fallback/backstop import path
 - **Bing Finance** — global institutional ownership (REST API, quarterly)
 
 ### Parser Pipeline
 ```
+KSEI XLSX → zip + quick-xml (sharedStrings + sheet1) → exact 12-column header check
+  → KseiHoldingDraft (Excel serial dates, numeric shares, percent → bps)
+  → SQLite INSERT (within transaction)
+
 KSEI PDF → mutool stext (XML with coordinates) → quick-xml parse → KseiRawRow
   → normalize (ID locale numbers, dates, entity names) → KseiHolding
   → SQLite INSERT (within transaction)

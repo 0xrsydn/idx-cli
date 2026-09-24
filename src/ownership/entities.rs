@@ -212,7 +212,7 @@ pub fn resolve_entity(
     Ok(entity_id)
 }
 
-fn normalize_investor_type(raw: &str) -> Option<InvestorTypeCode> {
+pub(crate) fn normalize_investor_type(raw: &str) -> Option<InvestorTypeCode> {
     let value = raw.trim();
     if value.is_empty() {
         None
@@ -221,7 +221,7 @@ fn normalize_investor_type(raw: &str) -> Option<InvestorTypeCode> {
     }
 }
 
-fn normalize_locality(raw: &str) -> Option<Locality> {
+pub(crate) fn normalize_locality(raw: &str) -> Option<Locality> {
     match raw.trim().to_uppercase().as_str() {
         "L" | "D" => Some(Locality::Local),
         "F" | "A" => Some(Locality::Foreign),

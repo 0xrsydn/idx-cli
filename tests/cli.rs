@@ -407,7 +407,7 @@ fn ownership_import_help_mentions_sync_preference_and_fallback_files() {
         .success()
         .stdout(predicate::str::contains("Prefer `idx ownership sync`"))
         .stdout(predicate::str::contains(
-            "PDF (primary), ZIP/TXT archive (fallback)",
+            "above-1% XLSX or PDF (primary), ZIP/TXT archive (fallback)",
         ))
         .stdout(predicate::str::contains(
             "idx ownership import --file /path/to/BalanceposEfek20260227.zip",
@@ -1522,6 +1522,77 @@ fn ownership_import_url_duplicate_release_is_skipped() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Release already imported"));
+}
+
+#[test]
+fn ownership_import_file_xlsx_supports_ticker_and_releases() {
+    let root = test_env_dir("ownership-import-xlsx");
+    let db_path = root.join("ownership.db");
+    let xlsx_path = root.join("peng-2026-08-00017-satu-persen.xlsx");
+    fs::write(
+        &xlsx_path,
+        include_bytes!("fixtures/ksei_above1_20260831_excerpt.xlsx"),
+    )
+    .expect("write xlsx fixture");
+
+    bin_with_root(&root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            db_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .args(["ownership", "import", "--file", xlsx_path.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("(as of 2026-08-31)"));
+
+    let output = bin_with_root(&root)
+        .args(["-o", "json", "ownership", "ticker", "BBCA"])
+        .output()
+        .expect("ownership ticker json output");
+    assert!(output.status.success());
+    let body = String::from_utf8_lossy(&output.stdout);
+    assert!(body.contains("DWIMURIA INVESTAMA ANDALAN"), "{body}");
+
+    let output = bin_with_root(&root)
+        .args(["-o", "json", "ownership", "releases"])
+        .output()
+        .expect("ownership releases json output");
+    let releases: Value = serde_json::from_slice(&output.stdout).expect("parse releases json");
+    assert_eq!(releases[0]["as_of_date"], "2026-08-31");
+}
+
+#[test]
+fn ownership_import_file_rejects_above5_xlsx() {
+    let root = test_env_dir("ownership-import-xlsx-above5");
+    let db_path = root.join("ownership.db");
+    let xlsx_path = root.join("peng-2026-09-23-00080-lima-persen.xlsx");
+    fs::write(
+        &xlsx_path,
+        include_bytes!("fixtures/ksei_above5_20260923_excerpt.xlsx"),
+    )
+    .expect("write xlsx fixture");
+
+    bin_with_root(&root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            db_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .args(["ownership", "import", "--file", xlsx_path.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("above-1% holder register layout"));
 }
 
 #[test]

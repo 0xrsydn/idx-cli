@@ -63,7 +63,7 @@ Preferred bootstrap/update path:
 Ownership input paths:
 - primary remote source: discoverable IDX `above1` holder-register PDF
 - maintained snapshot path: `ownership sync`
-- local fallback path: PDF, plus local archive `.zip` / `.txt`
+- local file imports: IDX above-1% `.xlsx` (current format since June 2026), legacy `.pdf`, plus local archive `.zip` / `.txt`
 
 Important scope note:
 - archive ZIP/TXT ingest is a fallback/backstop path, not the primary product ingest surface

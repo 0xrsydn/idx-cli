@@ -17,13 +17,13 @@ use crate::output::table::format_idr;
 use crate::ownership::types::{
     ChangeType, FlowSignal, HolderRow, KseiHolding, OwnershipRelease, OwnershipSource,
 };
-use crate::ownership::{archive, db, entities, graph, parser, remote, search, snapshot};
+use crate::ownership::{archive, db, entities, graph, parser, remote, search, snapshot, xlsx};
 use crate::runtime;
 
 #[derive(Debug, Args)]
 #[command(
     about = "Ownership intelligence (KSEI + Bing)",
-    long_about = "Ownership intelligence (KSEI + Bing).\n\nPreferred bootstrap path:\n  1. Run `idx ownership sync` to install or refresh a maintained SQLite snapshot.\n  2. If no snapshot manifest is available, run `idx ownership discover` and then `idx ownership import --url <pdf-url>`.\n  3. Local `.pdf`, `.zip`, and `.txt` imports remain available for manual or fallback workflows.",
+    long_about = "Ownership intelligence (KSEI + Bing).\n\nPreferred bootstrap path:\n  1. Run `idx ownership sync` to install or refresh a maintained SQLite snapshot.\n  2. If no snapshot manifest is available, run `idx ownership discover` and then `idx ownership import --url <pdf-url>`.\n  3. Local `.xlsx`, `.pdf`, `.zip`, and `.txt` imports remain available for manual or fallback workflows.",
     after_help = "Examples:\n  idx ownership sync\n  idx ownership sync --manifest /path/to/ownership-snapshot-manifest.json\n  idx ownership discover --limit 1\n  idx ownership import --url <pdf-url>\n  idx ownership releases"
 )]
 pub struct OwnershipCmd {
@@ -41,7 +41,7 @@ pub enum OwnershipCommand {
     #[command(
         about = "Import ownership data directly from source files",
         long_about = "Import ownership data directly from source files.\n\nPrefer `idx ownership sync` for normal bootstrap/update flows. Use `import` when you need a direct PDF import from IDX discovery output, a local PDF, or a local KSEI archive fallback file.",
-        after_help = "Examples:\n  idx ownership import --url <pdf-url-from-discover>\n  idx ownership import --file /path/to/ksei.pdf\n  idx ownership import --file /path/to/BalanceposEfek20260227.zip"
+        after_help = "Examples:\n  idx ownership import --url <pdf-url-from-discover>\n  idx ownership import --file /path/to/peng-2026-08-00017-satu-persen.xlsx\n  idx ownership import --file /path/to/ksei.pdf\n  idx ownership import --file /path/to/BalanceposEfek20260227.zip"
     )]
     Import(ImportArgs),
     #[command(
@@ -87,7 +87,7 @@ pub struct ImportArgs {
     /// Direct URL to a remote ownership PDF, typically from `ownership discover`.
     #[arg(long)]
     pub url: Option<String>,
-    /// Path to a local ownership file: PDF (primary), ZIP/TXT archive (fallback).
+    /// Path to a local ownership file: above-1% XLSX or PDF (primary), ZIP/TXT archive (fallback).
     #[arg(long)]
     pub file: Option<PathBuf>,
     /// Fetch Bing institutional data for these symbols.
@@ -836,6 +836,7 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
             drafts
         }
         ImportInputFormat::Archive => archive::parse_balancepos_file(&import_input.import_path)?,
+        ImportInputFormat::Xlsx => xlsx::parse_above1_xlsx_file(&import_input.import_path)?,
     };
 
     let mut holdings = Vec::with_capacity(drafts.len());
@@ -977,6 +978,7 @@ struct OwnershipImportResult {
 enum ImportInputFormat {
     Pdf,
     Archive,
+    Xlsx,
 }
 
 fn resolve_import_input(args: &ImportArgs) -> Result<Option<ResolvedImportInput>, IdxError> {
@@ -1018,11 +1020,12 @@ fn detect_local_import_format(path: &Path) -> Result<ImportInputFormat, IdxError
         .as_deref()
     {
         Some("pdf") => Ok(ImportInputFormat::Pdf),
+        Some("xlsx") if xlsx::supports_xlsx_file(path) => Ok(ImportInputFormat::Xlsx),
         Some("zip") | Some("txt") if archive::supports_local_archive_file(path) => {
             Ok(ImportInputFormat::Archive)
         }
         _ => Err(IdxError::InvalidInput(format!(
-            "unsupported local ownership file {}; expected a .pdf, .zip, or .txt input",
+            "unsupported local ownership file {}; expected a .xlsx, .pdf, .zip, or .txt input",
             path.display()
         ))),
     }
