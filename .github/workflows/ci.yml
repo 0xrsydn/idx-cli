@@ -56,3 +56,27 @@ jobs:
 
       - name: Run default app
         run: nix run .#default -- version
+
+  install-script:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: ShellCheck
+        if: runner.os == 'Linux'
+        run: |
+          shellcheck -s sh install.sh
+          shellcheck scripts/install-sh-test.sh
+
+      - name: Test install.sh with sh
+        run: scripts/install-sh-test.sh
+
+      - name: Test install.sh with dash
+        if: runner.os == 'Linux'
+        run: INSTALL_SH_SHELL=dash scripts/install-sh-test.sh

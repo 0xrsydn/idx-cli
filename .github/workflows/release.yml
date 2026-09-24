@@ -16,6 +16,7 @@ on:
       - "Cargo.lock"
       - "package.json"
       - "scripts/install.js"
+      - "install.sh"
 
 permissions:
   contents: write
@@ -88,6 +89,14 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
+      - name: Check out install script
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          sparse-checkout: install.sh
+          sparse-checkout-cone-mode: false
+          path: src
+
       - name: Download target artifacts
         uses: actions/download-artifact@v4
         with:
@@ -107,3 +116,4 @@ jobs:
             idx-darwin-arm64
             idx-darwin-x64
             SHA256SUMS
+            src/install.sh
