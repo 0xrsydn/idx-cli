@@ -178,6 +178,18 @@ else
   fail "replaces an existing install cleanly"; cat "${work}/out8" >&2
 fi
 
+# 9. quoted ~ in --dir expands to HOME; trailing slash on mirror URLs is fine.
+# shellcheck disable=SC2088 # the literal ~ is the input under test
+if env IDX_GITHUB_URL="http://127.0.0.1:${port}/gh/" \
+  IDX_GITHUB_API="http://127.0.0.1:${port}/api/" \
+  HOME="${work}/home" \
+  "$test_shell" "$installer" --dir "~/tilde-bin" >"${work}/out9" 2>&1 &&
+  [[ -x "${work}/home/tilde-bin/idx" ]]; then
+  pass "expands quoted ~ and tolerates trailing slashes"
+else
+  fail "expands quoted ~ and tolerates trailing slashes"; cat "${work}/out9" >&2
+fi
+
 if ((failures > 0)); then
   echo "install.sh tests: ${failures} failure(s) with ${test_shell}" >&2
   exit 1

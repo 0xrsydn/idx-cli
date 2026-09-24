@@ -190,6 +190,15 @@ main() {
         esac
     done
 
+    # A quoted --dir "~/bin" or IDX_INSTALL_DIR="~/bin" reaches us unexpanded.
+    # shellcheck disable=SC2088 # matching a literal, unexpanded ~ on purpose
+    case "$install_dir" in
+        "~") install_dir="$HOME" ;;
+        "~/"*) install_dir="$HOME/${install_dir#"~/"}" ;;
+    esac
+    github_url="${github_url%/}"
+    api_url="${api_url%/}"
+
     asset="$(detect_asset)"
 
     tmp_dir="$(mktemp -d 2>/dev/null || mktemp -d -t idx-install)"
