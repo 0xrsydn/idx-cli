@@ -155,8 +155,26 @@ fn parse_shared_strings(xml: &str) -> Result<Vec<String>, IdxError> {
     Ok(strings)
 }
 
-/// One sheet row: column letters (`A`, `B`, ...) to cell text.
-type SheetRow = HashMap<String, String>;
+/// One sheet row: its 1-based Excel row number and column letters
+/// (`A`, `B`, ...) mapped to cell text. Sheet XML omits blank rows, so the
+/// number comes from the row's `r` attribute, not its position.
+#[derive(Debug, Default)]
+struct SheetRow {
+    number: usize,
+    cells: HashMap<String, String>,
+}
+
+fn row_number(element: &BytesStart<'_>, fallback: usize) -> Result<usize, IdxError> {
+    for attribute in element.attributes() {
+        let attribute = attribute.map_err(|e| xml_error("worksheet", e))?;
+        if attribute.key.local_name().as_ref() == b"r" {
+            if let Ok(number) = String::from_utf8_lossy(&attribute.value).trim().parse() {
+                return Ok(number);
+            }
+        }
+    }
+    Ok(fallback)
+}
 
 fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow>, IdxError> {
     let mut reader = Reader::from_str(xml);
@@ -169,7 +187,12 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => match e.local_name().as_ref() {
-                b"row" => row = Some(SheetRow::new()),
+                b"row" => {
+                    row = Some(SheetRow {
+                        number: row_number(&e, rows.len() + 1)?,
+                        cells: HashMap::new(),
+                    })
+                }
                 b"c" => {
                     cell = Some(cell_ref_and_type(&e)?);
                     value.clear();
@@ -177,7 +200,10 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
                 b"v" | b"t" if cell.is_some() => in_value = true,
                 _ => {}
             },
-            Ok(Event::Empty(e)) if e.local_name().as_ref() == b"row" => rows.push(SheetRow::new()),
+            Ok(Event::Empty(e)) if e.local_name().as_ref() == b"row" => rows.push(SheetRow {
+                number: row_number(&e, rows.len() + 1)?,
+                cells: HashMap::new(),
+            }),
             Ok(Event::Text(text)) if in_value => {
                 let unescaped = text.unescape().map_err(|e| xml_error("worksheet", e))?;
                 value.push_str(&unescaped);
@@ -201,7 +227,7 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
                         } else {
                             value.clone()
                         };
-                        current_row.insert(column, text);
+                        current_row.cells.insert(column, text);
                     }
                 }
                 b"row" => {
@@ -254,12 +280,12 @@ fn drafts_from_rows(rows: &[SheetRow]) -> Result<Vec<KseiHoldingDraft>, IdxError
         })?;
 
     let mut drafts = Vec::new();
-    for (offset, row) in rows[header_index + 1..].iter().enumerate() {
-        let line = header_index + offset + 2;
+    for row in &rows[header_index + 1..] {
+        let line = row.number;
         let field = |name: &str| -> &str {
             columns
                 .get(name)
-                .and_then(|column| row.get(column))
+                .and_then(|column| row.cells.get(column))
                 .map(|value| value.trim())
                 .unwrap_or("")
         };
@@ -303,7 +329,7 @@ fn drafts_from_rows(rows: &[SheetRow]) -> Result<Vec<KseiHoldingDraft>, IdxError
 /// Map header labels to column letters if `row` is exactly the expected header.
 fn header_columns(row: &SheetRow) -> Option<HashMap<&'static str, String>> {
     let mut found: HashMap<&'static str, String> = HashMap::new();
-    for (column, text) in row {
+    for (column, text) in &row.cells {
         let mut label = text.trim().to_ascii_uppercase().replace(' ', "_");
         if label.is_empty() {
             continue;
@@ -393,11 +419,8 @@ mod tests {
     #[test]
     fn parses_above1_xlsx_excerpt() {
         let drafts = fixture();
-        assert!(
-            drafts.len() >= 10,
-            "expected excerpt rows, got {}",
-            drafts.len()
-        );
+        // Pinned so a regression that silently drops rows fails loudly.
+        assert_eq!(drafts.len(), 17);
         assert!(
             drafts
                 .iter()
@@ -422,16 +445,24 @@ mod tests {
     }
 
     fn header_row(labels: &[&str]) -> SheetRow {
-        labels
-            .iter()
-            .enumerate()
-            .map(|(index, label)| {
-                (
-                    ((b'A' + index as u8) as char).to_string(),
-                    label.to_string(),
-                )
-            })
-            .collect()
+        sheet_row(1, labels)
+    }
+
+    fn sheet_row(number: usize, values: &[&str]) -> SheetRow {
+        SheetRow {
+            number,
+            cells: values
+                .iter()
+                .enumerate()
+                .filter(|(_, value)| !value.is_empty())
+                .map(|(index, value)| {
+                    (
+                        ((b'A' + index as u8) as char).to_string(),
+                        value.to_string(),
+                    )
+                })
+                .collect(),
+        }
     }
 
     #[test]
@@ -441,21 +472,23 @@ mod tests {
         let columns = header_columns(&header_row(&labels)).expect("legacy header accepted");
         assert_eq!(columns["INVESTOR_CLASSIFICATION"], "E");
 
-        let mut row = header_row(&[
-            "46112",
-            "AADI",
-            "ADARO ANDALAN INDONESIA Tbk",
-            "GARIBALDI THOHIR",
-            "ID",
-            "L         ",
-            "INDONESIAN",
-            "INDONESIA",
-            "454011607",
-            "0",
-            "454011607",
-            "5.83",
-        ]);
-        row.retain(|_, value| !value.is_empty());
+        let row = sheet_row(
+            2,
+            &[
+                "46112",
+                "AADI",
+                "ADARO ANDALAN INDONESIA Tbk",
+                "GARIBALDI THOHIR",
+                "ID",
+                "L         ",
+                "INDONESIAN",
+                "INDONESIA",
+                "454011607",
+                "0",
+                "454011607",
+                "5.83",
+            ],
+        );
         let drafts = drafts_from_rows(&[header_row(&labels), row]).expect("legacy rows parse");
         assert_eq!(
             drafts[0].investor_type.as_ref().map(|t| t.0.as_str()),
@@ -466,6 +499,17 @@ mod tests {
             NaiveDate::from_ymd_opt(2026, 3, 31).unwrap()
         );
         assert!(drafts[0].locality.is_some());
+    }
+
+    #[test]
+    fn row_errors_report_excel_row_numbers() {
+        let missing_investor = sheet_row(
+            709,
+            &["46265", "BBCA", "BANK CENTRAL ASIA Tbk", "", "Corporate"],
+        );
+        let err = drafts_from_rows(&[header_row(&EXPECTED_HEADER), missing_investor])
+            .expect_err("row without investor rejected");
+        assert!(err.to_string().contains("row 709"), "{err}");
     }
 
     #[test]
