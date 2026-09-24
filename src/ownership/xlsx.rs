@@ -304,9 +304,14 @@ fn drafts_from_rows(rows: &[SheetRow]) -> Result<Vec<KseiHoldingDraft>, IdxError
 fn header_columns(row: &SheetRow) -> Option<HashMap<&'static str, String>> {
     let mut found: HashMap<&'static str, String> = HashMap::new();
     for (column, text) in row {
-        let label = text.trim().to_ascii_uppercase().replace(' ', "_");
+        let mut label = text.trim().to_ascii_uppercase().replace(' ', "_");
         if label.is_empty() {
             continue;
+        }
+        // Feb/Mar 2026 workbooks name the column INVESTOR_TYPE and hold codes
+        // (CP, ID, ...); later ones use INVESTOR_CLASSIFICATION with words.
+        if label == "INVESTOR_TYPE" {
+            label = "INVESTOR_CLASSIFICATION".to_string();
         }
         let expected = EXPECTED_HEADER.iter().find(|name| **name == label)?;
         found.insert(expected, column.clone());
@@ -414,6 +419,61 @@ mod tests {
             dwimuria.total_shares,
             dwimuria.holdings_scripless + dwimuria.holdings_scrip
         );
+    }
+
+    fn header_row(labels: &[&str]) -> SheetRow {
+        labels
+            .iter()
+            .enumerate()
+            .map(|(index, label)| {
+                (
+                    ((b'A' + index as u8) as char).to_string(),
+                    label.to_string(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn accepts_legacy_investor_type_header() {
+        let mut labels = EXPECTED_HEADER.to_vec();
+        labels[4] = "INVESTOR_TYPE";
+        let columns = header_columns(&header_row(&labels)).expect("legacy header accepted");
+        assert_eq!(columns["INVESTOR_CLASSIFICATION"], "E");
+
+        let mut row = header_row(&[
+            "46112",
+            "AADI",
+            "ADARO ANDALAN INDONESIA Tbk",
+            "GARIBALDI THOHIR",
+            "ID",
+            "L         ",
+            "INDONESIAN",
+            "INDONESIA",
+            "454011607",
+            "0",
+            "454011607",
+            "5.83",
+        ]);
+        row.retain(|_, value| !value.is_empty());
+        let drafts = drafts_from_rows(&[header_row(&labels), row]).expect("legacy rows parse");
+        assert_eq!(
+            drafts[0].investor_type.as_ref().map(|t| t.0.as_str()),
+            Some("ID")
+        );
+        assert_eq!(
+            drafts[0].report_date,
+            NaiveDate::from_ymd_opt(2026, 3, 31).unwrap()
+        );
+        assert!(drafts[0].locality.is_some());
+    }
+
+    #[test]
+    fn rejects_header_with_unknown_or_missing_columns() {
+        let mut labels = EXPECTED_HEADER.to_vec();
+        labels[11] = "PERUBAHAN";
+        assert!(header_columns(&header_row(&labels)).is_none());
+        assert!(header_columns(&header_row(&EXPECTED_HEADER[..11])).is_none());
     }
 
     #[test]
