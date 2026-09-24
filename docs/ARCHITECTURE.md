@@ -67,6 +67,22 @@ Unlike the `stocks` module (live-fetch), ownership is **import-then-query**:
 - **KSEI archive** — monthly ZIP/TXT balance-position matrix, used as a local fallback/backstop import path
 - **Bing Finance** — global institutional ownership (REST API, quarterly)
 
+### Discovery
+`idx ownership discover` merges two IDX sources:
+- the announcement API (`GetAllAnnouncement`) for the legacy PDF announcements
+- the Data Kepemilikan Saham page (`/id/perusahaan-tercatat/data-kepemilikan-saham/`),
+  whose server-rendered Nuxt payload lists every XLSX with a description such as
+  `Pemegang Saham di Atas 1% per 31 Agustus 2026`; the as-of date comes from that text
+
+Only the above-1% XLSX is `supported`; the daily above-5% and investor-type workbooks
+are listed as `unsupported`. Both URLs can be overridden for tests with
+`IDX_OWNERSHIP_ANNOUNCEMENT_API_URL` and `IDX_OWNERSHIP_DATA_PAGE_URL`.
+
+IDX sits behind Cloudflare, which accepts some curl-impersonate TLS profiles and
+rejects others per path (for example `curl_chrome142` gets 403 on the data page).
+IDX fetches therefore try several profiles until the response validates (JSON, page
+payload, `%PDF`, or `PK` zip magic). `IDX_CURL_IMPERSONATE_BIN` pins a single profile.
+
 ### Parser Pipeline
 ```
 KSEI XLSX → zip + quick-xml (sharedStrings + sheet1) → exact 12-column header check

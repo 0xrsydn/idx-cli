@@ -1189,6 +1189,43 @@ fn ownership_releases_uses_xdg_data_home_default_db_path() {
     );
 }
 
+/// Keeps discovery tests off the live IDX data page (nothing listens on port 9).
+const UNREACHABLE_DATA_PAGE_URL: &str = "http://127.0.0.1:9/data-kepemilikan-saham/";
+
+#[test]
+fn ownership_discover_finds_xlsx_on_share_ownership_page() {
+    let page = fs::read_to_string("tests/fixtures/idx_share_ownership_page_excerpt.html")
+        .expect("read share ownership page fixture");
+    let page_url = spawn_single_response_server("text/html", page);
+
+    let output = test_bin("ownership-discover-data-page")
+        .env("IDX_CURL_IMPERSONATE_BIN", "curl")
+        .env(
+            "IDX_OWNERSHIP_ANNOUNCEMENT_API_URL",
+            "http://127.0.0.1:9/announcements",
+        )
+        .env("IDX_OWNERSHIP_DATA_PAGE_URL", &page_url)
+        .args(["-o", "json", "ownership", "discover", "--limit", "1"])
+        .output()
+        .expect("ownership discover json output");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let reports: Value = serde_json::from_slice(&output.stdout).expect("parse discover json");
+    let latest = &reports[0];
+    assert_eq!(latest["family"], "above_one_percent");
+    assert_eq!(latest["status"], "supported");
+    assert_eq!(latest["format"], "xlsx");
+    assert_eq!(latest["as_of_date"], "2026-08-31");
+    assert_eq!(
+        latest["pdf_url"],
+        "https://www.idx.co.id/Media/fahlw1o2/peng-2026-08-00017-satu-persen.xlsx"
+    );
+}
+
 #[test]
 fn ownership_discover_lists_fixture_candidates() {
     let body = fs::read_to_string("tests/fixtures/idx_announcement_kepemilikan.json")
@@ -1198,6 +1235,7 @@ fn ownership_discover_lists_fixture_candidates() {
     test_bin("ownership-discover")
         .env("IDX_CURL_IMPERSONATE_BIN", "curl")
         .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
+        .env("IDX_OWNERSHIP_DATA_PAGE_URL", UNREACHABLE_DATA_PAGE_URL)
         .env(
             "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
             "http://127.0.0.1/pengumuman",
@@ -1257,6 +1295,7 @@ fn ownership_discover_supports_above1_family() {
     test_bin("ownership-discover-above1")
         .env("IDX_CURL_IMPERSONATE_BIN", "curl")
         .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
+        .env("IDX_OWNERSHIP_DATA_PAGE_URL", UNREACHABLE_DATA_PAGE_URL)
         .env(
             "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
             "http://127.0.0.1/pengumuman",
@@ -1313,6 +1352,7 @@ fn ownership_discover_defaults_to_above1_and_prefers_supported_attachment() {
     let output = test_bin("ownership-discover-default")
         .env("IDX_CURL_IMPERSONATE_BIN", "curl")
         .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
+        .env("IDX_OWNERSHIP_DATA_PAGE_URL", UNREACHABLE_DATA_PAGE_URL)
         .env(
             "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
             "http://127.0.0.1/pengumuman",
@@ -1367,6 +1407,7 @@ fn ownership_discover_json_includes_status() {
     test_bin("ownership-discover-json-status")
         .env("IDX_CURL_IMPERSONATE_BIN", "curl")
         .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
+        .env("IDX_OWNERSHIP_DATA_PAGE_URL", UNREACHABLE_DATA_PAGE_URL)
         .env(
             "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
             "http://127.0.0.1/pengumuman",
@@ -1406,7 +1447,7 @@ fn ownership_import_url_rejects_listing_page_inputs() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "ownership import --url accepts direct PDF URLs only",
+            "ownership import --url accepts direct XLSX or PDF URLs only",
         ))
         .stderr(predicate::str::contains("ownership discover"));
 }

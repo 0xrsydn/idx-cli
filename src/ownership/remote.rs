@@ -12,6 +12,10 @@ const DEFAULT_IDX_ANNOUNCEMENT_API_URL: &str =
 const IDX_ANNOUNCEMENT_API_ENV: &str = "IDX_OWNERSHIP_ANNOUNCEMENT_API_URL";
 const IDX_ANNOUNCEMENT_LISTING_ENV: &str = "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL";
 const IDX_ANNOUNCEMENT_PAGE_SIZE: usize = 10;
+/// Since June 2026 the monthly above-1% list (XLSX) is published only here.
+pub const IDX_SHARE_OWNERSHIP_PAGE_URL: &str =
+    "https://www.idx.co.id/id/perusahaan-tercatat/data-kepemilikan-saham/";
+const IDX_SHARE_OWNERSHIP_PAGE_ENV: &str = "IDX_OWNERSHIP_DATA_PAGE_URL";
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -116,6 +120,12 @@ pub struct DiscoveredOwnershipPdf {
     pub code: Option<String>,
     pub original_filename: Option<String>,
     pub is_attachment: bool,
+    /// File format of `pdf_url`: `pdf` (announcement attachment) or `xlsx`
+    /// (Data Kepemilikan Saham page).
+    pub format: String,
+    /// Report as-of date (`YYYY-MM-DD`) when the source states it. The data
+    /// page shows no publish date, so its entries use this as `publish_date`.
+    pub as_of_date: Option<String>,
 }
 
 struct DiscoveryQuery {
@@ -150,6 +160,13 @@ pub fn announcement_listing_url() -> String {
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| IDX_ANNOUNCEMENT_LISTING_URL.to_string())
+}
+
+pub fn share_ownership_page_url() -> String {
+    std::env::var(IDX_SHARE_OWNERSHIP_PAGE_ENV)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| IDX_SHARE_OWNERSHIP_PAGE_URL.to_string())
 }
 
 pub fn announcement_api_url() -> String {
@@ -240,6 +257,8 @@ pub fn select_latest_ownership_reports(
                 code: clean_option(item.code.as_deref()),
                 original_filename,
                 is_attachment,
+                format: "pdf".to_string(),
+                as_of_date: None,
             }
         })
         .collect::<Vec<_>>();
@@ -278,6 +297,7 @@ pub fn discover_idx_ownership_reports(
             "IDX ownership announcement discovery",
             &query_url,
             &json_headers(),
+            &validate_json_payload,
         )
         .and_then(|raw| parse_announcement_page(&raw))
         .and_then(|page| select_latest_ownership_reports(&page, &query_url, query.family))
@@ -285,6 +305,35 @@ pub fn discover_idx_ownership_reports(
             Ok(mut reports) => discovered.append(&mut reports),
             Err(err) => errors.push(err.to_string()),
         }
+    }
+
+    match fetch_text(
+        "IDX share ownership data page discovery",
+        &share_ownership_page_url(),
+        &page_headers(),
+        &validate_share_ownership_page,
+    ) {
+        Ok(html) => {
+            let mut page_reports = parse_share_ownership_page(&html, &share_ownership_page_url());
+            page_reports
+                .retain(|report| family_filter.is_none_or(|family| family == report.family));
+            // Keep the full above-1% history (snapshot backfill needs it), but
+            // only the newest entry of the unsupported daily/breakdown series.
+            page_reports.sort_by(|left, right| right.publish_date.cmp(&left.publish_date));
+            let mut seen_unsupported = Vec::new();
+            page_reports.retain(|report| {
+                if report.family == OwnershipReportFamily::AboveOnePercent {
+                    return true;
+                }
+                if seen_unsupported.contains(&report.family) {
+                    return false;
+                }
+                seen_unsupported.push(report.family);
+                true
+            });
+            discovered.extend(page_reports);
+        }
+        Err(err) => errors.push(err.to_string()),
     }
 
     discovered.sort_by(|left, right| {
@@ -307,8 +356,9 @@ pub fn discover_idx_ownership_reports(
             errors.join("; ")
         };
         return Err(IdxError::Http(format!(
-            "failed to discover IDX ownership reports from {}: {detail}",
-            announcement_listing_url()
+            "failed to discover IDX ownership reports from {} or {}: {detail}",
+            announcement_listing_url(),
+            share_ownership_page_url()
         )));
     }
 
@@ -316,8 +366,12 @@ pub fn discover_idx_ownership_reports(
 }
 
 pub fn download_idx_pdf(url: &str, target: &Path) -> Result<(), IdxError> {
-    let bytes = fetch_bytes("IDX ownership PDF download", url, &pdf_headers())?;
-    validate_pdf_payload(&bytes)?;
+    let bytes = fetch_bytes(
+        "IDX ownership PDF download",
+        url,
+        &pdf_headers(),
+        &validate_pdf_payload,
+    )?;
 
     fs::write(target, &bytes).map_err(|e| {
         IdxError::Io(format!(
@@ -327,6 +381,236 @@ pub fn download_idx_pdf(url: &str, target: &Path) -> Result<(), IdxError> {
     })?;
 
     Ok(())
+}
+
+pub fn download_idx_xlsx(url: &str, target: &Path) -> Result<(), IdxError> {
+    let bytes = fetch_bytes(
+        "IDX ownership XLSX download",
+        url,
+        &xlsx_headers(),
+        &validate_xlsx_payload,
+    )?;
+
+    fs::write(target, &bytes).map_err(|e| {
+        IdxError::Io(format!(
+            "failed writing cached XLSX {}: {e}",
+            target.display()
+        ))
+    })?;
+
+    Ok(())
+}
+
+/// XLSX is a ZIP container; Cloudflare challenges come back as HTML.
+pub fn validate_xlsx_payload(bytes: &[u8]) -> Result<(), IdxError> {
+    if bytes.starts_with(b"PK\x03\x04") {
+        return Ok(());
+    }
+    if looks_like_html(bytes) {
+        return Err(IdxError::Http(
+            "IDX ownership download returned HTML (likely a Cloudflare challenge) instead of an XLSX workbook".to_string(),
+        ));
+    }
+    Err(IdxError::Http(
+        "IDX ownership download did not look like an XLSX workbook".to_string(),
+    ))
+}
+
+fn validate_json_payload(bytes: &[u8]) -> Result<(), IdxError> {
+    if looks_like_html(bytes) {
+        return Err(IdxError::Http(
+            "IDX ownership discovery returned HTML (likely a Cloudflare challenge) instead of announcement JSON".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_share_ownership_page(bytes: &[u8]) -> Result<(), IdxError> {
+    if contains_bytes(bytes, b"Prospectus") {
+        return Ok(());
+    }
+    Err(IdxError::Http(
+        "IDX share ownership data page did not contain its file list (likely a Cloudflare challenge)".to_string(),
+    ))
+}
+
+fn looks_like_html(bytes: &[u8]) -> bool {
+    let head: Vec<u8> = bytes
+        .iter()
+        .skip_while(|byte| byte.is_ascii_whitespace())
+        .take(256)
+        .map(u8::to_ascii_lowercase)
+        .collect();
+    head.starts_with(b"<!doctype html") || head.starts_with(b"<html")
+}
+
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+/// Parse the Data Kepemilikan Saham page. The page is server-rendered by
+/// Nuxt and embeds its file list as JS object literals such as
+/// `{Description:"Pemegang Saham di Atas 1% per 31 Agustus 2026",
+///   Prospectus:"https:\u002F\u002Fwww.idx.co.id\u002FMedia\u002F...xlsx",...}`.
+pub fn parse_share_ownership_page(html: &str, page_url: &str) -> Vec<DiscoveredOwnershipPdf> {
+    let mut reports = Vec::new();
+    let mut rest = html;
+
+    while let Some(start) = find_js_key(rest, "Description") {
+        let (description, after_description) = match read_js_string(&rest[start..]) {
+            Some(value) => value,
+            None => {
+                rest = &rest[start..];
+                continue;
+            }
+        };
+        let object_tail = &rest[start + after_description..];
+        // The URL belongs to the same object literal, so it must come before
+        // the next Description key.
+        let window_end = find_js_key(object_tail, "Description").unwrap_or(object_tail.len());
+        let window = &object_tail[..window_end];
+        rest = object_tail;
+
+        let Some(url_start) = find_js_key(window, "Prospectus") else {
+            continue;
+        };
+        let Some((url, _)) = read_js_string(&window[url_start..]) else {
+            continue;
+        };
+        if let Some(report) = classify_page_entry(description.trim(), url.trim(), page_url) {
+            reports.push(report);
+        }
+    }
+
+    reports
+}
+
+/// Offset just past `Key:` / `"Key":` (the opening quote of the value).
+fn find_js_key(haystack: &str, key: &str) -> Option<usize> {
+    let bare = format!("{key}:\"");
+    let quoted = format!("\"{key}\":\"");
+    [bare, quoted]
+        .iter()
+        .filter_map(|needle| {
+            haystack
+                .find(needle.as_str())
+                .map(|index| index + needle.len() - 1)
+        })
+        .min()
+}
+
+/// Read a JS/JSON string literal starting at the opening quote. Returns the
+/// decoded value and the byte offset just past the closing quote.
+fn read_js_string(input: &str) -> Option<(String, usize)> {
+    let mut chars = input.char_indices();
+    if chars.next()?.1 != '"' {
+        return None;
+    }
+    let mut value = String::new();
+    while let Some((index, ch)) = chars.next() {
+        match ch {
+            '"' => return Some((value, index + 1)),
+            '\\' => match chars.next()?.1 {
+                'u' => {
+                    let hex: String = (0..4)
+                        .filter_map(|_| chars.next().map(|(_, c)| c))
+                        .collect();
+                    value.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
+                }
+                'n' => value.push('\n'),
+                't' => value.push('\t'),
+                other => value.push(other),
+            },
+            _ => value.push(ch),
+        }
+    }
+    None
+}
+
+fn classify_page_entry(
+    description: &str,
+    url: &str,
+    page_url: &str,
+) -> Option<DiscoveredOwnershipPdf> {
+    let upper = description.to_uppercase();
+    let family = if upper.contains("DI ATAS 1%") || upper.contains("ABOVE 1%") {
+        OwnershipReportFamily::AboveOnePercent
+    } else if upper.contains("DI ATAS 5%") || upper.contains("ABOVE 5%") {
+        OwnershipReportFamily::AboveFivePercent
+    } else if upper.contains("TIPE INVESTOR")
+        || upper.contains("KLASIFIKASI")
+        || upper.contains("INVESTOR TYPE")
+        || upper.contains("CLASSIFICATION")
+    {
+        OwnershipReportFamily::InvestorTypeBreakdown
+    } else {
+        return None;
+    };
+
+    let file_name = url.rsplit('/').next().unwrap_or_default().to_string();
+    let lower_name = file_name.to_ascii_lowercase();
+    let format = if lower_name.ends_with(".xlsx") {
+        "xlsx"
+    } else if lower_name.ends_with(".pdf") {
+        "pdf"
+    } else {
+        return None;
+    };
+    let status = if family == OwnershipReportFamily::AboveOnePercent && format == "xlsx" {
+        OwnershipReportStatus::Supported
+    } else {
+        OwnershipReportStatus::Unsupported
+    };
+    let as_of_date = parse_indonesian_as_of_date(description).map(|date| date.to_string());
+
+    Some(DiscoveredOwnershipPdf {
+        family,
+        status,
+        listing_page_url: page_url.to_string(),
+        query_url: page_url.to_string(),
+        pdf_url: url.to_string(),
+        title: description.to_string(),
+        publish_date: as_of_date.clone().unwrap_or_default(),
+        code: None,
+        original_filename: (!file_name.is_empty()).then_some(file_name),
+        is_attachment: true,
+        format: format.to_string(),
+        as_of_date,
+    })
+}
+
+/// `"... per 31 Agustus 2026"` -> 2026-08-31 (Indonesian or English months).
+fn parse_indonesian_as_of_date(description: &str) -> Option<chrono::NaiveDate> {
+    let tokens: Vec<String> = description
+        .split_whitespace()
+        .map(|token| {
+            token
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase()
+        })
+        .collect();
+    tokens.windows(3).rev().find_map(|window| {
+        let day = window[0].parse::<u32>().ok()?;
+        let month = match window[1].as_str() {
+            "januari" | "january" | "jan" => 1,
+            "februari" | "february" | "feb" => 2,
+            "maret" | "march" | "mar" => 3,
+            "april" | "apr" => 4,
+            "mei" | "may" => 5,
+            "juni" | "june" | "jun" => 6,
+            "juli" | "july" | "jul" => 7,
+            "agustus" | "august" | "agu" | "aug" => 8,
+            "september" | "sep" => 9,
+            "oktober" | "october" | "okt" | "oct" => 10,
+            "november" | "nov" => 11,
+            "desember" | "december" | "des" | "dec" => 12,
+            _ => return None,
+        };
+        let year = window[2].parse::<i32>().ok()?;
+        chrono::NaiveDate::from_ymd_opt(year, month, day)
+    })
 }
 
 pub fn validate_pdf_payload(bytes: &[u8]) -> Result<(), IdxError> {
@@ -357,13 +641,23 @@ pub fn validate_pdf_payload(bytes: &[u8]) -> Result<(), IdxError> {
     ))
 }
 
-fn fetch_text(stage: &str, url: &str, headers: &[(String, String)]) -> Result<String, IdxError> {
-    let bytes = fetch_bytes(stage, url, headers)?;
+fn fetch_text(
+    stage: &str,
+    url: &str,
+    headers: &[(String, String)],
+    accept: &dyn Fn(&[u8]) -> Result<(), IdxError>,
+) -> Result<String, IdxError> {
+    let bytes = fetch_bytes(stage, url, headers, accept)?;
     String::from_utf8(bytes)
         .map_err(|e| IdxError::Http(format!("failed to decode {stage} response as utf-8: {e}")))
 }
 
-fn fetch_bytes(stage: &str, url: &str, headers: &[(String, String)]) -> Result<Vec<u8>, IdxError> {
+fn fetch_bytes(
+    stage: &str,
+    url: &str,
+    headers: &[(String, String)],
+    accept: &dyn Fn(&[u8]) -> Result<(), IdxError>,
+) -> Result<Vec<u8>, IdxError> {
     let mut args = vec![
         "--silent".to_string(),
         "--show-error".to_string(),
@@ -377,7 +671,7 @@ fn fetch_bytes(stage: &str, url: &str, headers: &[(String, String)]) -> Result<V
     }
     args.push(url.to_string());
 
-    let output = curl_impersonate::run_owned(stage, &args)?;
+    let output = curl_impersonate::run_owned_with_fallback(stage, &args, accept)?;
     Ok(output.stdout)
 }
 
@@ -393,6 +687,35 @@ fn json_headers() -> Vec<(String, String)> {
             "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7".to_string(),
         ),
         ("Referer".to_string(), announcement_listing_url()),
+    ]
+}
+
+fn page_headers() -> Vec<(String, String)> {
+    vec![
+        ("User-Agent".to_string(), USER_AGENT.to_string()),
+        (
+            "Accept".to_string(),
+            "text/html,application/xhtml+xml,*/*;q=0.8".to_string(),
+        ),
+        (
+            "Accept-Language".to_string(),
+            "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7".to_string(),
+        ),
+    ]
+}
+
+fn xlsx_headers() -> Vec<(String, String)> {
+    vec![
+        ("User-Agent".to_string(), USER_AGENT.to_string()),
+        (
+            "Accept".to_string(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream,*/*;q=0.8".to_string(),
+        ),
+        (
+            "Accept-Language".to_string(),
+            "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7".to_string(),
+        ),
+        ("Referer".to_string(), share_ownership_page_url()),
     ]
 }
 
@@ -502,7 +825,8 @@ mod tests {
     use super::{
         AnnouncementPage, IDX_ANNOUNCEMENT_LISTING_URL, OwnershipReportFamily,
         OwnershipReportStatus, build_announcement_query_url, parse_announcement_page,
-        select_latest_ownership_reports, validate_pdf_payload,
+        parse_indonesian_as_of_date, parse_share_ownership_page, select_latest_ownership_reports,
+        validate_pdf_payload, validate_share_ownership_page, validate_xlsx_payload,
     };
     use crate::error::IdxError;
 
@@ -761,5 +1085,90 @@ mod tests {
             .expect_err("html body must fail");
         assert!(matches!(err, IdxError::Http(_)));
         assert!(err.to_string().contains("PDF/direct attachment"));
+    }
+
+    #[test]
+    fn parses_share_ownership_page_entries() {
+        let page_url = "https://www.idx.co.id/id/perusahaan-tercatat/data-kepemilikan-saham/";
+        let reports = parse_share_ownership_page(
+            include_str!("../../tests/fixtures/idx_share_ownership_page_excerpt.html"),
+            page_url,
+        );
+        assert_eq!(reports.len(), 7);
+
+        let above1: Vec<_> = reports
+            .iter()
+            .filter(|r| r.family == OwnershipReportFamily::AboveOnePercent)
+            .collect();
+        assert_eq!(above1.len(), 3);
+        assert!(
+            above1
+                .iter()
+                .all(|r| r.status == OwnershipReportStatus::Supported)
+        );
+        assert!(above1.iter().all(|r| r.format == "xlsx"));
+
+        let august = above1
+            .iter()
+            .find(|r| r.as_of_date.as_deref() == Some("2026-08-31"))
+            .expect("August above-1% entry");
+        assert_eq!(
+            august.pdf_url,
+            "https://www.idx.co.id/Media/fahlw1o2/peng-2026-08-00017-satu-persen.xlsx"
+        );
+        assert_eq!(august.publish_date, "2026-08-31");
+        assert_eq!(august.listing_page_url, page_url);
+        assert_eq!(
+            august.original_filename.as_deref(),
+            Some("peng-2026-08-00017-satu-persen.xlsx")
+        );
+
+        let above5 = reports
+            .iter()
+            .filter(|r| r.family == OwnershipReportFamily::AboveFivePercent)
+            .count();
+        let breakdown = reports
+            .iter()
+            .filter(|r| r.family == OwnershipReportFamily::InvestorTypeBreakdown)
+            .count();
+        assert_eq!((above5, breakdown), (2, 2));
+        assert!(
+            reports
+                .iter()
+                .filter(|r| r.family != OwnershipReportFamily::AboveOnePercent)
+                .all(|r| r.status == OwnershipReportStatus::Unsupported)
+        );
+    }
+
+    #[test]
+    fn share_ownership_page_without_payload_yields_nothing() {
+        assert!(parse_share_ownership_page("<html>Just a moment...</html>", "p").is_empty());
+        assert!(validate_share_ownership_page(b"<html>Just a moment...</html>").is_err());
+    }
+
+    #[test]
+    fn parses_indonesian_and_english_as_of_dates() {
+        let date = |y, m, d| chrono::NaiveDate::from_ymd_opt(y, m, d);
+        assert_eq!(
+            parse_indonesian_as_of_date("Pemegang Saham di Atas 1% per 31 Agustus 2026"),
+            date(2026, 8, 31)
+        );
+        assert_eq!(
+            parse_indonesian_as_of_date("Shareholders above 1% as of 29 May 2026"),
+            date(2026, 5, 29)
+        );
+        assert_eq!(
+            parse_indonesian_as_of_date("Pemegang Saham di Atas 1%"),
+            None
+        );
+    }
+
+    #[test]
+    fn validates_xlsx_payloads() {
+        assert!(validate_xlsx_payload(b"PK\x03\x04rest-of-zip").is_ok());
+        let err = validate_xlsx_payload(b"<!DOCTYPE html><title>Just a moment...</title>")
+            .expect_err("html challenge rejected");
+        assert!(err.to_string().contains("Cloudflare"), "{err}");
+        assert!(validate_xlsx_payload(b"%PDF-1.7").is_err());
     }
 }

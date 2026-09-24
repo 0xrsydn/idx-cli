@@ -35,7 +35,7 @@ pub struct OwnershipCmd {
 pub enum OwnershipCommand {
     #[command(
         about = "Discover the latest IDX-hosted ownership report URLs",
-        after_help = "Examples:\n  idx ownership discover --limit 1\n  idx ownership discover --family all --limit 6\n\nUse this when no snapshot manifest is available and you need a direct PDF URL for `idx ownership import --url`."
+        after_help = "Examples:\n  idx ownership discover --limit 1\n  idx ownership discover --family all --limit 6\n\nUse this when no snapshot manifest is available and you need a direct XLSX or PDF URL for `idx ownership import --url`."
     )]
     Discover(DiscoverArgs),
     #[command(
@@ -84,7 +84,7 @@ pub struct DiscoverArgs {
 
 #[derive(Debug, Args)]
 pub struct ImportArgs {
-    /// Direct URL to a remote ownership PDF, typically from `ownership discover`.
+    /// Direct URL to a remote above-1% XLSX or PDF, typically from `ownership discover`.
     #[arg(long)]
     pub url: Option<String>,
     /// Path to a local ownership file: above-1% XLSX or PDF (primary), ZIP/TXT archive (fallback).
@@ -999,13 +999,16 @@ fn resolve_import_input(args: &ImportArgs) -> Result<Option<ResolvedImportInput>
 
     if let Some(url) = &args.url {
         let trimmed = url.trim();
-        validate_import_url(trimmed)?;
-        let target = cache_pdf_path(trimmed)?;
-        download_pdf(trimmed, &target)?;
+        let format = validate_import_url(trimmed)?;
+        let target = cache_download_path(trimmed, format)?;
+        match format {
+            ImportInputFormat::Xlsx => download_xlsx(trimmed, &target)?,
+            _ => download_pdf(trimmed, &target)?,
+        }
         return Ok(Some(ResolvedImportInput {
             import_path: target,
             source_url: Some(trimmed.to_string()),
-            format: ImportInputFormat::Pdf,
+            format,
         }));
     }
 
@@ -1031,7 +1034,11 @@ fn detect_local_import_format(path: &Path) -> Result<ImportInputFormat, IdxError
     }
 }
 
-fn cache_pdf_path(url: &str) -> Result<PathBuf, IdxError> {
+fn cache_download_path(url: &str, format: ImportInputFormat) -> Result<PathBuf, IdxError> {
+    let extension = match format {
+        ImportInputFormat::Xlsx => ".xlsx",
+        _ => ".pdf",
+    };
     let raw_dir = crate::cache::cache_dir()?.join("ownership").join("raw");
     fs::create_dir_all(&raw_dir).map_err(|e| IdxError::Io(e.to_string()))?;
 
@@ -1045,20 +1052,20 @@ fn cache_pdf_path(url: &str) -> Result<PathBuf, IdxError> {
         .to_string();
 
     if file_name.is_empty() || file_name == "/" {
-        file_name = format!("ksei-{}.pdf", Utc::now().timestamp());
+        file_name = format!("ksei-{}{extension}", Utc::now().timestamp());
     }
-    if !file_name.to_ascii_lowercase().ends_with(".pdf") {
-        file_name.push_str(".pdf");
+    if !file_name.to_ascii_lowercase().ends_with(extension) {
+        file_name.push_str(extension);
     }
 
     Ok(raw_dir.join(file_name))
 }
 
-fn validate_import_url(url: &str) -> Result<(), IdxError> {
+fn validate_import_url(url: &str) -> Result<ImportInputFormat, IdxError> {
     let trimmed = url.trim();
     if trimmed.is_empty() {
         return Err(IdxError::InvalidInput(
-            "ownership import --url accepts direct PDF URLs only".to_string(),
+            "ownership import --url accepts direct XLSX or PDF URLs only".to_string(),
         ));
     }
 
@@ -1068,11 +1075,14 @@ fn validate_import_url(url: &str) -> Result<(), IdxError> {
         .next()
         .unwrap_or(normalized.as_str());
     if normalized.ends_with(".pdf") {
-        return Ok(());
+        return Ok(ImportInputFormat::Pdf);
+    }
+    if normalized.ends_with(".xlsx") {
+        return Ok(ImportInputFormat::Xlsx);
     }
 
     Err(IdxError::InvalidInput(
-        "ownership import --url accepts direct PDF URLs only; run `idx ownership discover` first to find the current supported attachment".to_string(),
+        "ownership import --url accepts direct XLSX or PDF URLs only; run `idx ownership discover` first to find the current supported file".to_string(),
     ))
 }
 
@@ -1106,6 +1116,32 @@ fn download_pdf(url: &str, target: &Path) -> Result<(), IdxError> {
     })?;
 
     Ok(())
+}
+
+fn download_xlsx(url: &str, target: &Path) -> Result<(), IdxError> {
+    if is_idx_url(url) {
+        return remote::download_idx_xlsx(url, target);
+    }
+
+    let response = ureq::get(url)
+        .header(
+            "Accept",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream,*/*;q=0.8",
+        )
+        .call()
+        .map_err(|e| IdxError::Http(format!("failed to download XLSX: {e}")))?;
+    let bytes = response
+        .into_body()
+        .read_to_vec()
+        .map_err(|e| IdxError::Http(format!("failed reading XLSX body: {e}")))?;
+    remote::validate_xlsx_payload(&bytes)?;
+
+    fs::write(target, &bytes).map_err(|e| {
+        IdxError::Io(format!(
+            "failed writing cached XLSX {}: {e}",
+            target.display()
+        ))
+    })
 }
 
 fn is_idx_url(url: &str) -> bool {
