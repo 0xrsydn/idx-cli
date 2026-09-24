@@ -38,7 +38,9 @@ nix develop --command scripts/publish-ownership-snapshot.sh \
 That helper:
 
 1. optionally builds `idx`
-2. discovers the latest supported IDX/KSEI PDF
+2. discovers the latest supported IDX/KSEI above-1% report (XLSX on the IDX
+   Data Kepemilikan Saham page since the 2026-05-29 report; PDF announcements
+   before that)
 3. imports it into an isolated temp DB
 4. emits the SQLite snapshot and manifest
 5. ensures the stable GitHub release exists
@@ -66,7 +68,13 @@ The sample timer uses:
 - `RandomizedDelaySec=30m`
 
 That is intentionally conservative. The ownership source is monthly, but the
-exact publish day can drift. Start with an early-month schedule and adjust after
+exact publish day can drift. Observed XLSX upload times (HTTP Last-Modified):
+2026-06-03, 2026-07-02 03:55Z, 2026-08-02 01:50Z, 2026-09-02 03:51Z, so a run
+on the 2nd can occasionally land before the file exists; the 3rd is safer.
+
+Pass `--history <n>` (for example via `services.idxOwnershipPublish.extraArgs =
+[ "--history" "5" ];` in `clan-private`) to include earlier months so
+`idx ownership changes` works straight from the synced snapshot. Start with an early-month schedule and adjust after
 observing a few real runs.
 
 ## Clan Integration Later

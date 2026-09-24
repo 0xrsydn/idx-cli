@@ -6,7 +6,8 @@ usage() {
     cat <<'EOF'
 Usage: scripts/build-latest-ownership-snapshot.sh --output-dir <dir> [options]
 
-Discover the latest supported IDX/KSEI ownership PDF, import it into an isolated
+Discover the latest supported IDX/KSEI above-1% report (XLSX from the IDX Data
+Kepemilikan Saham page, or a legacy PDF announcement), import it into an isolated
 ownership database, and emit GitHub-release-ready snapshot artifacts plus manifest.
 
 Options:
@@ -17,6 +18,9 @@ Options:
                          (default: 0xrsydn/idx-cli)
   --release-tag <tag>    Stable GitHub release tag used for the default base URL
                          (default: ownership-snapshot-current)
+  --history <n>          Also import the <n> previous monthly above-1% XLSX
+                         reports (oldest first) so `ownership changes` works
+                         from the snapshot (default: 0)
   --keep-workdir         Keep the temp workdir instead of deleting it
   --help                 Show this help
 EOF
@@ -28,6 +32,7 @@ BASE_URL=""
 REPO_FULL_NAME="0xrsydn/idx-cli"
 RELEASE_TAG="ownership-snapshot-current"
 KEEP_WORKDIR="0"
+HISTORY="0"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -51,6 +56,10 @@ while [[ $# -gt 0 ]]; do
             RELEASE_TAG="${2:-}"
             shift 2
             ;;
+        --history)
+            HISTORY="${2:-}"
+            shift 2
+            ;;
         --keep-workdir)
             KEEP_WORKDIR="1"
             shift
@@ -70,6 +79,11 @@ done
 if [[ -z "$OUTPUT_DIR" ]]; then
     echo "--output-dir is required" >&2
     usage >&2
+    exit 2
+fi
+
+if ! [[ "$HISTORY" =~ ^[0-9]+$ ]]; then
+    echo "--history must be a non-negative integer" >&2
     exit 2
 fi
 
@@ -115,8 +129,8 @@ RELEASES_JSON="$WORKDIR/releases.json"
 MANIFEST_PATH="$OUTPUT_DIR/ownership-snapshot-manifest.json"
 DB_PATH="$XDG_DATA_HOME/idx/ownership.db"
 
-printf 'Discovering latest supported IDX/KSEI ownership PDF...\n'
-"$IDX_BIN" -o json ownership discover --family above1 --limit 1 > "$DISCOVERY_JSON"
+printf 'Discovering latest supported IDX/KSEI above-1%% report...\n'
+"$IDX_BIN" -o json ownership discover --family above1 --limit 50 > "$DISCOVERY_JSON"
 
 discovery_payload="$(
     jq -r '
@@ -151,7 +165,27 @@ DISCOVERED_TITLE="${discovery_fields[4]:-}"
 DISCOVERED_PUBLISH_DATE="${discovery_fields[5]:-}"
 DISCOVERED_ORIGINAL_FILENAME="${discovery_fields[6]:-}"
 
-printf 'Importing discovered PDF into isolated DB...\n'
+if (( HISTORY > 0 )); then
+    # Earlier supported XLSX months, one per as-of date, newest first; import oldest first.
+    mapfile -t history_urls < <(
+        jq -r --arg latest "$DISCOVERED_PDF_URL" --argjson n "$HISTORY" '
+            (map(select(.pdf_url == $latest)) | .[0].as_of_date // "") as $latest_as_of
+            | [ .[]
+                | select(.status == "supported" and .format == "xlsx" and .as_of_date != null)
+                | select($latest_as_of == "" or .as_of_date < $latest_as_of) ]
+            | unique_by(.as_of_date)
+            | sort_by(.as_of_date) | reverse
+            | .[:$n] | reverse
+            | .[].pdf_url
+        ' "$DISCOVERY_JSON"
+    )
+    printf 'Importing %d earlier monthly report(s) for history...\n' "${#history_urls[@]}"
+    for url in "${history_urls[@]}"; do
+        "$IDX_BIN" ownership import --url "$url"
+    done
+fi
+
+printf 'Importing discovered report into isolated DB...\n'
 "$IDX_BIN" ownership import --url "$DISCOVERED_PDF_URL"
 
 printf 'Inspecting imported release metadata...\n'
