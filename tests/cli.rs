@@ -1313,6 +1313,10 @@ fn ownership_discover_supports_above1_family() {
         .stdout(predicate::str::contains("Above 1%"))
         .stdout(predicate::str::contains(
             "20260310_Semua Emiten Saham_Pengumuman Bursa_32052554_lamp1.pdf",
+        ))
+        .stderr(predicate::str::contains("warning:"))
+        .stderr(predicate::str::contains(
+            "IDX share ownership data page discovery",
         ));
 }
 

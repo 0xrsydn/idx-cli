@@ -307,6 +307,7 @@ pub fn discover_idx_ownership_reports(
         }
     }
 
+    let mut page_error = None;
     match fetch_text(
         "IDX share ownership data page discovery",
         &share_ownership_page_url(),
@@ -315,6 +316,15 @@ pub fn discover_idx_ownership_reports(
     ) {
         Ok(html) => {
             let mut page_reports = parse_share_ownership_page(&html, &share_ownership_page_url());
+            if page_reports.is_empty() {
+                // The page loaded (it has its file list) but nothing parsed:
+                // the payload shape changed. Say so instead of silently
+                // falling back to announcement-only results.
+                page_error = Some(format!(
+                    "IDX share ownership data page {} loaded but no report entries could be parsed; the page layout may have changed",
+                    share_ownership_page_url()
+                ));
+            }
             page_reports
                 .retain(|report| family_filter.is_none_or(|family| family == report.family));
             // Keep the full above-1% history (snapshot backfill needs it), but
@@ -333,7 +343,7 @@ pub fn discover_idx_ownership_reports(
             });
             discovered.extend(page_reports);
         }
-        Err(err) => errors.push(err.to_string()),
+        Err(err) => page_error = Some(err.to_string()),
     }
 
     discovered.sort_by(|left, right| {
@@ -348,6 +358,15 @@ pub fn discover_idx_ownership_reports(
     if limit < discovered.len() {
         discovered.truncate(limit);
     }
+
+    if !discovered.is_empty()
+        && let Some(err) = &page_error
+    {
+        // Announcement results still exist, but since June 2026 the newest
+        // above-1% reports are only on the data page: don't hide its failure.
+        crate::runtime::warn(err);
+    }
+    errors.extend(page_error);
 
     if discovered.is_empty() {
         let detail = if errors.is_empty() {
@@ -549,7 +568,8 @@ fn classify_page_entry(
         return None;
     };
 
-    let file_name = url.rsplit('/').next().unwrap_or_default().to_string();
+    let path = url.split(['?', '#']).next().unwrap_or_default();
+    let file_name = path.rsplit('/').next().unwrap_or_default().to_string();
     let lower_name = file_name.to_ascii_lowercase();
     let format = if lower_name.ends_with(".xlsx") {
         "xlsx"
@@ -563,7 +583,9 @@ fn classify_page_entry(
     } else {
         OwnershipReportStatus::Unsupported
     };
-    let as_of_date = parse_indonesian_as_of_date(description).map(|date| date.to_string());
+    // Without an as-of date the entry cannot be ordered against other
+    // months, and the snapshot manifest needs a date, so skip it.
+    let as_of_date = parse_indonesian_as_of_date(description)?.to_string();
 
     Some(DiscoveredOwnershipPdf {
         family,
@@ -572,12 +594,12 @@ fn classify_page_entry(
         query_url: page_url.to_string(),
         pdf_url: url.to_string(),
         title: description.to_string(),
-        publish_date: as_of_date.clone().unwrap_or_default(),
+        publish_date: as_of_date.clone(),
         code: None,
         original_filename: (!file_name.is_empty()).then_some(file_name),
         is_attachment: true,
         format: format.to_string(),
-        as_of_date,
+        as_of_date: Some(as_of_date),
     })
 }
 
@@ -1138,6 +1160,24 @@ mod tests {
                 .filter(|r| r.family != OwnershipReportFamily::AboveOnePercent)
                 .all(|r| r.status == OwnershipReportStatus::Unsupported)
         );
+    }
+
+    #[test]
+    fn share_ownership_page_handles_query_strings_and_dateless_entries() {
+        let html = r#"{Description:"Pemegang Saham di Atas 1% per 31 Agustus 2026",Prospectus:"https://www.idx.co.id/Media/x/peng-satu-persen.xlsx?download=1",ListingDate:r},{Description:"Pemegang Saham di Atas 1%",Prospectus:"https://www.idx.co.id/Media/y/no-date.xlsx",ListingDate:r}"#;
+        let reports = parse_share_ownership_page(html, "p");
+        assert_eq!(
+            reports.len(),
+            1,
+            "dateless entry skipped, query-string entry kept"
+        );
+        assert_eq!(reports[0].format, "xlsx");
+        assert_eq!(reports[0].status, OwnershipReportStatus::Supported);
+        assert_eq!(
+            reports[0].original_filename.as_deref(),
+            Some("peng-satu-persen.xlsx")
+        );
+        assert_eq!(reports[0].publish_date, "2026-08-31");
     }
 
     #[test]
