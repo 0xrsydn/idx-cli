@@ -62,24 +62,26 @@
           jq
           sqlite
         ];
+        publisherScripts = [
+          ./scripts/build-ownership-snapshot.sh
+          ./scripts/build-latest-ownership-snapshot.sh
+          ./scripts/publish-ownership-snapshot.sh
+          ./scripts/check-ownership-snapshot-freshness.sh
+        ];
         ownershipPublisher = pkgs.stdenvNoCC.mkDerivation {
           pname = "idx-ownership-publisher";
           version = cargoManifest.package.version;
           src = lib.fileset.toSource {
             root = ./.;
-            fileset = lib.fileset.unions [
-              ./scripts/build-ownership-snapshot.sh
-              ./scripts/build-latest-ownership-snapshot.sh
-              ./scripts/publish-ownership-snapshot.sh
-              ./scripts/check-ownership-snapshot-freshness.sh
-            ];
+            fileset = lib.fileset.unions publisherScripts;
           };
           nativeBuildInputs = [ pkgs.makeWrapper ];
           dontBuild = true;
           installPhase = ''
             runHook preInstall
             mkdir -p "$out/libexec/idx-ownership" "$out/bin"
-            cp scripts/*.sh "$out/libexec/idx-ownership/"
+            cp ${lib.concatMapStringsSep " " (script: "scripts/${baseNameOf script}") publisherScripts} \
+              "$out/libexec/idx-ownership/"
             chmod +x "$out"/libexec/idx-ownership/*.sh
             patchShebangs "$out/libexec/idx-ownership"
 

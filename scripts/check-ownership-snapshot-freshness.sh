@@ -38,6 +38,10 @@ if ! [[ "$MAX_AGE_DAYS" =~ ^[0-9]+$ ]]; then
     echo "--max-age-days must be a non-negative integer" >&2
     exit 2
 fi
+if ! [[ "$NOW" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || ! date -u -d "$NOW" +%s >/dev/null 2>&1; then
+    echo "--now must be a YYYY-MM-DD date" >&2
+    exit 2
+fi
 
 if [[ "$MANIFEST_URL" =~ ^https?:// ]]; then
     manifest="$(curl --fail --silent --show-error --location --retry 3 "$MANIFEST_URL")" || {
@@ -49,8 +53,8 @@ else
 fi
 
 as_of="$(jq -r '.snapshot.latest_as_of_date // empty' <<< "$manifest" 2>/dev/null || true)"
-if [[ -z "$as_of" ]]; then
-    echo "FRESHNESS: manifest has no snapshot.latest_as_of_date" >&2
+if ! [[ "$as_of" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || ! date -u -d "$as_of" +%s >/dev/null 2>&1; then
+    echo "FRESHNESS: manifest has no valid snapshot.latest_as_of_date ('$as_of')" >&2
     exit 3
 fi
 

@@ -33,6 +33,11 @@ nix build github:0xrsydn/idx-cli#ownership-publisher
 ./result/bin/idx-ownership-freshness --max-age-days 40
 ```
 
+The publisher needs `GH_TOKEN` in its environment: a token that can create
+and upload assets on the target repo's releases (the examples read it from
+`/etc/idx-ownership-snapshot.env`; clan-private uses a Clan var). The
+freshness check needs no token.
+
 `idx-ownership-publish` wraps `scripts/publish-ownership-snapshot.sh` with a
 pinned `idx` (itself wrapped with curl-impersonate and mupdf) plus jq, gh,
 sqlite and curl. On NixOS, add this repo as a flake input and run
@@ -47,7 +52,7 @@ The publisher is idempotent and prints exactly one final line:
 | --- | --- | --- |
 | `RESULT: published <as-of>` | 0 | a newer snapshot was uploaded |
 | `RESULT: up-to-date <as-of>` | 0 | the published snapshot already has the latest report; nothing uploaded |
-| `RESULT: FAILED stage=<stage> (exit N)` | N | failed in `check-published`, `discover`, `build-snapshot`, `stage-output`, or `upload` |
+| `RESULT: FAILED stage=<stage> (exit N)` | N | failed in `arguments`, `build`, `preflight`, `discover`, `build-snapshot`, `stage-output`, or `upload` |
 
 It checks the published manifest first and, for XLSX sources, compares as-of
 dates before downloading anything, so it is cheap to run **daily**. `--force`

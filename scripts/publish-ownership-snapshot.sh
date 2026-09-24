@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeuo pipefail
+set -euo pipefail
 
 usage() {
     cat <<'EOF'
@@ -43,6 +43,17 @@ FORCE="0"
 PUBLISH_WORKDIR=""
 STAGE="arguments"
 
+# Explicit failures: print the reason, then the RESULT line, then exit.
+fail() {
+    local status="$1"
+    shift
+    printf '%s\n' "$*" >&2
+    printf 'RESULT: FAILED stage=%s (exit %s)\n' "$STAGE" "$status" >&2
+    exit "$status"
+}
+
+# Unexpected command failures (set -e). errtrace is deliberately off: with
+# it, a failure inside $(...) would run this in the subshell and the parent.
 on_error() {
     local status=$?
     printf 'RESULT: FAILED stage=%s (exit %s)\n' "$STAGE" "$status" >&2
@@ -89,30 +100,26 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            echo "unknown argument: $1" >&2
             usage >&2
-            exit 2
+            fail 2 "unknown argument: $1"
             ;;
     esac
 done
 
 if [[ -z "$OUTPUT_DIR" ]]; then
-    echo "--output-dir is required" >&2
     usage >&2
-    exit 2
+    fail 2 "--output-dir is required"
 fi
 
 if ! command -v gh >/dev/null 2>&1; then
-    echo "gh is required for GitHub release upload" >&2
-    exit 1
+    fail 1 "gh is required for GitHub release upload"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILDER="$SCRIPT_DIR/build-latest-ownership-snapshot.sh"
 
 if [[ ! -x "$BUILDER" ]]; then
-    echo "required helper script is missing or not executable: $BUILDER" >&2
-    exit 1
+    fail 1 "required helper script is missing or not executable: $BUILDER"
 fi
 
 mkdir -p "$OUTPUT_DIR"
@@ -146,13 +153,12 @@ if [[ "$BUILD_FIRST" == "1" ]]; then
     cargo build
 fi
 
+STAGE="preflight"
 if ! "$IDX_BIN" version >/dev/null 2>&1; then
-    echo "failed to run idx binary: $IDX_BIN" >&2
-    echo "build the CLI first or pass --idx-bin <path>" >&2
-    exit 1
+    fail 1 "failed to run idx binary: $IDX_BIN; build the CLI first or pass --idx-bin <path>"
 fi
 
-STAGE="check-published"
+# Best effort: a missing or unreadable published manifest means "publish".
 PUBLISHED_MANIFEST="$(published_manifest)"
 PUBLISHED_AS_OF="$(jq -r '.snapshot.latest_as_of_date // empty' <<< "$PUBLISHED_MANIFEST" 2>/dev/null || true)"
 
@@ -190,8 +196,7 @@ printf 'Preparing latest ownership snapshot artifacts...\n'
 
 STAGED_MANIFEST_PATH="$PUBLISH_WORKDIR/ownership-snapshot-manifest.json"
 if [[ ! -f "$STAGED_MANIFEST_PATH" ]]; then
-    echo "manifest was not generated: $STAGED_MANIFEST_PATH" >&2
-    exit 1
+    fail 1 "manifest was not generated: $STAGED_MANIFEST_PATH"
 fi
 
 shopt -s nullglob
@@ -200,12 +205,14 @@ existing_snapshot_paths=("$OUTPUT_DIR"/ownership-snapshot-*.sqlite)
 shopt -u nullglob
 
 if [[ "${#sqlite_matches[@]}" -ne 1 ]]; then
-    echo "expected exactly one SQLite artifact in $PUBLISH_WORKDIR" >&2
-    exit 1
+    fail 1 "expected exactly one SQLite artifact in $PUBLISH_WORKDIR"
 fi
 
 STAGED_SQLITE_PATH="${sqlite_matches[0]}"
-BUILT_AS_OF="$(jq -r '.snapshot.latest_as_of_date' "$STAGED_MANIFEST_PATH")"
+BUILT_AS_OF="$(jq -r '.snapshot.latest_as_of_date // empty' "$STAGED_MANIFEST_PATH")"
+if ! [[ "$BUILT_AS_OF" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    fail 1 "built manifest has no valid snapshot.latest_as_of_date: '$BUILT_AS_OF'"
+fi
 
 # Post-build check covers legacy PDF sources, whose as-of date is only known
 # after import.
