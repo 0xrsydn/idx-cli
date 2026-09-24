@@ -16,6 +16,13 @@ if (!fs.existsSync(binaryPath)) {
 
 const child = spawn(binaryPath, process.argv.slice(2), { stdio: "inherit" });
 
+// Pass termination signals from a supervisor (kill, docker stop) to the binary.
+for (const signal of ["SIGTERM", "SIGHUP"]) {
+  process.on(signal, () => child.kill(signal));
+}
+// Ctrl+C already reaches the binary through the terminal's process group.
+process.on("SIGINT", () => {});
+
 child.once("error", (error) => {
   console.error(`idx-cli: failed to start ${binaryPath}: ${error.message}`);
   process.exit(1);
@@ -23,6 +30,7 @@ child.once("error", (error) => {
 
 child.once("exit", (code, signal) => {
   if (signal) {
+    process.removeAllListeners(signal);
     process.kill(process.pid, signal);
     return;
   }

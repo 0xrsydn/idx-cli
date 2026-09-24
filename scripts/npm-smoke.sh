@@ -3,7 +3,6 @@ set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 smoke_dir="$(mktemp -d "${TMPDIR:-/tmp}/idx-cli-npm-smoke.XXXXXX")"
-tarball="${smoke_dir}/idx-cli-0.2.3.tgz"
 install_dir="${smoke_dir}/install"
 npm_cache="${smoke_dir}/npm-cache"
 
@@ -37,8 +36,9 @@ fi
 
 echo "npm smoke: packing wrapper"
 mkdir -p "$npm_cache"
-npm_config_cache="$npm_cache" npm pack --silent --pack-destination "$smoke_dir" >/dev/null
-if [[ ! -f "$tarball" ]]; then
+tarball_name="$(npm_config_cache="$npm_cache" npm pack --silent --pack-destination "$smoke_dir" | tail -n 1)"
+tarball="${smoke_dir}/${tarball_name}"
+if [[ -z "$tarball_name" || ! -f "$tarball" ]]; then
   echo "npm smoke: expected tarball was not produced at ${tarball}" >&2
   exit 1
 fi
@@ -64,7 +64,7 @@ fi
 help_output="${smoke_dir}/help.txt"
 echo "npm smoke: running installed idx --help"
 "$resolved_bin" --help | tee "$help_output"
-if ! rg -q "Usage: idx" "$help_output"; then
+if ! grep -q "Usage: idx" "$help_output"; then
   echo "npm smoke: --help output did not contain the expected usage line" >&2
   exit 1
 fi

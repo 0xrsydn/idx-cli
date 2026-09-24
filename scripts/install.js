@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 "use strict";
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
 const path = require("node:path");
+const { pipeline } = require("node:stream");
 const { URL, fileURLToPath } = require("node:url");
 
 const packageRoot = path.resolve(__dirname, "..");
@@ -16,6 +18,7 @@ const binaryDirectory = path.join(packageRoot, "bin");
 const binaryPath = path.join(binaryDirectory, binaryName);
 const githubRepository = "0xrsydn/idx-cli";
 const maxRedirects = 5;
+const requestTimeoutMs = 60_000;
 
 const targets = {
   "linux/x64": {
@@ -33,6 +36,11 @@ const targets = {
     triple: "aarch64-apple-darwin",
     asset: "idx-darwin-arm64",
   },
+  "darwin/x64": {
+    label: "darwin-x64",
+    triple: "x86_64-apple-darwin",
+    asset: "idx-darwin-x64",
+  },
 };
 
 function currentTarget() {
@@ -49,8 +57,8 @@ function currentTarget() {
   return target;
 }
 
-function releaseAssetUrl(target) {
-  return `https://github.com/${githubRepository}/releases/download/v${packageManifest.version}/${target.asset}`;
+function releaseAssetUrl(assetName) {
+  return `https://github.com/${githubRepository}/releases/download/v${packageManifest.version}/${assetName}`;
 }
 
 function ensureBinaryDirectory() {
@@ -80,7 +88,7 @@ function replaceWithLocalBinary(sourcePath) {
   }
 }
 
-function download(url, destination, redirects = 0) {
+function request(url, onResponse, redirects = 0) {
   if (redirects > maxRedirects) {
     return Promise.reject(new Error(`too many redirects while downloading ${url}`));
   }
@@ -89,7 +97,7 @@ function download(url, destination, redirects = 0) {
   try {
     parsedUrl = new URL(url);
   } catch (error) {
-    return Promise.reject(new Error(`invalid IDX_BINARY_URL: ${error.message}`));
+    return Promise.reject(new Error(`invalid download URL: ${error.message}`));
   }
 
   if (!["http:", "https:"].includes(parsedUrl.protocol)) {
@@ -98,7 +106,7 @@ function download(url, destination, redirects = 0) {
 
   const client = parsedUrl.protocol === "https:" ? https : http;
   return new Promise((resolve, reject) => {
-    const request = client.get(
+    const req = client.get(
       parsedUrl,
       {
         headers: {
@@ -111,7 +119,7 @@ function download(url, destination, redirects = 0) {
         if (status >= 300 && status < 400 && response.headers.location) {
           const redirectedUrl = new URL(response.headers.location, parsedUrl).toString();
           response.resume();
-          download(redirectedUrl, destination, redirects + 1).then(resolve, reject);
+          request(redirectedUrl, onResponse, redirects + 1).then(resolve, reject);
           return;
         }
 
@@ -121,21 +129,69 @@ function download(url, destination, redirects = 0) {
           return;
         }
 
-        const output = fs.createWriteStream(destination, { mode: 0o755 });
-        output.once("finish", resolve);
-        output.once("error", reject);
-        response.once("error", reject);
-        response.pipe(output);
+        onResponse(response).then(resolve, reject);
       },
     );
-    request.once("error", reject);
+    req.setTimeout(requestTimeoutMs, () => {
+      req.destroy(new Error(`timed out after ${requestTimeoutMs / 1000}s downloading ${url}`));
+    });
+    req.once("error", reject);
   });
 }
 
-async function replaceWithDownloadedBinary(url) {
+function download(url, destination) {
+  return request(
+    url,
+    (response) =>
+      new Promise((resolve, reject) => {
+        const output = fs.createWriteStream(destination, { mode: 0o755 });
+        pipeline(response, output, (error) => (error ? reject(error) : resolve()));
+      }),
+  );
+}
+
+function downloadText(url) {
+  return request(
+    url,
+    (response) =>
+      new Promise((resolve, reject) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.once("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+        response.once("error", reject);
+      }),
+  );
+}
+
+function sha256File(filePath) {
+  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+async function expectedReleaseChecksum(assetName) {
+  const sums = await downloadText(releaseAssetUrl("SHA256SUMS"));
+  for (const line of sums.split(/\r?\n/)) {
+    const [hash, name] = line.trim().split(/\s+\*?/);
+    if (name === assetName && /^[0-9a-f]{64}$/i.test(hash)) {
+      return hash.toLowerCase();
+    }
+  }
+  throw new Error(`SHA256SUMS for v${packageManifest.version} has no entry for ${assetName}`);
+}
+
+function verifyChecksum(filePath, expected, label) {
+  const actual = sha256File(filePath);
+  if (actual !== expected.toLowerCase()) {
+    throw new Error(`checksum mismatch for ${label}: expected ${expected}, got ${actual}`);
+  }
+}
+
+async function replaceWithDownloadedBinary(url, expectedSha256) {
   const temporaryPath = temporaryBinaryPath();
   try {
     await download(url, temporaryPath);
+    if (expectedSha256) {
+      verifyChecksum(temporaryPath, expectedSha256, url);
+    }
     fs.chmodSync(temporaryPath, 0o755);
     fs.renameSync(temporaryPath, binaryPath);
   } finally {
@@ -165,14 +221,25 @@ function localPathFromOverride(value) {
 }
 
 async function main() {
-  const target = currentTarget();
   const override = process.env.IDX_BINARY_URL;
-  const source = override || releaseAssetUrl(target);
+  const overrideSha256 = process.env.IDX_BINARY_SHA256;
+
+  // `npm install` inside the Rust checkout should not fetch a release binary.
+  if (!override && fs.existsSync(path.join(packageRoot, "Cargo.toml"))) {
+    console.log("idx-cli: source checkout detected; skipping binary download (set IDX_BINARY_URL to override)");
+    return;
+  }
+
+  const target = currentTarget();
+  const source = override || releaseAssetUrl(target.asset);
 
   ensureBinaryDirectory();
   if (override) {
     const localPath = localPathFromOverride(override);
     if (localPath) {
+      if (overrideSha256) {
+        verifyChecksum(localPath, overrideSha256, localPath);
+      }
       replaceWithLocalBinary(localPath);
       console.log(`idx-cli: installed local binary from ${path.resolve(localPath)}`);
       return;
@@ -182,7 +249,10 @@ async function main() {
     console.log(`idx-cli: downloading ${target.asset} for ${target.label} from ${source}`);
   }
 
-  await replaceWithDownloadedBinary(source);
+  const expectedSha256 = override
+    ? overrideSha256
+    : await expectedReleaseChecksum(target.asset);
+  await replaceWithDownloadedBinary(source, expectedSha256);
   console.log(`idx-cli: installed binary at ${binaryPath}`);
 }
 

@@ -27,7 +27,6 @@
   ],
   "scripts": {
     "postinstall": "node scripts/install.js",
-    "prepare": "cargo build --release --locked",
     "smoke": "bash scripts/npm-smoke.sh"
   }
 }
