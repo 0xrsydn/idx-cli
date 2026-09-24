@@ -1,0 +1,32 @@
+{
+  "name": "idx-cli",
+  "version": "0.2.3",
+  "description": "CLI tool for Indonesian stock market (IDX) analysis",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xrsydn/idx-cli.git"
+  },
+  "homepage": "https://github.com/0xrsydn/idx-cli",
+  "keywords": [
+    "idx",
+    "stocks",
+    "indonesia",
+    "finance",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "bin": {
+    "idx": "./scripts/idx.js"
+  },
+  "files": [
+    "scripts/idx.js",
+    "scripts/install.js"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/install.js",
+    "smoke": "bash scripts/npm-smoke.sh"
+  }
+}

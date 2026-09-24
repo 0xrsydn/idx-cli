@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build and attach binaries to (for example v0.2.3)"
+        required: true
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "scripts/install.js"
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            asset: linux-x64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            asset: linux-arm64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            asset: darwin-arm64
+          - os: macos-14
+            target: x86_64-apple-darwin
+            asset: darwin-x64
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Install Rust toolchain and target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl toolchain
+        if: endsWith(matrix.target, '-linux-musl')
+        run: sudo apt-get update && sudo apt-get install --yes musl-tools
+
+      - name: Build release binary
+        shell: bash
+        run: |
+          target="${{ matrix.target }}"
+          if [[ "$target" == *-linux-musl ]]; then
+            # Bundled SQLite and ring compile C code; build it against musl too.
+            export "CC_${target//-/_}=musl-gcc"
+          fi
+          cargo build --release --locked --target "$target"
+          cp "target/${{ matrix.target }}/release/idx" "idx-${{ matrix.asset }}"
+          chmod 0755 "idx-${{ matrix.asset }}"
+
+      - name: Check binary runs
+        if: matrix.target != 'x86_64-apple-darwin'
+        run: ./idx-${{ matrix.asset }} --help >/dev/null
+
+      - name: Upload target artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: idx-${{ matrix.asset }}
+          path: idx-${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish:
+    name: Attach binaries to release
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download target artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: idx-*
+          merge-multiple: true
+
+      - name: Write checksums
+        run: sha256sum idx-linux-x64 idx-linux-arm64 idx-darwin-arm64 idx-darwin-x64 > SHA256SUMS
+
+      - name: Attach binaries to the version tag
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            idx-linux-x64
+            idx-linux-arm64
+            idx-darwin-arm64
+            idx-darwin-x64
+            SHA256SUMS
