@@ -90,13 +90,19 @@ if [[ -z "$LATEST_AS_OF" || -z "$LATEST_RELEASE_SHA" ]]; then
     exit 1
 fi
 
-ARTIFACT_NAME="ownership-snapshot-${LATEST_AS_OF}.sqlite"
-ARTIFACT_PATH="$OUTPUT_DIR/$ARTIFACT_NAME"
 MANIFEST_PATH="$OUTPUT_DIR/ownership-snapshot-manifest.json"
+TMP_ARTIFACT_PATH="$OUTPUT_DIR/.ownership-snapshot-${LATEST_AS_OF}.sqlite.tmp.$$"
+# Remove a partial copy if the script fails before the atomic rename below.
+trap 'rm -f "$TMP_ARTIFACT_PATH"' EXIT
+cp "$DB_PATH" "$TMP_ARTIFACT_PATH"
 
-cp "$DB_PATH" "$ARTIFACT_PATH"
+# Immutable, content-addressed name. The publisher relies on this to upload and
+# verify the SQLite asset before it publishes the manifest that references it.
+SQLITE_SHA256="$(sha256_file "$TMP_ARTIFACT_PATH")"
+ARTIFACT_NAME="ownership-snapshot-${LATEST_AS_OF}-${SQLITE_SHA256}.sqlite"
+ARTIFACT_PATH="$OUTPUT_DIR/$ARTIFACT_NAME"
+mv "$TMP_ARTIFACT_PATH" "$ARTIFACT_PATH"
 
-SQLITE_SHA256="$(sha256_file "$ARTIFACT_PATH")"
 SIZE_BYTES="$(wc -c < "$ARTIFACT_PATH" | tr -d ' ')"
 GENERATED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 

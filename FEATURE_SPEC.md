@@ -87,7 +87,7 @@ The following items should no longer be treated as active backlog in this spec:
 - KSEI ownership parser hardening for the March 2026 live PDF layout, including the merged `DATE + SHARE_CODE` segment and `D`/`A` locality markers
 - Real KSEI ownership CLI verification from local file import into SQLite (`7261` rows across `955` tickers on `2026-03-28`)
 - Ownership remote-import hardening for the `above1` contract, including direct-PDF-only `--url` input, discovery status output, explicit legacy-schema rejection, and live ownership-import smoke coverage
-- Ownership snapshot publishing/sync contract, including `idx ownership sync`, manifest/checksum validation, conservative local replacement rules, and the `scripts/build-ownership-snapshot.sh` publisher helper
+- Ownership snapshot publishing/sync contract, including `idx ownership sync`, manifest/checksum validation, conservative local replacement rules, and the `scripts/build-ownership-snapshot.sh` publisher helper; the publisher now uses an immutable content-addressed SQLite asset, uploads and verifies it before the manifest commit point, and makes history-aware no-op decisions
 - KSEI archive ZIP/TXT fallback ingest for local `.zip`/`.txt` files, including cross-check coverage against the `above1` PDF holder-register fixture and compatible `releases`/`ticker`/`changes` verification
 
 If any of the above regress, capture that in `TODO.md` as a new finding rather than reopening the old section here wholesale.

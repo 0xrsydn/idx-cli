@@ -86,8 +86,23 @@ if ! [[ "$HISTORY" =~ ^[0-9]+$ ]]; then
     echo "--history must be a non-negative integer" >&2
     exit 2
 fi
-# Canonicalize so "08" is 8, not an invalid octal literal in (( )).
-HISTORY=$((10#$HISTORY))
+# Strip leading zeros, then bound the value before arithmetic. A raw value
+# with thousands of digits would wrap negative in $((10#$HISTORY)).
+HISTORY_DIGITS="${HISTORY#"${HISTORY%%[!0]*}"}"
+MAX_HISTORY=1000
+if [[ -z "$HISTORY_DIGITS" ]]; then
+    HISTORY=0
+else
+    if (( ${#HISTORY_DIGITS} > 6 )); then
+        echo "--history must be at most $MAX_HISTORY" >&2
+        exit 2
+    fi
+    HISTORY=$((10#$HISTORY_DIGITS))
+    if (( HISTORY > MAX_HISTORY )); then
+        echo "--history must be at most $MAX_HISTORY" >&2
+        exit 2
+    fi
+fi
 
 if [[ -z "$BASE_URL" ]]; then
     BASE_URL="https://github.com/${REPO_FULL_NAME}/releases/download/${RELEASE_TAG}"
@@ -264,4 +279,4 @@ mv "$TMP_MANIFEST_PATH" "$MANIFEST_PATH"
 printf 'Prepared release-ready snapshot from %s (%s)\n' \
     "$DISCOVERED_PDF_URL" "$IMPORTED_AS_OF_DATE"
 printf 'Manifest URL target: %s/ownership-snapshot-manifest.json\n' "$BASE_URL"
-printf 'SQLite URL target: %s/ownership-snapshot-%s.sqlite\n' "$BASE_URL" "$IMPORTED_AS_OF_DATE"
+printf 'SQLite URL target: %s\n' "$(jq -r '.snapshot.download_url // empty' "$MANIFEST_PATH")"

@@ -31,54 +31,31 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@v30
 
-      - name: Build idx
-        run: nix develop --command cargo build
+      - name: Build ownership publisher
+        run: nix build .#ownership-publisher
 
-      - name: Build snapshot artifacts from latest supported IDX/KSEI source
+      - name: Publish ownership snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          HISTORY: ${{ inputs.history }}
         run: |
-          nix develop --command scripts/build-latest-ownership-snapshot.sh \
-            --idx-bin ./target/debug/idx \
+          set -euo pipefail
+
+          # The packaged publisher owns the full protocol: discovery, import,
+          # content-addressed SQLite upload + SHA-256 verification, and the
+          # manifest as the final commit point. It is a no-op when current.
+          ./result/bin/idx-ownership-publish \
             --output-dir dist/ownership-snapshot \
-            --repo "${{ github.repository }}" \
-            --release-tag "${{ inputs.release_tag }}" \
-            --history "${{ inputs.history }}"
+            --repo "$REPO" \
+            --release-tag "$RELEASE_TAG" \
+            --history "$HISTORY"
 
       - name: Upload workflow artifact copy
+        # A legitimate up-to-date run produces no new local artifacts.
         uses: actions/upload-artifact@v4
         with:
           name: ownership-snapshot-${{ github.run_id }}
           path: dist/ownership-snapshot/*
-          if-no-files-found: error
-
-      - name: Ensure stable snapshot release exists
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          tag="${{ inputs.release_tag }}"
-          repo="${{ github.repository }}"
-
-          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-            echo "Release $tag already exists."
-            exit 0
-          fi
-
-          gh release create "$tag" \
-            --repo "$repo" \
-            --target "${{ github.sha }}" \
-            --title "Ownership Snapshot Current" \
-            --notes "Stable release for idx ownership snapshot artifacts consumed by \`idx ownership sync\`." \
-            --latest=false
-
-      - name: Upload snapshot assets to stable release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          gh release upload "${{ inputs.release_tag }}" \
-            dist/ownership-snapshot/ownership-snapshot-manifest.json \
-            dist/ownership-snapshot/ownership-snapshot-*.sqlite \
-            --repo "${{ github.repository }}" \
-            --clobber
+          if-no-files-found: ignore
