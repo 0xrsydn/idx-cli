@@ -50,13 +50,29 @@ The publisher is idempotent and prints exactly one final line:
 
 | Last line | Exit | Meaning |
 | --- | --- | --- |
-| `RESULT: published <as-of>` | 0 | a newer snapshot was uploaded |
-| `RESULT: up-to-date <as-of>` | 0 | the published snapshot already has the latest report; nothing uploaded |
-| `RESULT: FAILED stage=<stage> (exit N)` | N | failed in `arguments`, `build`, `preflight`, `discover`, `build-snapshot`, `stage-output`, or `upload` |
+| `RESULT: published <as-of>` | 0 | a newer snapshot, or a larger history, was uploaded |
+| `RESULT: up-to-date <as-of>` | 0 | the published snapshot already has the latest report and requested history; nothing uploaded |
+| `RESULT: FAILED stage=<stage> (exit N)` | N | failed in `arguments`, `build`, `preflight`, `discover`, `build-snapshot`, `stage-output`, `upload`, or `publish` |
 
-It checks the published manifest first and, for XLSX sources, compares as-of
-dates before downloading anything, so it is cheap to run **daily**. `--force`
+It checks the published manifest and verifies that the manifest's `download_url`
+names this repo and release tag, and that the referenced SQLite asset matches
+the manifest SHA-256 and size, before it skips anything. It uses GitHub's
+`sha256:` digest metadata when available and downloads legacy assets without a
+digest to hash them. A missing or corrupt asset, a mismatched URL, an unreadable
+manifest, or a GitHub authentication/network error is treated as "publish",
+never as up to date. The upload path verifies the full SHA-256 of the uploaded
+asset before it publishes the manifest.
+For XLSX sources it also compares the requested `--history` coverage with the
+months the source actually exposes, so a history increase is published once and
+a request larger than the available history does not rebuild forever. `--history`
+is bounded (maximum 1000) so an enormous value cannot wrap and look already
+satisfied. The checks use discovery only, so a daily run stays cheap. `--force`
 uploads regardless.
+
+The SQLite asset is immutable and content-addressed. The publisher uploads and
+verifies it before it uploads the manifest, which is the commit point consumers
+follow. A partial upload therefore exits non-zero and is repaired by the next
+run.
 
 `idx-ownership-freshness` is the independent alarm: it exits 1 when the
 published `latest_as_of_date` is older than `--max-age-days` (default 40). The

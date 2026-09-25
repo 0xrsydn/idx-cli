@@ -17,7 +17,7 @@ Use a dedicated stable release tag for snapshot assets:
 
 - tag: `ownership-snapshot-current`
 - manifest asset: `ownership-snapshot-manifest.json`
-- SQLite asset: `ownership-snapshot-YYYY-MM-DD.sqlite`
+- SQLite asset: `ownership-snapshot-YYYY-MM-DD-<sha256>.sqlite` (immutable, content-addressed)
 
 Recommended public manifest URL:
 
@@ -36,14 +36,14 @@ Run the publisher helper inside `nix develop` so `mutool` and the
 
 ```bash
 nix develop --command cargo build
-nix develop --command scripts/build-latest-ownership-snapshot.sh \
+nix develop --command scripts/publish-ownership-snapshot.sh \
   --idx-bin ./target/debug/idx \
   --output-dir dist/ownership-snapshot \
   --repo 0xrsydn/idx-cli \
   --release-tag ownership-snapshot-current
 ```
 
-The script performs these steps:
+The helper performs these steps:
 
 1. `idx -o json ownership discover --family above1 --limit 50` (newest supported
    report first; XLSX from the Data Kepemilikan Saham page since June 2026)
@@ -68,16 +68,69 @@ The resulting manifest records:
 
 That metadata is additive. Existing sync clients can still parse the manifest.
 
+## Publication Protocol
+
+The manifest is the commit point that `idx ownership sync` follows. The
+publisher therefore never uploads the manifest and the SQLite asset in one
+non-atomic call. It uses this order:
+
+1. Build the snapshot and stage the manifest plus one content-addressed SQLite
+   file.
+2. Upload the SQLite asset first. The name includes the artifact's SHA-256, so
+   the same content always has the same name and a retry is idempotent.
+3. Read the release assets back and confirm the SQLite asset exists with the
+   expected SHA-256 and size. Use GitHub's `sha256:` digest metadata when it is
+   present; for legacy assets without a digest, download the asset through `gh`
+   and hash it. Fail before touching the manifest if verification fails.
+4. Upload the manifest last and verify that its `snapshot.sqlite_sha256`
+   matches the staged manifest.
+
+Consequences:
+
+- A partial upload (manifest uploaded, SQLite missing) can no longer happen.
+- If either upload fails, the job exits non-zero and the next run retries.
+  Previously downloaded manifests remain valid because the old SQLite asset is retained.
+- GitHub does not replace the manifest transactionally. A failed replacement
+  can leave the manifest unavailable until a retry succeeds.
+- The publisher treats a published manifest as current only when `download_url`
+  names this repo and release tag and the referenced asset matches the manifest
+  SHA-256 and size. A missing or corrupt asset, a mismatched URL, or any GitHub
+  authentication/network error means "publish", never "up to date".
+
+## History Coverage
+
+`--history <n>` requests the latest report plus up to `<n>` earlier monthly
+XLSX reports. The publisher compares the request with the months the source
+actually exposes:
+
+- desired releases = `1 + min(--history, available earlier XLSX months)`
+- a published snapshot with the same as-of date and at least the desired number
+  of releases is a no-op
+- a published snapshot with the same as-of date but fewer releases is
+  republished to add history
+- when the source has fewer historical months than requested, the publisher
+  accepts the smaller coverage and does not rebuild on every run
+
 ## Upload Step
 
-After the local build succeeds, upload these two files to the
-`ownership-snapshot-current` GitHub release:
+Prefer the publisher helper, which implements the protocol above:
 
-- `dist/ownership-snapshot/ownership-snapshot-manifest.json`
-- `dist/ownership-snapshot/ownership-snapshot-YYYY-MM-DD.sqlite`
+```bash
+scripts/publish-ownership-snapshot.sh \
+  --idx-bin ./target/debug/idx \
+  --output-dir dist/ownership-snapshot \
+  --repo 0xrsydn/idx-cli \
+  --release-tag ownership-snapshot-current
+```
 
-Only after this manual flow is reliable should the repo automate it in
-GitHub Actions.
+If you upload by hand, upload these files to the `ownership-snapshot-current`
+GitHub release in this order:
+
+1. `dist/ownership-snapshot/ownership-snapshot-YYYY-MM-DD-<sha256>.sqlite`
+2. `dist/ownership-snapshot/ownership-snapshot-manifest.json`
+
+Never upload the manifest before its SQLite asset is present. Only after this
+manual flow is reliable should the repo automate it in GitHub Actions.
 
 ## GitHub Actions Workflow
 
@@ -87,14 +140,19 @@ The repo now includes a manual workflow at
 Current behavior:
 
 - trigger: `workflow_dispatch` only
-- builds `idx` inside `nix develop`
-- runs `scripts/build-latest-ownership-snapshot.sh`
-- uploads the generated files as workflow artifacts
-- creates the stable release tag if needed
-- uploads the manifest and SQLite asset to that release with `--clobber`
+- builds the packaged publisher with `nix build .#ownership-publisher`
+- runs `idx-ownership-publish` from that package, which performs discovery,
+  import, snapshot build, and the full upload protocol in one pass
+- uploads any locally produced artifacts as a workflow artifact copy with
+  `if-no-files-found: ignore`, so a legitimate up-to-date run still succeeds
+- does not run a separate release-create or asset-upload step
 
 This is intentionally manual-first. Add a schedule only after a few successful
 publish runs confirm the live source remains stable enough.
+
+The workflow passes its inputs to the shell through environment variables and
+routes publication through the same fixed publisher used by self-hosted hosts,
+so it cannot drift from the CLI protocol.
 
 ## Self-Hosted Automation
 

@@ -42,7 +42,7 @@ Current schema version: `1`
     "kind": "sqlite",
     "compression": "none",
     "version": "2026-02-27",
-    "download_url": "https://example.com/ownership-snapshot-2026-02-27.sqlite",
+    "download_url": "https://example.com/ownership-snapshot-2026-02-27-<sha256>.sqlite",
     "sqlite_sha256": "<64-char hex sha256>",
     "size_bytes": 123456,
     "release_count": 2,
@@ -56,7 +56,10 @@ Current schema version: `1`
 
 Semantics:
 - `source` is optional provenance metadata describing the IDX/KSEI PDF used to build the snapshot.
-- `download_url` points to the SQLite artifact itself.
+- `download_url` points to the SQLite artifact itself. The filename is an
+  implementation detail: published assets are immutable and content-addressed
+  (`ownership-snapshot-YYYY-MM-DD-<sha256>.sqlite`), so consumers must always
+  follow `download_url` and validate it with `sqlite_sha256` and `size_bytes`.
 - `sqlite_sha256` and `size_bytes` are validated before install.
 - `latest_*` and `release_count` are validated against the downloaded SQLite contents before replacement.
 

@@ -31,6 +31,9 @@ jobs:
       - name: Test
         run: cargo test
 
+      - name: Publish ownership snapshot tests
+        run: scripts/publish-ownership-snapshot-test.sh
+
       - name: Package
         run: cargo package --locked
 
