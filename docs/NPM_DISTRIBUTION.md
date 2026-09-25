@@ -31,7 +31,7 @@ npx idx-cli --help
 ```
 
 The package version and the release tag must match. For example, package
-version `0.2.3` downloads assets from the `v0.2.3` GitHub Release.
+version `0.2.4` downloads assets from the `v0.2.4` GitHub Release.
 
 The postinstall script downloads `SHA256SUMS` from the same release and
 refuses to install a binary whose checksum does not match.
@@ -81,7 +81,7 @@ URLs must stay aligned with `scripts/install.js`.
 To attach binaries to a tag that already exists, run the workflow manually:
 
 ```bash
-gh workflow run release.yml -f tag=v0.2.3
+gh workflow run release.yml -f tag=v0.2.4
 ```
 
 Pull requests that touch the workflow or the installer run the build jobs
@@ -91,4 +91,7 @@ Release order:
 
 1. Push the tag, or run the workflow for an existing tag.
 2. Confirm the release has all binaries plus `SHA256SUMS`.
-3. Run `npm publish`.
+3. Run `npm publish` from the tagged commit. The account has two-factor auth,
+   so npm asks for a browser approval or `--otp=<code>`. A version number
+   can never be republished, so bump `Cargo.toml` and `package.json` together
+   before tagging.

@@ -45,7 +45,7 @@ them yourself.
 Pass flags through the pipe with `sh -s --`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/0xrsydn/idx-cli/main/install.sh | sh -s -- --version v0.2.3 --dir ~/bin
+curl -fsSL https://raw.githubusercontent.com/0xrsydn/idx-cli/main/install.sh | sh -s -- --version v0.2.4 --dir ~/bin
 ```
 
 ## Supported platforms
