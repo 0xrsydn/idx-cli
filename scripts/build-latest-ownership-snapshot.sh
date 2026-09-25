@@ -21,6 +21,10 @@ Options:
   --history <n>          Also import the <n> previous monthly above-1% XLSX
                          reports (oldest first) so `ownership changes` works
                          from the snapshot (default: 0)
+  --max-snapshot-bytes <n>
+                         Refuse to emit a snapshot larger than this
+                         (default: 10485760, the download limit of idx
+                         clients <= v0.2.3; exceeding it breaks their sync)
   --keep-workdir         Keep the temp workdir instead of deleting it
   --help                 Show this help
 EOF
@@ -33,6 +37,7 @@ REPO_FULL_NAME="0xrsydn/idx-cli"
 RELEASE_TAG="ownership-snapshot-current"
 KEEP_WORKDIR="0"
 HISTORY="0"
+MAX_SNAPSHOT_BYTES="10485760"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -60,6 +65,10 @@ while [[ $# -gt 0 ]]; do
             HISTORY="${2:-}"
             shift 2
             ;;
+        --max-snapshot-bytes)
+            MAX_SNAPSHOT_BYTES="${2:-}"
+            shift 2
+            ;;
         --keep-workdir)
             KEEP_WORKDIR="1"
             shift
@@ -79,6 +88,11 @@ done
 if [[ -z "$OUTPUT_DIR" ]]; then
     echo "--output-dir is required" >&2
     usage >&2
+    exit 2
+fi
+
+if ! [[ "$MAX_SNAPSHOT_BYTES" =~ ^[1-9][0-9]{0,17}$ ]]; then
+    echo "--max-snapshot-bytes must be a positive integer" >&2
     exit 2
 fi
 
@@ -253,6 +267,26 @@ IMPORTED_ROW_COUNT="${release_fields[2]:-}"
 
 printf 'Building snapshot artifact and manifest...\n'
 "$BASIC_BUILDER" --db "$DB_PATH" --output-dir "$OUTPUT_DIR" --base-url "$BASE_URL"
+
+# Released clients cannot download a snapshot above their HTTP body limit, so
+# publishing one would break `idx ownership sync` for every existing install.
+SNAPSHOT_BYTES="$(jq -r '.snapshot.size_bytes // empty' "$MANIFEST_PATH")"
+if ! [[ "$SNAPSHOT_BYTES" =~ ^[0-9]+$ ]]; then
+    echo "built manifest has no valid snapshot.size_bytes" >&2
+    exit 1
+fi
+if (( SNAPSHOT_BYTES > MAX_SNAPSHOT_BYTES )); then
+    printf 'snapshot is %s bytes (%s monthly releases), above --max-snapshot-bytes %s; lower --history\n' \
+        "$SNAPSHOT_BYTES" "$(jq -r '.snapshot.release_count' "$MANIFEST_PATH")" "$MAX_SNAPSHOT_BYTES" >&2
+    # Remove the refused pair so a standalone run leaves nothing publishable.
+    refused_sqlite="$(jq -r '.snapshot.download_url // empty' "$MANIFEST_PATH")"
+    refused_sqlite="${refused_sqlite##*/}"
+    if [[ -n "$refused_sqlite" && "$refused_sqlite" != */* ]]; then
+        rm -f "$OUTPUT_DIR/$refused_sqlite"
+    fi
+    rm -f "$MANIFEST_PATH"
+    exit 1
+fi
 
 TMP_MANIFEST_PATH="$WORKDIR/ownership-snapshot-manifest.json"
 jq \

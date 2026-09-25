@@ -165,12 +165,14 @@ cat >"$scripts_dir/build-latest-ownership-snapshot.sh" <<'STUB_BUILDER'
 set -euo pipefail
 out=""
 history="0"
+max_bytes="default"
 repo="example/repo"
 tag="ownership-snapshot-current"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --output-dir) out="$2"; shift 2 ;;
         --history) history="$2"; shift 2 ;;
+        --max-snapshot-bytes) max_bytes="$2"; shift 2 ;;
         --repo) repo="$2"; shift 2 ;;
         --release-tag) tag="$2"; shift 2 ;;
         --idx-bin) shift 2 ;;
@@ -179,7 +181,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ -n "$out" ]] || { echo "stub builder: missing --output-dir" >&2; exit 2; }
-printf 'history=%s\n' "$history" >>"${FAKE_BUILDER_CALLS:?}"
+printf 'history=%s max_bytes=%s\n' "$history" "$max_bytes" >>"${FAKE_BUILDER_CALLS:?}"
+if [[ "${FAKE_BUILDER_TOO_LARGE:-0}" == "1" ]]; then
+    echo "snapshot is 15290368 bytes (6 monthly releases), above --max-snapshot-bytes $max_bytes; lower --history" >&2
+    exit 1
+fi
 
 as_of="${FAKE_BUILD_AS_OF:-2026-08-31}"
 if [[ -n "${FAKE_BUILD_RELEASE_COUNT:-}" ]]; then
@@ -665,6 +671,28 @@ jq '.snapshot.download_url |= sub("/ownership-snapshot-current/"; "/ownership-sn
 cp "$state/nested-manifest.json" "$remote_manifest"
 run_publisher
 publish_ok "nested download URL cannot authorize a no-op" "RESULT: published 2026-08-31"
+
+# ===========================================================================
+# 8. an oversized snapshot fails the build and leaves the release untouched
+# ===========================================================================
+reset_remote
+run_publisher
+publish_ok "baseline publish before the size check" "RESULT: published 2026-08-31"
+manifest_before="$(sha256_of "$state/remote/assets/ownership-snapshot-manifest.json")"
+export FAKE_BUILDER_TOO_LARGE="1"
+run_publisher --force --max-snapshot-bytes 10485760
+unset FAKE_BUILDER_TOO_LARGE
+if [[ "$PUBLISH_STATUS" != "0" && "$PUBLISH_LAST" == "RESULT: FAILED stage=build-snapshot"* ]]; then
+    pass "oversized snapshot fails at build-snapshot"
+else
+    fail "oversized snapshot fails at build-snapshot (status=$PUBLISH_STATUS last='$PUBLISH_LAST')"
+fi
+expect_contains "size limit is passed to the builder" "$(tail -n 1 "$state/builder-calls")" "max_bytes=10485760"
+if [[ "$(sha256_of "$state/remote/assets/ownership-snapshot-manifest.json")" == "$manifest_before" ]]; then
+    pass "oversized snapshot leaves the published manifest untouched"
+else
+    fail "oversized snapshot leaves the published manifest untouched"
+fi
 
 if ((failures > 0)); then
     echo "publish-ownership-snapshot tests: ${failures} failure(s)" >&2

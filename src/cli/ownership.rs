@@ -1102,8 +1102,10 @@ fn download_pdf(url: &str, target: &Path) -> Result<(), IdxError> {
         .call()
         .map_err(|e| IdxError::Http(format!("failed to download PDF: {e}")))?;
 
-    let mut body = response.into_body();
-    let bytes = body
+    let bytes = response
+        .into_body()
+        .with_config()
+        .limit(REMOTE_REPORT_LIMIT_BYTES)
         .read_to_vec()
         .map_err(|e| IdxError::Http(format!("failed reading PDF body: {e}")))?;
     remote::validate_pdf_payload(&bytes)?;
@@ -1117,6 +1119,9 @@ fn download_pdf(url: &str, target: &Path) -> Result<(), IdxError> {
 
     Ok(())
 }
+
+/// Above ureq's 10 MiB default: the monthly holder-register PDF can grow past it.
+const REMOTE_REPORT_LIMIT_BYTES: u64 = 256 * 1024 * 1024;
 
 fn download_xlsx(url: &str, target: &Path) -> Result<(), IdxError> {
     if is_idx_url(url) {
@@ -1132,6 +1137,8 @@ fn download_xlsx(url: &str, target: &Path) -> Result<(), IdxError> {
         .map_err(|e| IdxError::Http(format!("failed to download XLSX: {e}")))?;
     let bytes = response
         .into_body()
+        .with_config()
+        .limit(REMOTE_REPORT_LIMIT_BYTES)
         .read_to_vec()
         .map_err(|e| IdxError::Http(format!("failed reading XLSX body: {e}")))?;
     remote::validate_xlsx_payload(&bytes)?;

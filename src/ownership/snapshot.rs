@@ -16,6 +16,12 @@ pub const SNAPSHOT_MANIFEST_ENV: &str = "IDX_OWNERSHIP_SNAPSHOT_MANIFEST";
 pub const SNAPSHOT_MANIFEST_SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_SNAPSHOT_MANIFEST_URL: &str = "https://github.com/0xrsydn/idx-cli/releases/download/ownership-snapshot-current/ownership-snapshot-manifest.json";
 
+/// ureq caps response bodies at 10 MiB by default. Snapshots with several
+/// months of history exceed that (history 3 is ~10.5 MB), so the download is
+/// bounded by the manifest's `size_bytes` instead, never above 1 GiB. The body
+/// is still verified against that size and the SHA-256 afterwards.
+pub(crate) const SNAPSHOT_DOWNLOAD_LIMIT_BYTES: u64 = 1024 * 1024 * 1024;
+
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -149,7 +155,20 @@ pub fn sync_snapshot(
         });
     }
 
-    let bytes = read_bytes(&manifest.snapshot.download_url, "ownership snapshot SQLite")?;
+    if manifest.snapshot.size_bytes > SNAPSHOT_DOWNLOAD_LIMIT_BYTES {
+        return Err(IdxError::InvalidInput(format!(
+            "ownership snapshot manifest reports {} bytes, above the {} byte limit",
+            manifest.snapshot.size_bytes, SNAPSHOT_DOWNLOAD_LIMIT_BYTES
+        )));
+    }
+    // A body larger than the manifest says is rejected while downloading
+    // (ureq fails once a body reaches its limit, hence the +1); the exact size
+    // and SHA-256 are verified afterwards.
+    let bytes = read_bytes(
+        &manifest.snapshot.download_url,
+        "ownership snapshot SQLite",
+        manifest.snapshot.size_bytes + 1,
+    )?;
     validate_downloaded_bytes(&bytes, &manifest.snapshot)?;
 
     let temp_path = build_temp_path(db_path);
@@ -644,7 +663,7 @@ fn read_text(source: &str, context: &str) -> Result<String, IdxError> {
         .map_err(|e| IdxError::Io(format!("failed to read {context} {}: {e}", path.display())))
 }
 
-fn read_bytes(source: &str, context: &str) -> Result<Vec<u8>, IdxError> {
+fn read_bytes(source: &str, context: &str, limit_bytes: u64) -> Result<Vec<u8>, IdxError> {
     if is_http_source(source) {
         let response = ureq::get(source)
             .header("User-Agent", USER_AGENT)
@@ -654,10 +673,16 @@ fn read_bytes(source: &str, context: &str) -> Result<Vec<u8>, IdxError> {
             )
             .call()
             .map_err(|e| IdxError::Http(format!("failed to fetch {context}: {e}")))?;
-        let mut body = response.into_body();
-        return body
+        return response
+            .into_body()
+            .with_config()
+            .limit(limit_bytes)
             .read_to_vec()
-            .map_err(|e| IdxError::Http(format!("failed reading {context} body: {e}")));
+            .map_err(|e| {
+                IdxError::Http(format!(
+                    "failed reading {context} body (larger than the manifest's size_bytes?): {e}"
+                ))
+            });
     }
 
     let path = local_source_path(source);

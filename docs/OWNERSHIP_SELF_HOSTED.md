@@ -103,6 +103,26 @@ idempotent run the exact day no longer matters.
 Pass `--history <n>` to include earlier months so `idx ownership changes`
 works straight from the synced snapshot (about 2.4 MB per extra month).
 
+### Snapshot size limit
+
+idx clients up to v0.2.3 cap the snapshot download at **10 MiB** (10,485,760
+bytes) and only accept uncompressed SQLite. A larger snapshot makes
+`idx ownership sync` fail for every existing install. This happened on
+2026-09-25 with `--history 5` (15.3 MB).
+
+| `--history` | months | size (2026-08-31) |
+| --- | --- | --- |
+| 2 | 3 | 8,171,520 |
+| 3 | 4 | 10,510,336 (too large) |
+| 5 | 6 | 15,290,368 (too large) |
+
+The builder therefore refuses snapshots above `--max-snapshot-bytes`
+(default 10485760). The run ends `RESULT: FAILED stage=build-snapshot` and the
+published snapshot stays unchanged. Newer clients accept snapshots up to the
+manifest's `size_bytes` (at most 1 GiB, buffered in memory);
+raise `--max-snapshot-bytes` and `--history` only after clients without the
+10 MiB cap are widespread.
+
 ## Clan Integration Later
 
 The clean split for `clan-private` is:
