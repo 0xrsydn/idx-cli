@@ -118,7 +118,8 @@ bytes) and only accept uncompressed SQLite. A larger snapshot makes
 
 The builder therefore refuses snapshots above `--max-snapshot-bytes`
 (default 10485760). The run ends `RESULT: FAILED stage=build-snapshot` and the
-published snapshot stays unchanged. Newer clients stream downloads up to 1 GiB;
+published snapshot stays unchanged. Newer clients accept snapshots up to the
+manifest's `size_bytes` (at most 1 GiB, buffered in memory);
 raise `--max-snapshot-bytes` and `--history` only after clients without the
 10 MiB cap are widespread.
 

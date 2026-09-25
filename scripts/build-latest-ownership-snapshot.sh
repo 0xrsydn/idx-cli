@@ -278,6 +278,13 @@ fi
 if (( SNAPSHOT_BYTES > MAX_SNAPSHOT_BYTES )); then
     printf 'snapshot is %s bytes (%s monthly releases), above --max-snapshot-bytes %s; lower --history\n' \
         "$SNAPSHOT_BYTES" "$(jq -r '.snapshot.release_count' "$MANIFEST_PATH")" "$MAX_SNAPSHOT_BYTES" >&2
+    # Remove the refused pair so a standalone run leaves nothing publishable.
+    refused_sqlite="$(jq -r '.snapshot.download_url // empty' "$MANIFEST_PATH")"
+    refused_sqlite="${refused_sqlite##*/}"
+    if [[ -n "$refused_sqlite" && "$refused_sqlite" != */* ]]; then
+        rm -f "$OUTPUT_DIR/$refused_sqlite"
+    fi
+    rm -f "$MANIFEST_PATH"
     exit 1
 fi
 

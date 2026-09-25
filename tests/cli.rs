@@ -1918,6 +1918,44 @@ fn ownership_sync_downloads_snapshot_larger_than_ten_mib_over_http() {
 }
 
 #[test]
+fn ownership_sync_rejects_body_larger_than_manifest_size() {
+    let publisher_root = test_env_dir("ownership-sync-oversized-body");
+    let (source_db, manifest_path) = prepare_snapshot_fixture(&publisher_root);
+    write_snapshot_manifest(&manifest_path, &source_db, None);
+    let mut body = fs::read(&source_db).expect("read snapshot");
+    body.extend_from_slice(&[0u8; 4096]);
+    let snapshot_url = spawn_single_response_server("application/octet-stream", body);
+    let mut manifest: Value =
+        serde_json::from_str(&fs::read_to_string(&manifest_path).expect("read manifest"))
+            .expect("parse manifest");
+    manifest["snapshot"]["download_url"] = Value::String(format!("{snapshot_url}/snapshot.sqlite"));
+    fs::write(&manifest_path, manifest.to_string()).expect("write http manifest");
+
+    let sync_root = test_env_dir("ownership-sync-oversized-body-consumer");
+    bin_with_root(&sync_root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            sync_root.join("ownership.db").to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    bin_with_root(&sync_root)
+        .args([
+            "ownership",
+            "sync",
+            "--manifest",
+            manifest_path.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "larger than the manifest's size_bytes",
+        ));
+}
+
+#[test]
 fn ownership_sync_installs_snapshot_and_preserves_query_behavior() {
     let publisher_root = test_env_dir("ownership-sync-publisher");
     let (_source_db, manifest_path) = prepare_snapshot_fixture(&publisher_root);
