@@ -16,6 +16,11 @@ pub const SNAPSHOT_MANIFEST_ENV: &str = "IDX_OWNERSHIP_SNAPSHOT_MANIFEST";
 pub const SNAPSHOT_MANIFEST_SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_SNAPSHOT_MANIFEST_URL: &str = "https://github.com/0xrsydn/idx-cli/releases/download/ownership-snapshot-current/ownership-snapshot-manifest.json";
 
+/// ureq caps response bodies at 10 MiB by default. Snapshots with several
+/// months of history exceed that (history 3 is ~10.5 MB), and the download is
+/// verified against the manifest's size and SHA-256 anyway, so allow up to 1 GiB.
+pub(crate) const SNAPSHOT_DOWNLOAD_LIMIT_BYTES: u64 = 1024 * 1024 * 1024;
+
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -654,8 +659,10 @@ fn read_bytes(source: &str, context: &str) -> Result<Vec<u8>, IdxError> {
             )
             .call()
             .map_err(|e| IdxError::Http(format!("failed to fetch {context}: {e}")))?;
-        let mut body = response.into_body();
-        return body
+        return response
+            .into_body()
+            .with_config()
+            .limit(SNAPSHOT_DOWNLOAD_LIMIT_BYTES)
             .read_to_vec()
             .map_err(|e| IdxError::Http(format!("failed reading {context} body: {e}")));
     }

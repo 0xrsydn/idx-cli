@@ -35,6 +35,9 @@ Options:
   --history <n>          Request at least <n> previous monthly above-1% reports
                          in addition to the latest (default: 0). Fewer reports
                          are accepted when the source only has fewer months.
+  --max-snapshot-bytes <n>
+                         Passed to the builder: refuse snapshots above this
+                         size (default: 10485760, the limit of idx <= v0.2.3)
   --force                Upload even if the published snapshot is up to date
   --build                Run `cargo build` before publishing
   --keep-workdir         Keep the temp workdir created by the builder helper
@@ -49,6 +52,7 @@ RELEASE_TAG="ownership-snapshot-current"
 BUILD_FIRST="0"
 KEEP_WORKDIR="0"
 HISTORY="0"
+MAX_SNAPSHOT_BYTES=""
 FORCE="0"
 PUBLISH_WORKDIR=""
 STAGE="arguments"
@@ -107,6 +111,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --history)
             HISTORY="${2:-}"
+            shift 2
+            ;;
+        --max-snapshot-bytes)
+            MAX_SNAPSHOT_BYTES="${2:-}"
             shift 2
             ;;
         --force)
@@ -392,6 +400,10 @@ build_args=(
     --release-tag "$RELEASE_TAG"
     --history "$HISTORY"
 )
+
+if [[ -n "$MAX_SNAPSHOT_BYTES" ]]; then
+    build_args+=(--max-snapshot-bytes "$MAX_SNAPSHOT_BYTES")
+fi
 
 if [[ "$KEEP_WORKDIR" == "1" ]]; then
     build_args+=(--keep-workdir)
