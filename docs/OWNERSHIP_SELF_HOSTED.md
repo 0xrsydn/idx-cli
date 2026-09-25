@@ -22,9 +22,49 @@ simple:
 No Nix setup is required for end users. Nix is only an implementation detail for
 the maintainer host if that host already uses NixOS.
 
-## Manual Command
+## Packaged Publisher (recommended)
 
-From a checked-out repo with GitHub auth already configured:
+The flake exposes a self-contained publisher, so the host needs no checkout,
+`nix develop`, or cargo build at run time:
+
+```bash
+nix build github:0xrsydn/idx-cli#ownership-publisher
+./result/bin/idx-ownership-publish --output-dir /var/lib/idx/ownership-snapshot/current --history 5
+./result/bin/idx-ownership-freshness --max-age-days 40
+```
+
+The publisher needs `GH_TOKEN` in its environment: a token that can create
+and upload assets on the target repo's releases (the examples read it from
+`/etc/idx-ownership-snapshot.env`; clan-private uses a Clan var). The
+freshness check needs no token.
+
+`idx-ownership-publish` wraps `scripts/publish-ownership-snapshot.sh` with a
+pinned `idx` (itself wrapped with curl-impersonate and mupdf) plus jq, gh,
+sqlite and curl. On NixOS, add this repo as a flake input and run
+`inputs.idx-cli.packages.${system}.ownership-publisher`; bump the input
+(`nix flake update idx-cli`) to pick up fixes.
+
+## Run Semantics
+
+The publisher is idempotent and prints exactly one final line:
+
+| Last line | Exit | Meaning |
+| --- | --- | --- |
+| `RESULT: published <as-of>` | 0 | a newer snapshot was uploaded |
+| `RESULT: up-to-date <as-of>` | 0 | the published snapshot already has the latest report; nothing uploaded |
+| `RESULT: FAILED stage=<stage> (exit N)` | N | failed in `arguments`, `build`, `preflight`, `discover`, `build-snapshot`, `stage-output`, or `upload` |
+
+It checks the published manifest first and, for XLSX sources, compares as-of
+dates before downloading anything, so it is cheap to run **daily**. `--force`
+uploads regardless.
+
+`idx-ownership-freshness` is the independent alarm: it exits 1 when the
+published `latest_as_of_date` is older than `--max-age-days` (default 40). The
+source is monthly and lands 2-3 days after month end, so 40 days only trips
+when publishing has actually stopped working. Wire both to an `OnFailure=`
+notification.
+
+## Manual Command (from a checkout)
 
 ```bash
 nix develop --command scripts/publish-ownership-snapshot.sh \
@@ -35,47 +75,17 @@ nix develop --command scripts/publish-ownership-snapshot.sh \
   --release-tag ownership-snapshot-current
 ```
 
-That helper:
+## systemd Units
 
-1. optionally builds `idx`
-2. discovers the latest supported IDX/KSEI above-1% report (XLSX on the IDX
-   Data Kepemilikan Saham page since the 2026-05-29 report; PDF announcements
-   before that)
-3. imports it into an isolated temp DB
-4. emits the SQLite snapshot and manifest
-5. ensures the stable GitHub release exists
-6. uploads the manifest and SQLite asset with `--clobber`
+Examples: `contrib/systemd/idx-ownership-snapshot-publish.service` and
+`contrib/systemd/idx-ownership-snapshot-publish.timer` (daily at 06:00 UTC).
 
-## systemd Service
+Observed XLSX upload times (HTTP Last-Modified): 2026-06-03,
+2026-07-02 03:55Z, 2026-08-02 01:50Z, 2026-09-02 03:51Z. With a daily,
+idempotent run the exact day no longer matters.
 
-Example service: [contrib/systemd/idx-ownership-snapshot-publish.service](/Users/rasyidanakbar/Development/myApp/idx-cli/contrib/systemd/idx-ownership-snapshot-publish.service)
-
-Important assumptions:
-
-- the repo checkout lives at `/srv/idx-cli`
-- a writable publish directory exists at `/var/lib/idx-ownership-snapshot/current`
-- `GH_TOKEN` is provided via an env file such as `/etc/idx-ownership-snapshot.env`
-- the host can run `nix develop`
-
-## systemd Timer
-
-Example timer: [contrib/systemd/idx-ownership-snapshot-publish.timer](/Users/rasyidanakbar/Development/myApp/idx-cli/contrib/systemd/idx-ownership-snapshot-publish.timer)
-
-The sample timer uses:
-
-- `OnCalendar=*-*-02 09:00:00`
-- `Persistent=true`
-- `RandomizedDelaySec=30m`
-
-That is intentionally conservative. The ownership source is monthly, but the
-exact publish day can drift. Observed XLSX upload times (HTTP Last-Modified):
-2026-06-03, 2026-07-02 03:55Z, 2026-08-02 01:50Z, 2026-09-02 03:51Z, so a run
-on the 2nd can occasionally land before the file exists; the 3rd is safer.
-Start with an early-month schedule and adjust after observing a few real runs.
-
-Pass `--history <n>` (for example via `services.idxOwnershipPublish.extraArgs =
-[ "--history" "5" ];` in `clan-private`) to include earlier months so
-`idx ownership changes` works straight from the synced snapshot.
+Pass `--history <n>` to include earlier months so `idx ownership changes`
+works straight from the synced snapshot (about 2.4 MB per extra month).
 
 ## Clan Integration Later
 

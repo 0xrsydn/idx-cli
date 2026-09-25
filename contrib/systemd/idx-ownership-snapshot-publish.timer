@@ -1,8 +1,10 @@
 [Unit]
-Description=Run monthly idx ownership snapshot publish job
+Description=Daily idx ownership snapshot publish check
 
 [Timer]
-OnCalendar=*-*-02 09:00:00
+# The publisher is idempotent, so a daily run retries automatically when IDX
+# posts late or a run is blocked; most days end with "RESULT: up-to-date".
+OnCalendar=*-*-* 06:00:00 UTC
 Persistent=true
 RandomizedDelaySec=30m
 Unit=idx-ownership-snapshot-publish.service

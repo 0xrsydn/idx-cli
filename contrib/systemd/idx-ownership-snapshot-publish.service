@@ -5,7 +5,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/srv/idx-cli
 Environment=HOME=/var/lib/idx-ownership-snapshot
 EnvironmentFile=/etc/idx-ownership-snapshot.env
-ExecStart=/bin/sh -lc 'nix develop --command scripts/publish-ownership-snapshot.sh --build --idx-bin ./target/debug/idx --output-dir /var/lib/idx-ownership-snapshot/current --repo 0xrsydn/idx-cli --release-tag ownership-snapshot-current'
+# Build once with `nix build github:0xrsydn/idx-cli#ownership-publisher -o /opt/idx-ownership-publisher`.
+# Idempotent: exits 0 with "RESULT: up-to-date" when nothing newer exists.
+ExecStart=/opt/idx-ownership-publisher/bin/idx-ownership-publish --output-dir /var/lib/idx-ownership-snapshot/current --repo 0xrsydn/idx-cli --release-tag ownership-snapshot-current --history 5
