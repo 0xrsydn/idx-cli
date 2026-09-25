@@ -56,7 +56,7 @@ commands call external tools:
 
 | Tool | Needed for |
 | --- | --- |
-| `curl_chrome*` / `curl_firefox*` from [curl-impersonate](https://github.com/lexiforest/curl-impersonate) (or `IDX_CURL_IMPERSONATE_BIN`) | `ownership discover` / `import --url` from IDX (behind Cloudflare), and Yahoo fundamentals when `IDX_PROVIDER=yahoo` |
+| `curl_chrome*` from [curl-impersonate](https://github.com/lexiforest/curl-impersonate) (ownership also tries its Firefox and Safari profiles), or `IDX_CURL_IMPERSONATE_BIN` | `ownership discover` / `import --url` from IDX (behind Cloudflare), and Yahoo fundamentals when `IDX_PROVIDER=yahoo` |
 | `mutool` from MuPDF | importing legacy PDF ownership reports only |
 
 Everyday use (`stocks` with the default MSN provider, including history,
@@ -89,7 +89,7 @@ idx ownership changes --from 2026-07-31 --to 2026-08-31
 - Quotes, OHLC history, company profile, financial statements, earnings,
   news, crowd sentiment, and AI insights
 - Analysis: `technical`, `growth`, `valuation`, `risk`, and a combined
-  `fundamental` report; multi-symbol `compare`; MSN `screen`er
+  `fundamental` report; multi-symbol `compare`; MSN stock `screen`
 - Providers: MSN is the default for quotes, fundamentals, and screening;
   Yahoo serves history. Switch with `IDX_PROVIDER=msn|yahoo` and
   `IDX_HISTORY_PROVIDER=auto|yahoo|msn`
