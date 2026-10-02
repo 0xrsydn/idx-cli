@@ -77,7 +77,28 @@ pub fn print_quotes(quotes: &[Quote], no_color: bool) -> Result<(), IdxError> {
     }
 
     println!("{table}");
+    for note in stale_quote_notes(quotes, chrono::Utc::now()) {
+        println!("{note}");
+    }
     Ok(())
+}
+
+/// A quote whose last trade is over a week old is almost always a suspended
+/// stock; say so under the table instead of letting it pass as current.
+fn stale_quote_notes(quotes: &[Quote], now: chrono::DateTime<chrono::Utc>) -> Vec<String> {
+    quotes
+        .iter()
+        .filter_map(|q| {
+            let as_of = q.as_of?;
+            (now.signed_duration_since(as_of) > chrono::Duration::days(7)).then(|| {
+                format!(
+                    "Note: {} last traded on {}; this price is not current.",
+                    q.symbol,
+                    as_of.date_naive()
+                )
+            })
+        })
+        .collect()
 }
 
 pub fn print_history(symbol: &str, history: &[Ohlc]) -> Result<(), IdxError> {
@@ -862,9 +883,44 @@ fn truncate_url(url: &str) -> String {
 mod tests {
     use super::{
         format_earnings_period, format_idr, format_signal, format_table_date, format_u64,
-        humanize_metric_key,
+        humanize_metric_key, stale_quote_notes,
     };
     use crate::analysis::signals::Signal;
+    use crate::api::types::Quote;
+
+    fn quote_as_of(symbol: &str, as_of: &str) -> Quote {
+        Quote {
+            symbol: symbol.into(),
+            price: 204,
+            change: 0,
+            change_pct: 0.0,
+            volume: 0,
+            market_cap: None,
+            week52_high: None,
+            week52_low: None,
+            week52_position: None,
+            range_signal: None,
+            prev_close: None,
+            avg_volume: None,
+            as_of: Some(chrono::DateTime::parse_from_rfc3339(as_of).unwrap()),
+        }
+    }
+
+    #[test]
+    fn notes_only_quotes_older_than_a_week() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-02T10:00:00Z")
+            .unwrap()
+            .to_utc();
+        let quotes = [
+            quote_as_of("WIKA.JK", "2025-02-17T16:14:58+07:00"),
+            quote_as_of("BBCA.JK", "2026-10-02T16:15:00+07:00"),
+            quote_as_of("TLKM.JK", "2026-09-26T16:15:00+07:00"),
+        ];
+        assert_eq!(
+            stale_quote_notes(&quotes, now),
+            vec!["Note: WIKA.JK last traded on 2025-02-17; this price is not current."]
+        );
+    }
 
     #[test]
     fn formats_idr_numbers() {

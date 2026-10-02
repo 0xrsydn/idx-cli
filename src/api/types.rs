@@ -1,4 +1,4 @@
-use chrono::NaiveDate;
+use chrono::{DateTime, FixedOffset, NaiveDate};
 use clap::ValueEnum;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 
@@ -41,6 +41,11 @@ pub struct Quote {
     /// Average daily volume for the last 3 months (shares), from
     /// `averageDailyVolume3Month`.
     pub avg_volume: Option<u64>,
+    /// Time of the last trade in WIB (UTC+7), from MSN `timeLastTraded` or
+    /// Yahoo `regularMarketTime`. `None` when the provider does not say.
+    /// Suspended stocks can carry a last trade months in the past.
+    #[serde(default)]
+    pub as_of: Option<DateTime<FixedOffset>>,
 }
 
 /// OHLC candle data normalized from Yahoo Finance chart indicators.

@@ -66,6 +66,7 @@ pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, Id
         range_signal,
         prev_close,
         avg_volume: round_u64(quote.average_volume),
+        as_of: crate::api::parse_as_of(quote.time_last_traded.as_deref()),
     })
 }
 
@@ -625,6 +626,7 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
                 range_signal,
                 prev_close,
                 avg_volume: round_u64(q.average_volume),
+                as_of: crate::api::parse_as_of(q.time_last_traded.as_deref()),
             })
         })
         .collect();
@@ -939,6 +941,19 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "unsupported: company fundamentals unavailable from MSN; industry fallback is disabled"
+        );
+    }
+
+    #[test]
+    fn quote_as_of_is_last_trade_in_wib() {
+        let raw: Vec<MsnQuote> = serde_json::from_str(
+            r#"[{"symbol":"BBCA","price":6100.0,"timeLastTraded":"2026-10-02T09:15:00Z"}]"#,
+        )
+        .expect("quote should deserialize");
+        let quote = parse_quote("BBCA.JK", &raw).expect("quote parsed");
+        assert_eq!(
+            quote.as_of.unwrap().to_rfc3339(),
+            "2026-10-02T16:15:00+07:00"
         );
     }
 

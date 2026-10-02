@@ -60,6 +60,10 @@ pub(super) fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, 
         range_signal,
         prev_close,
         avg_volume: meta.average_daily_volume_3month,
+        as_of: meta
+            .regular_market_time
+            .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
+            .map(|t| t.with_timezone(&crate::api::idx_offset())),
     })
 }
 

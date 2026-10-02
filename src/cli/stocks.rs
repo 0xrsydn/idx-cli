@@ -1055,6 +1055,7 @@ mod tests {
                 range_signal: None,
                 prev_close: None,
                 avg_volume: None,
+                as_of: None,
             },
             Quote {
                 symbol: "B".into(),
@@ -1069,6 +1070,7 @@ mod tests {
                 range_signal: None,
                 prev_close: None,
                 avg_volume: None,
+                as_of: None,
             },
             Quote {
                 symbol: "C".into(),
@@ -1083,6 +1085,7 @@ mod tests {
                 range_signal: None,
                 prev_close: None,
                 avg_volume: None,
+                as_of: None,
             },
         ];
 
@@ -1109,6 +1112,7 @@ mod tests {
                 range_signal: None,
                 prev_close: None,
                 avg_volume: None,
+                as_of: None,
             },
             Quote {
                 symbol: "B".into(),
@@ -1123,6 +1127,7 @@ mod tests {
                 range_signal: None,
                 prev_close: None,
                 avg_volume: None,
+                as_of: None,
             },
             Quote {
                 symbol: "C".into(),
@@ -1137,6 +1142,7 @@ mod tests {
                 range_signal: None,
                 prev_close: None,
                 avg_volume: None,
+                as_of: None,
             },
         ];
 

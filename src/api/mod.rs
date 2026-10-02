@@ -19,6 +19,13 @@ pub(crate) fn idx_offset() -> FixedOffset {
     FixedOffset::east_opt(IDX_UTC_OFFSET_SECS).expect("valid WIB offset")
 }
 
+/// Parse a provider's RFC 3339 trade time and express it in WIB.
+pub(crate) fn parse_as_of(raw: Option<&str>) -> Option<chrono::DateTime<FixedOffset>> {
+    chrono::DateTime::parse_from_rfc3339(raw?)
+        .ok()
+        .map(|t| t.with_timezone(&idx_offset()))
+}
+
 pub trait QuoteProvider {
     fn quote(&self, symbol: &str) -> Result<Quote, IdxError>;
 }
