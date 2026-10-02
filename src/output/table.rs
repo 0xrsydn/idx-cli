@@ -768,6 +768,10 @@ pub fn print_earnings(report: &EarningsReport) -> Result<(), IdxError> {
 }
 
 pub fn print_sentiment(data: &SentimentData) -> Result<(), IdxError> {
+    if data.statistics.is_empty() {
+        println!("No sentiment votes for {}.", data.symbol);
+        return Ok(());
+    }
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)

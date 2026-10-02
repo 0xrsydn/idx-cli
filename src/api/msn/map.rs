@@ -460,9 +460,15 @@ pub(super) fn parse_sentiment(
     symbol: &str,
     raw: &[RawSentiment],
 ) -> Result<SentimentData, IdxError> {
-    let item = raw
-        .first()
-        .ok_or_else(|| IdxError::ParseError("no sentiment data".into()))?;
+    // MSN answers `[]` for tickers nobody has voted on (all IDX names as of
+    // 2026-10). That is "no votes", not a malformed response.
+    let Some(item) = raw.first() else {
+        let ticker = ticker_from_symbol(symbol).unwrap_or_default();
+        return Ok(SentimentData {
+            symbol: normalized_symbol(symbol, &ticker),
+            statistics: Vec::new(),
+        });
+    };
     let stats = item
         .sentiment_statistics
         .as_ref()
@@ -927,6 +933,13 @@ mod tests {
             err.to_string(),
             "unsupported: company fundamentals unavailable from MSN; industry fallback is disabled"
         );
+    }
+
+    #[test]
+    fn empty_sentiment_response_is_empty_data_not_an_error() {
+        let sentiment = parse_sentiment("BBCA", &[]).expect("empty sentiment is valid");
+        assert_eq!(sentiment.symbol, "BBCA.JK");
+        assert!(sentiment.statistics.is_empty());
     }
 
     #[test]
