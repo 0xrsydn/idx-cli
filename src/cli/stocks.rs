@@ -613,9 +613,13 @@ pub fn handle(
         } => {
             let filter_key = screener_filter_key(filter)?;
             let region_key = screener_region_key(region)?;
-            // For filters that fall back to topperfs, fetch all stocks so
-            // client-side sorting picks the correct top N.
-            let needs_full_fetch = matches!(filter.as_str(), "high-volume" | "large-cap");
+            // Filters re-sorted client-side need the whole MSN list: MSN orders
+            // by 1-year return, so truncating first and then sorting by day
+            // change made `--limit 3` return different stocks than `--limit 25`.
+            let needs_full_fetch = matches!(
+                filter.as_str(),
+                "high-volume" | "large-cap" | "top-performers" | "worst-performers"
+            );
             let fetch_limit = if needs_full_fetch { 500 } else { *limit };
             let bucket = cache_bucket(provider.kind(), "screen");
             let key = format!("{filter}:{region}:{fetch_limit}");
