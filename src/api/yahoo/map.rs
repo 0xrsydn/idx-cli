@@ -87,6 +87,14 @@ pub(super) fn parse_history(
         .and_then(|i| i.quote.as_ref())
         .and_then(|q| q.first())
         .ok_or(IdxError::ProviderUnavailable)?;
+    // Yahoo stamps weekly/monthly bars at local midnight (17:00Z the day before),
+    // so take the date in the exchange's own offset, not UTC.
+    let exchange_tz = result
+        .meta
+        .as_ref()
+        .and_then(|m| m.gmtoffset)
+        .and_then(chrono::FixedOffset::east_opt)
+        .unwrap_or_else(crate::api::idx_offset);
 
     let mut out = Vec::new();
     let mut dropped = 0usize;
@@ -121,7 +129,7 @@ pub(super) fn parse_history(
             && let Some(dt) = chrono::DateTime::from_timestamp(*ts, 0)
         {
             out.push(Ohlc {
-                date: dt.date_naive(),
+                date: dt.with_timezone(&exchange_tz).date_naive(),
                 open,
                 high,
                 low,

@@ -93,6 +93,22 @@ mod tests {
     }
 
     #[test]
+    fn history_dates_use_exchange_offset_not_utc() {
+        // Weekly bars are stamped at Monday 00:00 WIB, i.e. Sunday 17:00Z.
+        let raw = r#"{"chart":{"error":null,"result":[{
+            "meta":{"gmtoffset":25200},
+            "timestamp":[1790528400],
+            "indicators":{"quote":[{"open":[6000],"high":[6150],"low":[5975],"close":[6100],"volume":[1000]}]}
+        }]}}"#;
+        let history = parse_history_from_str("BBCA.JK", raw).expect("history parsed");
+        assert_eq!(history[0].date.to_string(), "2026-09-28");
+
+        let without_offset = raw.replace(r#""gmtoffset":25200"#, r#""symbol":"BBCA.JK""#);
+        let history = parse_history_from_str("BBCA.JK", &without_offset).expect("history parsed");
+        assert_eq!(history[0].date.to_string(), "2026-09-28");
+    }
+
+    #[test]
     fn parses_realistic_fixture_json() {
         let quote_raw =
             std::fs::read_to_string("tests/fixtures/chart_bbca_1d.json").expect("fixture exists");

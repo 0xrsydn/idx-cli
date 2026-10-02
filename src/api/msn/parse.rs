@@ -78,7 +78,7 @@ mod tests {
         let history = parse_history_from_str("BBCA.JK", &raw).expect("chart fixture parsed");
 
         assert_eq!(history.len(), 3);
-        assert_eq!(history[0].date.to_string(), "2026-01-13");
+        assert_eq!(history[0].date.to_string(), "2026-01-14");
         assert_eq!(history[0].close, 8000);
     }
 

@@ -648,7 +648,10 @@ pub(super) fn parse_history(
         let volume = series_volume_at(series, idx);
 
         out.push(Ohlc {
-            date: timestamp.date_naive(),
+            // MSN stamps each IDX day at local midnight (17:00Z the day before).
+            date: timestamp
+                .with_timezone(&crate::api::idx_offset())
+                .date_naive(),
             open,
             high,
             low,
@@ -935,7 +938,8 @@ mod tests {
         let history = parse_history("BBCA.JK", &raw).expect("chart history should parse");
 
         assert_eq!(history.len(), 3);
-        assert_eq!(history[0].date.to_string(), "2026-01-13");
+        // `2026-01-13T17:00:00Z` is midnight WIB on the 14th, the trading day it belongs to.
+        assert_eq!(history[0].date.to_string(), "2026-01-14");
         assert_eq!(history[0].open, 8000);
         assert_eq!(history[0].high, 8000);
         assert_eq!(history[0].low, 8000);
