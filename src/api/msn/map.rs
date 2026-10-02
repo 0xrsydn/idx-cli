@@ -15,9 +15,16 @@ use std::collections::HashMap;
 
 pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, IdxError> {
     let quote = quotes.first().ok_or(IdxError::ProviderUnavailable)?;
-    let raw_price = quote
-        .price
-        .ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
+    let Some(raw_price) = quote.price else {
+        // MSN still lists suspended/untraded names (symbol, name, market cap)
+        // but sends no price. That is a real instrument with no market data.
+        if quote.symbol.is_some() {
+            return Err(IdxError::NoMarketData(format!(
+                "{symbol} is listed but has no price from MSN (it may be suspended)"
+            )));
+        }
+        return Err(IdxError::SymbolNotFound(symbol.to_string()));
+    };
     let prev_close = quote.price_previous_close.map(round_price);
     let price = round_price(raw_price);
     let change = prev_close
@@ -778,9 +785,9 @@ fn collect_earnings(
 #[cfg(test)]
 mod tests {
     use super::{
-        KeyRatios, RawChartResponse, RawFinancialStatement, RawNewsFeed, RawScreenerResponse,
-        RawSentiment, parse_financial_statements, parse_fundamentals, parse_history, parse_news,
-        parse_screener_results, parse_sentiment,
+        KeyRatios, MsnQuote, RawChartResponse, RawFinancialStatement, RawNewsFeed,
+        RawScreenerResponse, RawSentiment, parse_financial_statements, parse_fundamentals,
+        parse_history, parse_news, parse_quote, parse_screener_results, parse_sentiment,
     };
     use crate::error::IdxError;
 
@@ -933,6 +940,20 @@ mod tests {
             err.to_string(),
             "unsupported: company fundamentals unavailable from MSN; industry fallback is disabled"
         );
+    }
+
+    #[test]
+    fn listed_quote_without_price_is_no_market_data() {
+        let raw: Vec<MsnQuote> = serde_json::from_str(
+            r#"[{"symbol":"WIKA","shortName":"Wijaya Karya","marketCap":8080746000000.0}]"#,
+        )
+        .expect("quote should deserialize");
+        let err = parse_quote("WIKA.JK", &raw).unwrap_err();
+        assert!(matches!(err, IdxError::NoMarketData(_)), "{err:?}");
+
+        let raw: Vec<MsnQuote> = serde_json::from_str("[{}]").expect("quote should deserialize");
+        let err = parse_quote("ZZZZ.JK", &raw).unwrap_err();
+        assert!(matches!(err, IdxError::SymbolNotFound(_)), "{err:?}");
     }
 
     #[test]
