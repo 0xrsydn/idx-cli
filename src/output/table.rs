@@ -53,20 +53,22 @@ pub fn print_quotes(quotes: &[Quote], no_color: bool) -> Result<(), IdxError> {
         ]);
 
     for q in quotes {
-        let pct = format!("{:+.2}%", q.change_pct);
-        let pct_cell = if no_color {
-            Cell::new(pct)
-        } else if q.change_pct >= 0.0 {
-            Cell::new(pct).fg(Color::Green)
-        } else {
-            Cell::new(pct).fg(Color::Red)
+        let pct_cell = match q.change_pct {
+            None => Cell::new("-"),
+            Some(pct) if no_color => Cell::new(format!("{pct:+.2}%")),
+            Some(pct) if pct >= 0.0 => Cell::new(format!("{pct:+.2}%")).fg(Color::Green),
+            Some(pct) => Cell::new(format!("{pct:+.2}%")).fg(Color::Red),
         };
         table.add_row(vec![
             Cell::new(&q.symbol),
             Cell::new(format_idr(q.price)),
-            Cell::new(format!("{:+}", q.change)),
+            Cell::new(
+                q.change
+                    .map(|c| format!("{c:+}"))
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
             pct_cell,
-            Cell::new(format_u64(q.volume)),
+            Cell::new(q.volume.map(format_u64).unwrap_or_else(|| "-".to_string())),
             Cell::new(
                 q.market_cap
                     .map(format_u64)
@@ -892,9 +894,9 @@ mod tests {
         Quote {
             symbol: symbol.into(),
             price: 204,
-            change: 0,
-            change_pct: 0.0,
-            volume: 0,
+            change: None,
+            change_pct: None,
+            volume: None,
             market_cap: None,
             week52_high: None,
             week52_low: None,

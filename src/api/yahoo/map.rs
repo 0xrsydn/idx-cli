@@ -22,14 +22,10 @@ pub(super) fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, 
 
     let price = round_price(raw_price);
     let prev_close = raw_prev_close.map(round_price);
-    let change = prev_close.map_or(0, |p| price - p);
-    let change_pct = raw_prev_close.map_or(0.0, |p| {
-        if p != 0.0 {
-            ((raw_price - p) / p) * 100.0
-        } else {
-            0.0
-        }
-    });
+    let change = prev_close.map(|p| price - p);
+    let change_pct = raw_prev_close
+        .filter(|p| *p != 0.0)
+        .map(|p| ((raw_price - p) / p) * 100.0);
 
     let (week52_position, range_signal) = match (meta.fifty_two_week_low, meta.fifty_two_week_high)
     {
@@ -52,7 +48,7 @@ pub(super) fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, 
         price,
         change,
         change_pct,
-        volume: meta.regular_market_volume.unwrap_or(0),
+        volume: meta.regular_market_volume,
         market_cap: meta.market_cap,
         week52_high: meta.fifty_two_week_high.map(round_price),
         week52_low: meta.fifty_two_week_low.map(round_price),
