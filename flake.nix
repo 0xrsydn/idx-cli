@@ -4,13 +4,14 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    crane.url = "github:ipetkov/crane";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
+  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
@@ -20,34 +21,43 @@
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "rust-analyzer" ];
         };
-        rustPlatform = pkgs.makeRustPlatform {
-          cargo = rustToolchain;
-          rustc = rustToolchain;
-        };
+        craneLib = (crane.mkLib pkgs).overrideToolchain (_: rustToolchain);
         runtimeDeps = with pkgs; [
           curl-impersonate
           mupdf
         ];
-        idxPackage = rustPlatform.buildRustPackage {
+        # Only the crate itself (manifests, src/, tests/), so doc or script
+        # edits do not invalidate the Rust derivations.
+        rustFiles = [
+          ./Cargo.toml
+          ./Cargo.lock
+          ./src
+          ./tests
+        ];
+        src = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions rustFiles;
+        };
+        commonArgs = {
+          inherit src;
           pname = cargoManifest.package.name;
           version = cargoManifest.package.version;
-          src = lib.cleanSource ./.;
-          cargoLock = {
-            lockFile = ./Cargo.lock;
-          };
+          strictDeps = true;
+          nativeBuildInputs = with pkgs; [ pkg-config ];
+          buildInputs = with pkgs; [ openssl ];
+        };
+        # Dependency-only build keyed on Cargo.toml/Cargo.lock: reused from the
+        # Nix store (or binary cache) until the dependency graph changes.
+        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+        idxPackage = craneLib.buildPackage (commonArgs // {
+          inherit cargoArtifacts;
           doCheck = false;
-          nativeBuildInputs = with pkgs; [
-            makeWrapper
-            pkg-config
-          ];
-          buildInputs = with pkgs; [
-            openssl
-          ];
+          nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.makeWrapper ];
           postInstall = ''
             wrapProgram "$out/bin/idx" \
               --prefix PATH : "${lib.makeBinPath runtimeDeps}"
           '';
-        };
+        });
         # Self-contained ownership snapshot publisher for scheduled hosts
         # (e.g. a NixOS systemd timer): no checkout, `nix develop` or cargo
         # build at run time. Wraps the repo scripts with a pinned `idx`.
@@ -103,9 +113,53 @@
         apps.default = {
           type = "app";
           program = "${idxPackage}/bin/idx";
+          meta.description = "idx CLI";
         };
-        checks.default = idxPackage;
-        checks.ownership-publisher = ownershipPublisher;
+        checks = {
+          default = idxPackage;
+          ownership-publisher = ownershipPublisher;
+          fmt = craneLib.cargoFmt { inherit src; };
+          clippy = craneLib.cargoClippy (commonArgs // {
+            inherit cargoArtifacts;
+            cargoClippyExtraArgs = "--all-targets -- -D warnings";
+          });
+          test = craneLib.cargoTest (commonArgs // {
+            inherit cargoArtifacts;
+            # Ownership discover tests point IDX_CURL_IMPERSONATE_BIN at plain
+            # `curl` against a local fixture server.
+            nativeCheckInputs = [ pkgs.curl ];
+          });
+          # `cargo package` verification: the published crate (per the
+          # `include` list in Cargo.toml) must build on its own.
+          package = craneLib.mkCargoDerivation (commonArgs // {
+            inherit cargoArtifacts;
+            pnameSuffix = "-package";
+            src = lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions (rustFiles ++ [
+                ./LICENSE
+                ./README.md
+              ]);
+            };
+            buildPhaseCargoCommand = "cargo package --locked --offline --allow-dirty";
+            doInstallCargoArtifacts = false;
+            installPhaseCommand = "touch $out";
+          });
+          smoke-mock = pkgs.runCommand "idx-smoke-mock"
+            { nativeBuildInputs = with pkgs; [ bash coreutils findutils gnugrep gnused gawk ]; }
+            ''
+              cp -r ${./scripts} scripts
+              chmod -R u+w scripts
+              patchShebangs scripts
+              # The mock provider reads fixtures relative to the working dir.
+              mkdir -p tests
+              cp -r ${./tests/fixtures} tests/fixtures
+              export HOME="$TMPDIR"
+              ${idxPackage}/bin/idx version
+              bash scripts/live-smoke.sh --bin ${idxPackage}/bin/idx --no-build --mode mock
+              touch "$out"
+            '';
+        };
 
         devShells.default = pkgs.mkShell {
           inputsFrom = [ idxPackage ];

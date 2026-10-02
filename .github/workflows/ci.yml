@@ -6,44 +6,11 @@ on:
   pull_request:
 
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo + target
-        uses: swatinem/rust-cache@v2
-
-      - name: Check formatting
-        run: cargo fmt --check
-
-      - name: Clippy
-        run: cargo clippy -- -D warnings
-
-      - name: Test
-        run: cargo test
-
-      - name: Publish ownership snapshot tests
-        run: scripts/publish-ownership-snapshot-test.sh
-
-      - name: Package
-        run: cargo package --locked
-
-      - name: Install Smoke
-        run: |
-          root="$(mktemp -d)"
-          cargo install --path . --locked --root "$root"
-          "$root/bin/idx" version
-          scripts/live-smoke.sh --bin "$root/bin/idx" --no-build --mode mock
-
+  # Everything that compiles Rust runs as a `nix flake check` derivation
+  # (fmt, clippy, tests, package verify, build, offline smoke). Crane splits
+  # the crate dependency build into its own derivation, and the Nix store is
+  # restored from the GitHub Actions cache, so unchanged derivations are
+  # substituted instead of rebuilt.
   nix:
     runs-on: ubuntu-latest
 
@@ -52,13 +19,23 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v30
+        uses: cachix/install-nix-action@v31
 
-      - name: Build default package
-        run: nix build .#default
+      - name: Restore and save Nix store
+        uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.nix', 'flake.lock', 'Cargo.lock', 'Cargo.toml') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 8G
+
+      - name: Flake check
+        run: nix flake check -L
 
       - name: Run default app
         run: nix run .#default -- version
+
+      - name: Publish ownership snapshot tests
+        run: scripts/publish-ownership-snapshot-test.sh
 
       - name: Build ownership publisher
         run: |
