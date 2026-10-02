@@ -70,6 +70,8 @@ pub(super) struct ChartMeta {
     pub(super) fifty_two_week_low: Option<f64>,
     #[serde(rename = "averageDailyVolume3Month")]
     pub(super) average_daily_volume_3month: Option<u64>,
+    pub(super) gmtoffset: Option<i32>,
+    pub(super) regular_market_time: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]

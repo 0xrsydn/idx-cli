@@ -49,8 +49,8 @@ mod tests {
         let quote = parse_quote_from_str("BBCA.JK", &raw).expect("quote parsed");
         assert_eq!(quote.symbol, "BBCA.JK");
         assert_eq!(quote.price, 9875);
-        assert_eq!(quote.change, 117);
-        assert_eq!(quote.volume, 12_300_000);
+        assert_eq!(quote.change, Some(117));
+        assert_eq!(quote.volume, Some(12_300_000));
         assert_eq!(quote.market_cap, Some(1_215_200_000_000_000));
         assert_eq!(quote.avg_volume, Some(10_000_000));
     }
@@ -78,7 +78,7 @@ mod tests {
         let history = parse_history_from_str("BBCA.JK", &raw).expect("chart fixture parsed");
 
         assert_eq!(history.len(), 3);
-        assert_eq!(history[0].date.to_string(), "2026-01-13");
+        assert_eq!(history[0].date.to_string(), "2026-01-14");
         assert_eq!(history[0].close, 8000);
     }
 

@@ -30,6 +30,8 @@ pub(crate) struct MsnQuote {
     pub(crate) market_cap: Option<f64>,
     #[serde(default)]
     pub(crate) return_ytd: Option<f64>,
+    #[serde(default)]
+    pub(crate) time_last_traded: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -22,14 +22,10 @@ pub(super) fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, 
 
     let price = round_price(raw_price);
     let prev_close = raw_prev_close.map(round_price);
-    let change = prev_close.map_or(0, |p| price - p);
-    let change_pct = raw_prev_close.map_or(0.0, |p| {
-        if p != 0.0 {
-            ((raw_price - p) / p) * 100.0
-        } else {
-            0.0
-        }
-    });
+    let change = prev_close.map(|p| price - p);
+    let change_pct = raw_prev_close
+        .filter(|p| *p != 0.0)
+        .map(|p| ((raw_price - p) / p) * 100.0);
 
     let (week52_position, range_signal) = match (meta.fifty_two_week_low, meta.fifty_two_week_high)
     {
@@ -52,7 +48,7 @@ pub(super) fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, 
         price,
         change,
         change_pct,
-        volume: meta.regular_market_volume.unwrap_or(0),
+        volume: meta.regular_market_volume,
         market_cap: meta.market_cap,
         week52_high: meta.fifty_two_week_high.map(round_price),
         week52_low: meta.fifty_two_week_low.map(round_price),
@@ -60,6 +56,10 @@ pub(super) fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, 
         range_signal,
         prev_close,
         avg_volume: meta.average_daily_volume_3month,
+        as_of: meta
+            .regular_market_time
+            .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
+            .map(|t| t.with_timezone(&crate::api::idx_offset())),
     })
 }
 
@@ -87,6 +87,14 @@ pub(super) fn parse_history(
         .and_then(|i| i.quote.as_ref())
         .and_then(|q| q.first())
         .ok_or(IdxError::ProviderUnavailable)?;
+    // Yahoo stamps weekly/monthly bars at local midnight (17:00Z the day before),
+    // so take the date in the exchange's own offset, not UTC.
+    let exchange_tz = result
+        .meta
+        .as_ref()
+        .and_then(|m| m.gmtoffset)
+        .and_then(chrono::FixedOffset::east_opt)
+        .unwrap_or_else(crate::api::idx_offset);
 
     let mut out = Vec::new();
     let mut dropped = 0usize;
@@ -121,7 +129,7 @@ pub(super) fn parse_history(
             && let Some(dt) = chrono::DateTime::from_timestamp(*ts, 0)
         {
             out.push(Ohlc {
-                date: dt.date_naive(),
+                date: dt.with_timezone(&exchange_tz).date_naive(),
                 open,
                 high,
                 low,

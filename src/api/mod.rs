@@ -2,12 +2,29 @@ pub mod msn;
 pub mod types;
 pub mod yahoo;
 
+use chrono::FixedOffset;
+
 use crate::config::{HistoryProviderKind, ProviderKind};
 use crate::error::IdxError;
 use types::{
     Bar, CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, Interval,
     NewsItem, Period, Quote, SentimentData,
 };
+
+/// IDX trades in Western Indonesia Time (WIB, UTC+7, no DST). Providers stamp
+/// candles in UTC, so day boundaries must be taken in this zone.
+pub(crate) const IDX_UTC_OFFSET_SECS: i32 = 7 * 3600;
+
+pub(crate) fn idx_offset() -> FixedOffset {
+    FixedOffset::east_opt(IDX_UTC_OFFSET_SECS).expect("valid WIB offset")
+}
+
+/// Parse a provider's RFC 3339 trade time and express it in WIB.
+pub(crate) fn parse_as_of(raw: Option<&str>) -> Option<chrono::DateTime<FixedOffset>> {
+    chrono::DateTime::parse_from_rfc3339(raw?)
+        .ok()
+        .map(|t| t.with_timezone(&idx_offset()))
+}
 
 pub trait QuoteProvider {
     fn quote(&self, symbol: &str) -> Result<Quote, IdxError>;

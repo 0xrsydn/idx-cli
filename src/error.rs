@@ -32,6 +32,8 @@ pub enum IdxError {
     PdfParseError(String),
     #[error("invalid input: {0}")]
     InvalidInput(String),
+    #[error("no market data: {0}")]
+    NoMarketData(String),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -50,6 +52,7 @@ pub enum ErrorCode {
     DatabaseError,
     PdfParseError,
     InvalidInput,
+    NoMarketData,
 }
 
 impl IdxError {
@@ -69,6 +72,7 @@ impl IdxError {
             Self::DatabaseError(_) => ErrorCode::DatabaseError,
             Self::PdfParseError(_) => ErrorCode::PdfParseError,
             Self::InvalidInput(_) => ErrorCode::InvalidInput,
+            Self::NoMarketData(_) => ErrorCode::NoMarketData,
         }
     }
 

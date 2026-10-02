@@ -615,9 +615,13 @@ pub fn handle(
         } => {
             let filter_key = screener_filter_key(filter)?;
             let region_key = screener_region_key(region)?;
-            // For filters that fall back to topperfs, fetch all stocks so
-            // client-side sorting picks the correct top N.
-            let needs_full_fetch = matches!(filter.as_str(), "high-volume" | "large-cap");
+            // Filters re-sorted client-side need the whole MSN list: MSN orders
+            // by 1-year return, so truncating first and then sorting by day
+            // change made `--limit 3` return different stocks than `--limit 25`.
+            let needs_full_fetch = matches!(
+                filter.as_str(),
+                "high-volume" | "large-cap" | "top-performers" | "worst-performers"
+            );
             let fetch_limit = if needs_full_fetch { 500 } else { *limit };
             let bucket = cache_bucket(provider.kind(), "screen");
             let key = format!("{filter}:{region}:{fetch_limit}");
@@ -958,16 +962,16 @@ fn sort_screener_quotes(quotes: &mut [Quote], filter: &str) {
     match filter {
         "top-performers" => {
             quotes.sort_by(|a, b| {
-                b.change_pct
-                    .partial_cmp(&a.change_pct)
-                    .unwrap_or(Ordering::Equal)
+                let pa = a.change_pct.unwrap_or(f64::MIN);
+                let pb = b.change_pct.unwrap_or(f64::MIN);
+                pb.partial_cmp(&pa).unwrap_or(Ordering::Equal)
             });
         }
         "worst-performers" => {
             quotes.sort_by(|a, b| {
-                a.change_pct
-                    .partial_cmp(&b.change_pct)
-                    .unwrap_or(Ordering::Equal)
+                let pa = a.change_pct.unwrap_or(f64::MAX);
+                let pb = b.change_pct.unwrap_or(f64::MAX);
+                pa.partial_cmp(&pb).unwrap_or(Ordering::Equal)
             });
         }
         "52w-high" => {
@@ -1047,9 +1051,9 @@ mod tests {
             Quote {
                 symbol: "A".into(),
                 price: 100,
-                change: 1,
-                change_pct: 1.0,
-                volume: 100,
+                change: Some(1),
+                change_pct: Some(1.0),
+                volume: Some(100),
                 market_cap: None,
                 week52_high: None,
                 week52_low: None,
@@ -1057,13 +1061,14 @@ mod tests {
                 range_signal: None,
                 prev_close: None,
                 avg_volume: None,
+                as_of: None,
             },
             Quote {
                 symbol: "B".into(),
                 price: 200,
-                change: 10,
-                change_pct: 5.0,
-                volume: 200,
+                change: Some(10),
+                change_pct: Some(5.0),
+                volume: Some(200),
                 market_cap: None,
                 week52_high: None,
                 week52_low: None,
@@ -1071,13 +1076,14 @@ mod tests {
                 range_signal: None,
                 prev_close: None,
                 avg_volume: None,
+                as_of: None,
             },
             Quote {
                 symbol: "C".into(),
                 price: 150,
-                change: 5,
-                change_pct: 3.0,
-                volume: 150,
+                change: Some(5),
+                change_pct: Some(3.0),
+                volume: Some(150),
                 market_cap: None,
                 week52_high: None,
                 week52_low: None,
@@ -1085,11 +1091,12 @@ mod tests {
                 range_signal: None,
                 prev_close: None,
                 avg_volume: None,
+                as_of: None,
             },
         ];
 
         super::sort_screener_quotes(&mut quotes, "top-performers");
-        let pcts: Vec<f64> = quotes.iter().map(|q| q.change_pct).collect();
+        let pcts: Vec<f64> = quotes.iter().filter_map(|q| q.change_pct).collect();
         assert_eq!(pcts, vec![5.0, 3.0, 1.0]);
     }
 
@@ -1101,9 +1108,9 @@ mod tests {
             Quote {
                 symbol: "A".into(),
                 price: 100,
-                change: 1,
-                change_pct: 1.0,
-                volume: 100,
+                change: Some(1),
+                change_pct: Some(1.0),
+                volume: Some(100),
                 market_cap: None,
                 week52_high: None,
                 week52_low: None,
@@ -1111,13 +1118,14 @@ mod tests {
                 range_signal: None,
                 prev_close: None,
                 avg_volume: None,
+                as_of: None,
             },
             Quote {
                 symbol: "B".into(),
                 price: 200,
-                change: -10,
-                change_pct: -5.0,
-                volume: 200,
+                change: Some(-10),
+                change_pct: Some(-5.0),
+                volume: Some(200),
                 market_cap: None,
                 week52_high: None,
                 week52_low: None,
@@ -1125,13 +1133,14 @@ mod tests {
                 range_signal: None,
                 prev_close: None,
                 avg_volume: None,
+                as_of: None,
             },
             Quote {
                 symbol: "C".into(),
                 price: 150,
-                change: -3,
-                change_pct: -2.0,
-                volume: 150,
+                change: Some(-3),
+                change_pct: Some(-2.0),
+                volume: Some(150),
                 market_cap: None,
                 week52_high: None,
                 week52_low: None,
@@ -1139,12 +1148,44 @@ mod tests {
                 range_signal: None,
                 prev_close: None,
                 avg_volume: None,
+                as_of: None,
             },
         ];
 
         super::sort_screener_quotes(&mut quotes, "worst-performers");
-        let pcts: Vec<f64> = quotes.iter().map(|q| q.change_pct).collect();
+        let pcts: Vec<f64> = quotes.iter().filter_map(|q| q.change_pct).collect();
         assert_eq!(pcts, vec![-5.0, -2.0, 1.0]);
+    }
+
+    #[test]
+    fn sort_screener_puts_unknown_change_last_both_ways() {
+        let mut quotes = vec![
+            sample_quote("U", None),
+            sample_quote("A", Some(1.0)),
+            sample_quote("B", Some(-5.0)),
+        ];
+        super::sort_screener_quotes(&mut quotes, "worst-performers");
+        assert_eq!(quotes.last().unwrap().symbol, "U");
+        super::sort_screener_quotes(&mut quotes, "top-performers");
+        assert_eq!(quotes.last().unwrap().symbol, "U");
+    }
+
+    fn sample_quote(symbol: &str, change_pct: Option<f64>) -> crate::api::types::Quote {
+        crate::api::types::Quote {
+            symbol: symbol.into(),
+            price: 100,
+            change: None,
+            change_pct,
+            volume: None,
+            market_cap: None,
+            week52_high: None,
+            week52_low: None,
+            week52_position: None,
+            range_signal: None,
+            prev_close: None,
+            avg_volume: None,
+            as_of: None,
+        }
     }
 
     #[test]

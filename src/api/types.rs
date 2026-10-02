@@ -1,4 +1,4 @@
-use chrono::NaiveDate;
+use chrono::{DateTime, FixedOffset, NaiveDate};
 use clap::ValueEnum;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 
@@ -13,13 +13,18 @@ pub struct Quote {
     pub price: i64,
     /// Absolute day change in IDR (whole Rupiah), computed as
     /// `regularMarketPrice - previousClose` using rounded integer prices.
-    #[serde(deserialize_with = "de_i64_from_number")]
-    pub change: i64,
+    /// `None` when the provider gives neither a previous close nor a change.
+    #[serde(default, deserialize_with = "de_opt_i64_from_number")]
+    pub change: Option<i64>,
     /// Percentage day change as decimal percent (`0-100` scale), computed from
     /// Yahoo `regularMarketPrice` and `previousClose` raw floats.
-    pub change_pct: f64,
+    /// `None` when the provider does not report it (never a fake `0.0`).
+    #[serde(default)]
+    pub change_pct: Option<f64>,
     /// Traded regular market volume (shares), from `regularMarketVolume`.
-    pub volume: u64,
+    /// `None` when the provider does not report it (never a fake `0`).
+    #[serde(default, deserialize_with = "de_opt_u64_from_number")]
+    pub volume: Option<u64>,
     /// Company market capitalization in IDR, from `marketCap`.
     #[serde(default, deserialize_with = "de_opt_u64_from_number")]
     pub market_cap: Option<u64>,
@@ -41,6 +46,11 @@ pub struct Quote {
     /// Average daily volume for the last 3 months (shares), from
     /// `averageDailyVolume3Month`.
     pub avg_volume: Option<u64>,
+    /// Time of the last trade in WIB (UTC+7), from MSN `timeLastTraded` or
+    /// Yahoo `regularMarketTime`. `None` when the provider does not say.
+    /// Suspended stocks can carry a last trade months in the past.
+    #[serde(default)]
+    pub as_of: Option<DateTime<FixedOffset>>,
 }
 
 /// OHLC candle data normalized from Yahoo Finance chart indicators.

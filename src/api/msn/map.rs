@@ -15,15 +15,21 @@ use std::collections::HashMap;
 
 pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, IdxError> {
     let quote = quotes.first().ok_or(IdxError::ProviderUnavailable)?;
-    let raw_price = quote
-        .price
-        .ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
+    let Some(raw_price) = quote.price else {
+        // MSN still lists suspended/untraded names (symbol, name, market cap)
+        // but sends no price. That is a real instrument with no market data.
+        if quote.symbol.is_some() {
+            return Err(IdxError::NoMarketData(format!(
+                "{symbol} is listed but has no price from MSN (it may be suspended)"
+            )));
+        }
+        return Err(IdxError::SymbolNotFound(symbol.to_string()));
+    };
     let prev_close = quote.price_previous_close.map(round_price);
     let price = round_price(raw_price);
     let change = prev_close
         .map(|previous| price - previous)
-        .or_else(|| quote.price_change.map(round_price))
-        .unwrap_or(0);
+        .or_else(|| quote.price_change.map(round_price));
 
     let ticker = quote
         .symbol
@@ -50,8 +56,8 @@ pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, Id
         symbol: normalized_symbol(symbol, &ticker),
         price,
         change,
-        change_pct: quote.price_change_percent.unwrap_or(0.0),
-        volume: round_u64(quote.accumulated_volume).unwrap_or(0),
+        change_pct: quote.price_change_percent,
+        volume: round_u64(quote.accumulated_volume),
         market_cap: round_u64(quote.market_cap),
         week52_high: quote.price_52w_high.map(round_price),
         week52_low: quote.price_52w_low.map(round_price),
@@ -59,6 +65,7 @@ pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, Id
         range_signal,
         prev_close,
         avg_volume: round_u64(quote.average_volume),
+        as_of: crate::api::parse_as_of(quote.time_last_traded.as_deref()),
     })
 }
 
@@ -460,9 +467,15 @@ pub(super) fn parse_sentiment(
     symbol: &str,
     raw: &[RawSentiment],
 ) -> Result<SentimentData, IdxError> {
-    let item = raw
-        .first()
-        .ok_or_else(|| IdxError::ParseError("no sentiment data".into()))?;
+    // MSN answers `[]` for tickers nobody has voted on (all IDX names as of
+    // 2026-10). That is "no votes", not a malformed response.
+    let Some(item) = raw.first() else {
+        let ticker = ticker_from_symbol(symbol).unwrap_or_default();
+        return Ok(SentimentData {
+            symbol: normalized_symbol(symbol, &ticker),
+            statistics: Vec::new(),
+        });
+    };
     let stats = item
         .sentiment_statistics
         .as_ref()
@@ -578,8 +591,7 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
             let prev_close = q.price_previous_close.map(round_price);
             let change = prev_close
                 .map(|pc| price - pc)
-                .or_else(|| q.price_change.map(round_price))
-                .unwrap_or(0);
+                .or_else(|| q.price_change.map(round_price));
             let ticker = q
                 .symbol
                 .as_deref()
@@ -603,8 +615,8 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
                 symbol: normalized_symbol(&ticker, &ticker),
                 price,
                 change,
-                change_pct: q.price_change_percent.unwrap_or(0.0),
-                volume: round_u64(q.accumulated_volume).unwrap_or(0),
+                change_pct: q.price_change_percent,
+                volume: round_u64(q.accumulated_volume),
                 market_cap: round_u64(q.market_cap),
                 week52_high: q.price_52w_high.map(round_price),
                 week52_low: q.price_52w_low.map(round_price),
@@ -612,6 +624,7 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
                 range_signal,
                 prev_close,
                 avg_volume: round_u64(q.average_volume),
+                as_of: crate::api::parse_as_of(q.time_last_traded.as_deref()),
             })
         })
         .collect();
@@ -648,7 +661,10 @@ pub(super) fn parse_history(
         let volume = series_volume_at(series, idx);
 
         out.push(Ohlc {
-            date: timestamp.date_naive(),
+            // MSN stamps each IDX day at local midnight (17:00Z the day before).
+            date: timestamp
+                .with_timezone(&crate::api::idx_offset())
+                .date_naive(),
             open,
             high,
             low,
@@ -769,9 +785,9 @@ fn collect_earnings(
 #[cfg(test)]
 mod tests {
     use super::{
-        KeyRatios, RawChartResponse, RawFinancialStatement, RawNewsFeed, RawScreenerResponse,
-        RawSentiment, parse_financial_statements, parse_fundamentals, parse_history, parse_news,
-        parse_screener_results, parse_sentiment,
+        KeyRatios, MsnQuote, RawChartResponse, RawFinancialStatement, RawNewsFeed,
+        RawScreenerResponse, RawSentiment, parse_financial_statements, parse_fundamentals,
+        parse_history, parse_news, parse_quote, parse_screener_results, parse_sentiment,
     };
     use crate::error::IdxError;
 
@@ -850,7 +866,7 @@ mod tests {
         assert_eq!(quotes.len(), 2);
         assert_eq!(quotes[0].symbol, "BBCA.JK");
         assert_eq!(quotes[0].price, 9_875);
-        assert_eq!(quotes[0].change, 117);
+        assert_eq!(quotes[0].change, Some(117));
         assert_eq!(quotes[0].market_cap, Some(1_215_200_000_000_000));
         assert_eq!(quotes[0].range_signal.as_deref(), Some("upper"));
         assert_eq!(quotes[0].avg_volume, Some(10_000_000));
@@ -927,6 +943,52 @@ mod tests {
     }
 
     #[test]
+    fn quote_as_of_is_last_trade_in_wib() {
+        let raw: Vec<MsnQuote> = serde_json::from_str(
+            r#"[{"symbol":"BBCA","price":6100.0,"timeLastTraded":"2026-10-02T09:15:00Z"}]"#,
+        )
+        .expect("quote should deserialize");
+        let quote = parse_quote("BBCA.JK", &raw).expect("quote parsed");
+        assert_eq!(
+            quote.as_of.unwrap().to_rfc3339(),
+            "2026-10-02T16:15:00+07:00"
+        );
+    }
+
+    #[test]
+    fn missing_change_and_volume_stay_missing() {
+        let raw: Vec<MsnQuote> = serde_json::from_str(r#"[{"symbol":"BBCA","price":6100.0}]"#)
+            .expect("quote should deserialize");
+        let quote = parse_quote("BBCA.JK", &raw).expect("quote parsed");
+        assert_eq!(quote.change, None);
+        assert_eq!(quote.change_pct, None);
+        assert_eq!(quote.volume, None);
+        let json = serde_json::to_value(&quote).unwrap();
+        assert!(json["change_pct"].is_null() && json["volume"].is_null());
+    }
+
+    #[test]
+    fn listed_quote_without_price_is_no_market_data() {
+        let raw: Vec<MsnQuote> = serde_json::from_str(
+            r#"[{"symbol":"WIKA","shortName":"Wijaya Karya","marketCap":8080746000000.0}]"#,
+        )
+        .expect("quote should deserialize");
+        let err = parse_quote("WIKA.JK", &raw).unwrap_err();
+        assert!(matches!(err, IdxError::NoMarketData(_)), "{err:?}");
+
+        let raw: Vec<MsnQuote> = serde_json::from_str("[{}]").expect("quote should deserialize");
+        let err = parse_quote("ZZZZ.JK", &raw).unwrap_err();
+        assert!(matches!(err, IdxError::SymbolNotFound(_)), "{err:?}");
+    }
+
+    #[test]
+    fn empty_sentiment_response_is_empty_data_not_an_error() {
+        let sentiment = parse_sentiment("BBCA", &[]).expect("empty sentiment is valid");
+        assert_eq!(sentiment.symbol, "BBCA.JK");
+        assert!(sentiment.statistics.is_empty());
+    }
+
+    #[test]
     fn parses_msn_chart_price_only_fixture_as_synthetic_ohlc() {
         let raw: Vec<RawChartResponse> = serde_json::from_str(include_str!(
             "../../../tests/fixtures/msn_chart_bbca_3m.json"
@@ -935,7 +997,8 @@ mod tests {
         let history = parse_history("BBCA.JK", &raw).expect("chart history should parse");
 
         assert_eq!(history.len(), 3);
-        assert_eq!(history[0].date.to_string(), "2026-01-13");
+        // `2026-01-13T17:00:00Z` is midnight WIB on the 14th, the trading day it belongs to.
+        assert_eq!(history[0].date.to_string(), "2026-01-14");
         assert_eq!(history[0].open, 8000);
         assert_eq!(history[0].high, 8000);
         assert_eq!(history[0].low, 8000);
