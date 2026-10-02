@@ -128,6 +128,7 @@ pub enum StocksSubcommand {
     )]
     Quote {
         /// One or more symbols, comma-separated or space-separated.
+        #[arg(required = true)]
         symbols: Vec<String>,
     },
     #[command(
@@ -231,6 +232,7 @@ pub enum StocksSubcommand {
     )]
     Compare {
         /// One or more symbols, comma-separated or space-separated.
+        #[arg(required = true)]
         symbols: Vec<String>,
     },
 }
@@ -263,7 +265,7 @@ pub fn handle(
                 }
                 if offline {
                     let stale = cache
-                        .get_stale(&quote_bucket, &resolved)?
+                        .get_offline(&quote_bucket, &resolved)?
                         .ok_or_else(|| IdxError::CacheMiss(format!("{quote_bucket}/{resolved}")))?;
                     quotes.push(stale);
                     continue;
@@ -324,7 +326,7 @@ pub fn handle(
             }
             if offline {
                 let stale = cache
-                    .get_stale::<Vec<crate::api::types::Ohlc>>(
+                    .get_offline::<Vec<crate::api::types::Ohlc>>(
                         &history_bucket,
                         &format!("{resolved}-{key}"),
                     )?
@@ -388,7 +390,7 @@ pub fn handle(
             }
             if offline {
                 let stale = cache
-                    .get_stale::<TechnicalReport>(&technical_bucket, &resolved)?
+                    .get_offline::<TechnicalReport>(&technical_bucket, &resolved)?
                     .ok_or_else(|| IdxError::CacheMiss(format!("{technical_bucket}/{resolved}")))?;
                 return render_technical(&stale, &config.output, config.no_color);
             }
@@ -701,7 +703,7 @@ where
         }
 
         return cache
-            .get_stale::<T>(cache_spec.bucket, cache_spec.key)?
+            .get_offline::<T>(cache_spec.bucket, cache_spec.key)?
             .ok_or_else(|| {
                 IdxError::CacheMiss(format!("{}/{}", cache_spec.bucket, cache_spec.key))
             });
@@ -753,7 +755,7 @@ where
 
     if offline {
         return cache
-            .get_stale::<T>(&cache_spec.bucket, resolved)?
+            .get_offline::<T>(&cache_spec.bucket, resolved)?
             .ok_or_else(|| IdxError::CacheMiss(format!("{}/{resolved}", cache_spec.bucket)));
     }
 

@@ -1085,6 +1085,56 @@ fn serves_stale_cache_on_provider_failure_with_warning() {
 }
 
 #[test]
+fn offline_warns_when_serving_expired_cache() {
+    let root = test_env_dir("offline-expired");
+
+    bin_with_root(&root)
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .env("IDX_CACHE_QUOTE_TTL", "0")
+        .args(["stocks", "quote", "BBCA"])
+        .assert()
+        .success();
+
+    bin_with_root(&root)
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["--offline", "stocks", "quote", "BBCA"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "warning: offline: serving expired cache for BBCA.JK",
+        ));
+}
+
+#[test]
+fn quote_and_compare_require_symbols() {
+    test_bin("quote-no-symbols")
+        .args(["stocks", "quote"])
+        .assert()
+        .failure();
+    test_bin("compare-no-symbols")
+        .args(["stocks", "compare"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn version_and_cache_emit_json_in_json_mode() {
+    let root = test_env_dir("json-meta");
+
+    let version = run_success_stdout(bin_with_root(&root).args(["-o", "json", "version"]));
+    let version: Value = serde_json::from_str(&version).expect("version json");
+    assert_eq!(version["version"], env!("CARGO_PKG_VERSION"));
+
+    let info = run_success_stdout(bin_with_root(&root).args(["-o", "json", "cache", "info"]));
+    let info: Value = serde_json::from_str(&info).expect("cache info json");
+    assert!(info["files"].is_u64());
+
+    let cleared = run_success_stdout(bin_with_root(&root).args(["-o", "json", "cache", "clear"]));
+    let cleared: Value = serde_json::from_str(&cleared).expect("cache clear json");
+    assert!(cleared["removed"].is_u64());
+}
+
+#[test]
 fn config_set_and_get_provider_round_trip() {
     let root = test_env_dir("config-provider");
 
