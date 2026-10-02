@@ -22,6 +22,33 @@ scripts/live-smoke.sh --bin ./tmp/release-install/bin/idx --no-build --mode mock
 scripts/audit-msn-fundamentals.sh --tickers BUMI,ADRO,AIMS
 ```
 
+## Nix CI Checks
+
+`nix flake check -L` runs formatting, Clippy, Rust tests, crate packaging, the
+application and ownership-publisher builds, and the offline mock smoke. Crane
+shares dependency build artifacts between the Rust derivations. CI restores the
+Nix store from the GitHub Actions cache, keyed on the flake and Cargo inputs.
+
+The publisher regression script remains a separate CI step:
+
+```bash
+scripts/publish-ownership-snapshot-test.sh
+```
+
+For a live full-list screener check, use an isolated config/cache and run:
+
+```bash
+idx -o json stocks screen --region us --filter top-performers --limit 600
+idx --offline -o json stocks screen --region us --filter top-performers --limit 3
+idx --offline -o json stocks screen --region us --filter top-performers --limit 25
+```
+
+The first command should not stop at the old 500-row cap when MSN reports more
+candidates. The two offline results must match prefixes of the same cached full
+list. Provider counts and prices vary; live HTTP failures are not offline-test
+failures.
+
+
 ## Modes
 
 - `live` runs the default real-network baseline: `general`, `live-table`, and `ownership`

@@ -5,6 +5,7 @@ target/
 .direnv/
 .claude/
 result
+result-*
 tmp/
 
 # Internal docs (specs, research, business strategy)

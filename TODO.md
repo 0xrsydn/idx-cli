@@ -162,6 +162,9 @@
 - [ ] Additional providers (Alpha Vantage, Twelve Data, IDX official)
 
 ## 🔬 Latest Smoke Findings (2026-04-02)
+- [x] Combined PR verification on `2026-10-02`: JSON/offline-cache fixes, Nix/Crane CI, and market-data fixes pass `nix flake check -L` on x86_64-linux (173 unit tests, 89 CLI tests, 62 mock smoke cases), plus the publisher and `sh` installer regression scripts.
+- [x] Fixed the integration review's screener truncation: full-list queries now re-request MSN's reported total rather than cap candidates at 500, reject incomplete totals, and use separate `all` cache keys. Live US top-performers returned 600 unique stocks; offline limits 3 and 25 matched the full result's prefixes. One upstream HTTP 499 occurred before the successful live check.
+- [x] Removed the committed `result-1` Nix output symlink and ignored numbered result links.
 - [x] Publish hardening batch on `2026-09-25`: `scripts/publish-ownership-snapshot.sh` now uploads an immutable content-addressed SQLite asset (date + sha256) and verifies it before publishing the manifest as the final commit point, so a partial upload no longer leaves a manifest that points at a missing asset; the manifest is trusted for a no-op only when the referenced asset matches the manifest SHA-256 and size at the configured repo/tag, and GitHub auth/network errors never become "up-to-date"
 - [x] Publish integrity follow-up on `2026-09-25`: no-op and upload verification now check the full SHA-256, not just the filename and size; the publisher uses GitHub's `sha256:` asset digest when present and falls back to `gh release download` + local hashing for legacy assets, rejects a `download_url` that names a different repo/tag, and refuses to publish the manifest when the uploaded asset's SHA-256 does not match
 - [x] `--history` is bounded (maximum `1000`, leading zeros stripped before conversion) so an enormous value cannot wrap negative and look already satisfied

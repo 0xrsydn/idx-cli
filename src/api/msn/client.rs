@@ -270,11 +270,11 @@ impl MsnClient {
         &self,
         filter: &str,
         region: &str,
-        limit: usize,
+        limit: Option<usize>,
     ) -> Result<RawScreenerResponse, IdxError> {
         let url =
             format!("{MSN_ASSETS_BASE_URL}Finance/Screener?apikey={MSN_API_KEY}&wrapodata=false");
-        let req = ScreenerRequest {
+        let mut req = ScreenerRequest {
             filter: vec![
                 ScreenerFilter {
                     key: filter.to_string(),
@@ -293,11 +293,17 @@ impl MsnClient {
             },
             return_value_type: vec!["quote".to_string(), "equity".to_string()],
             screener_type: "stock".to_string(),
-            limit,
+            limit: limit.unwrap_or(500),
             page_index: 0,
         };
 
-        self.post_json(&url, &req, "SCREENER", "screener")
+        if limit.is_some() {
+            return self.post_json(&url, &req, "SCREENER", "screener");
+        }
+        fetch_complete_screener(|limit| {
+            req.limit = limit;
+            self.post_json(&url, &req, "SCREENER", "screener")
+        })
     }
 
     pub(super) fn fetch_chart(
@@ -314,6 +320,30 @@ impl MsnClient {
         );
         self.get_json(&url, symbol, "chart")
     }
+}
+
+fn fetch_complete_screener(
+    mut fetch: impl FnMut(usize) -> Result<RawScreenerResponse, IdxError>,
+) -> Result<RawScreenerResponse, IdxError> {
+    let total_count = |response: &RawScreenerResponse| {
+        response
+            .count
+            .and_then(|count| usize::try_from(count).ok())
+            .ok_or_else(|| IdxError::ParseError("MSN screener omitted a valid total count".into()))
+    };
+    let mut response = fetch(500)?;
+    let count = total_count(&response)?;
+    if response.quote.as_ref().map_or(0, Vec::len) < count {
+        // MSN ignores pageIndex for these lists. Re-request the reported total
+        // instead of silently treating the initial batch as the whole market.
+        response = fetch(count)?;
+    }
+    if response.quote.as_ref().map_or(0, Vec::len) < total_count(&response)? {
+        return Err(IdxError::ParseError(
+            "MSN screener returned an incomplete candidate list".into(),
+        ));
+    }
+    Ok(response)
 }
 
 fn msn_chart_type(period: &Period, interval: &Interval) -> Result<&'static str, IdxError> {
@@ -335,9 +365,54 @@ fn msn_chart_type(period: &Period, interval: &Interval) -> Result<&'static str, 
 
 #[cfg(test)]
 mod tests {
-    use super::msn_chart_type;
+    use super::{fetch_complete_screener, msn_chart_type};
+    use crate::api::msn::raw_types::RawScreenerResponse;
     use crate::api::types::{Interval, Period};
     use crate::error::IdxError;
+
+    fn screener_response(count: Option<usize>, returned: usize) -> RawScreenerResponse {
+        serde_json::from_value(serde_json::json!({
+            "count": count,
+            "quote": (0..returned).map(|index| serde_json::json!({
+                "symbol": format!("STOCK{index}"),
+                "price": 100
+            })).collect::<Vec<_>>()
+        }))
+        .expect("valid screener response")
+    }
+
+    #[test]
+    fn full_screener_includes_candidates_beyond_initial_batch() {
+        let response =
+            fetch_complete_screener(|limit| Ok(screener_response(Some(600), limit.min(600))))
+                .expect("complete list");
+        let symbols: Vec<_> = response
+            .quote
+            .unwrap()
+            .into_iter()
+            .map(|quote| quote.symbol.unwrap())
+            .collect();
+        assert_eq!(
+            symbols,
+            (0..600)
+                .map(|index| format!("STOCK{index}"))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn full_screener_rejects_a_truncated_total_response() {
+        let err = fetch_complete_screener(|_| Ok(screener_response(Some(600), 500)))
+            .expect_err("truncated list must not be ranked as complete");
+        assert!(matches!(err, IdxError::ParseError(_)));
+    }
+
+    #[test]
+    fn full_screener_requires_a_total_count() {
+        let err = fetch_complete_screener(|_| Ok(screener_response(None, 500)))
+            .expect_err("unknown completeness must not be treated as a full list");
+        assert!(matches!(err, IdxError::ParseError(_)));
+    }
 
     #[test]
     fn maps_supported_msn_chart_types() {

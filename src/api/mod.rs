@@ -81,7 +81,13 @@ pub trait NewsProvider {
 
 #[allow(dead_code)]
 pub trait ScreenerProvider {
-    fn screener(&self, filter: &str, region: &str, limit: usize) -> Result<Vec<Quote>, IdxError>;
+    /// `None` requests the complete candidate list for client-side ranking.
+    fn screener(
+        &self,
+        filter: &str,
+        region: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<Quote>, IdxError>;
 }
 
 pub struct SelectedProvider {

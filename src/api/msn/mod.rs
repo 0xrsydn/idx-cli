@@ -107,7 +107,12 @@ impl NewsProvider for MsnProvider {
 }
 
 impl ScreenerProvider for MsnProvider {
-    fn screener(&self, filter: &str, region: &str, limit: usize) -> Result<Vec<Quote>, IdxError> {
+    fn screener(
+        &self,
+        filter: &str,
+        region: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<Quote>, IdxError> {
         let raw = self.client.fetch_screener(filter, region, limit)?;
         parse_screener_results(&raw)
     }

@@ -622,9 +622,12 @@ pub fn handle(
                 filter.as_str(),
                 "high-volume" | "large-cap" | "top-performers" | "worst-performers"
             );
-            let fetch_limit = if needs_full_fetch { 500 } else { *limit };
+            let fetch_limit = (!needs_full_fetch).then_some(*limit);
             let bucket = cache_bucket(provider.kind(), "screen");
-            let key = format!("{filter}:{region}:{fetch_limit}");
+            let key = match fetch_limit {
+                Some(limit) => format!("{filter}:{region}:{limit}"),
+                None => format!("{filter}:{region}:all"),
+            };
             let screener_provider = provider.screener_provider("screen")?;
             let mut quotes: Vec<Quote> = fetch_with_cache(
                 &cache,

@@ -42,6 +42,22 @@ When `history_provider = auto` (default):
 
 MSN Charts are price-only for IDX. The CLI normalizes them into `Ohlc` rows by
 using the chart price as open/high/low/close and `0` volume.
+MSN candle dates use WIB (UTC+7); Yahoo candle dates use `meta.gmtoffset`, with
+WIB as the fallback.
+
+### Quote and Screener Data
+- Quotes expose nullable `as_of` last-trade timestamps in WIB. Table output flags
+  quotes whose last trade was more than seven days ago.
+- `change`, `change_pct`, and `volume` are nullable when the provider omits them;
+  JSON consumers must not assume these fields are always numeric.
+- Listed MSN instruments without a price return `NOMARKETDATA`; unknown symbols
+  still return `SYMBOLNOTFOUND`. Empty sentiment responses represent no votes.
+- Performers, high-volume, and large-cap screens fetch the complete candidate
+  list before local ranking and `--limit`. MSN ignores `pageIndex` for these
+  lists, so the provider uses the response's `count` to request the full list
+  when the initial batch is incomplete, and rejects a still-truncated response.
+- Full-list screen caches use an `all` key, separate from older limited results.
+
 
 ### Capability Gating
 ```
@@ -121,3 +137,11 @@ CLI flags > environment variables > config file > defaults
 - Table mode: human-readable error on stderr
 - JSON mode: `{"error": true, "code": "...", "message": "..."}`
 - Exit code 0 on success, non-zero on failure
+
+## CLI Output and Offline Cache
+- `version`, `cache info`, `cache clear`, and `ownership resolve map|merge` emit
+  JSON objects when JSON output is selected.
+- `stocks quote` and `stocks compare` require at least one symbol.
+- Offline reads warn on stderr when serving cache entries past their TTL,
+  including the cache fetch timestamp. `--quiet` suppresses these warnings.
+  Staleness is not yet represented by a versioned JSON result envelope.
