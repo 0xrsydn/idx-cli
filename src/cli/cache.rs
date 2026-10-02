@@ -2,6 +2,7 @@ use clap::{Args, Subcommand};
 
 use crate::cache::Cache;
 use crate::error::IdxError;
+use crate::output::{OutputFormat, json};
 use crate::runtime;
 
 #[derive(Debug, Args)]
@@ -19,11 +20,20 @@ pub enum CacheSubcommand {
     Clear,
 }
 
-pub fn handle(cmd: &CacheCmd) -> Result<(), IdxError> {
+pub fn handle(cmd: &CacheCmd, format: &OutputFormat) -> Result<(), IdxError> {
     let cache = Cache::new()?;
     match &cmd.command {
         CacheSubcommand::Info => {
             let info = cache.info()?;
+            if matches!(format, OutputFormat::Json) {
+                return json::print_json(&serde_json::json!({
+                    "path": info.path,
+                    "files": info.files,
+                    "size_bytes": info.total_size,
+                    "oldest": info.oldest,
+                    "newest": info.newest,
+                }));
+            }
             println!("path: {}", info.path.display());
             println!("files: {}", info.files);
             println!("size_bytes: {}", info.total_size);
@@ -42,6 +52,12 @@ pub fn handle(cmd: &CacheCmd) -> Result<(), IdxError> {
         }
         CacheSubcommand::Clear => {
             let (removed, failed) = cache.clear()?;
+            if matches!(format, OutputFormat::Json) {
+                return json::print_json(&serde_json::json!({
+                    "removed": removed,
+                    "failed": failed,
+                }));
+            }
             println!("cleared {removed} files");
             if !failed.is_empty() {
                 runtime::warn(format!("failed to remove {} file(s)", failed.len()));

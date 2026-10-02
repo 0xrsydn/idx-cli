@@ -64,9 +64,14 @@ fn run() -> Result<(), IdxError> {
     };
 
     match &cli.command {
-        Commands::Version => {
-            println!("{}", env!("CARGO_PKG_VERSION"));
-        }
+        Commands::Version => match config.output {
+            OutputFormat::Json => {
+                output::json::print_json(&serde_json::json!({
+                    "version": env!("CARGO_PKG_VERSION")
+                }))?;
+            }
+            OutputFormat::Table => println!("{}", env!("CARGO_PKG_VERSION")),
+        },
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             let name = cmd.get_name().to_owned();
@@ -97,7 +102,7 @@ fn run() -> Result<(), IdxError> {
             }
         }
         Commands::Cache(cache) => {
-            if let Err(err) = cli::cache::handle(cache) {
+            if let Err(err) = cli::cache::handle(cache, &config.output) {
                 emit_error(&err, &config.output);
                 return Err(err);
             }

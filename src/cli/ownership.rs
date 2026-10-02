@@ -719,6 +719,13 @@ fn handle_resolve(args: &ResolveArgs, config: &IdxConfig) -> Result<(), IdxError
         }
         ResolveCommand::Map { alias, entity } => {
             db::manual_map(&conn, alias, entity)?;
+            if matches!(config.output, OutputFormat::Json) {
+                return json::print_json(&serde_json::json!({
+                    "action": "mapped",
+                    "alias": alias,
+                    "entity": entity,
+                }));
+            }
             println!("Mapped alias '{alias}' -> '{entity}'.");
             Ok(())
         }
@@ -746,6 +753,17 @@ fn handle_resolve(args: &ResolveArgs, config: &IdxConfig) -> Result<(), IdxError
                 .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
             db::merge_entities(&conn, *keep, *merge)?;
+
+            if matches!(config.output, OutputFormat::Json) {
+                return json::print_json(&serde_json::json!({
+                    "action": "merged",
+                    "keep": keep,
+                    "merge": merge,
+                    "alias_updates": alias_updates,
+                    "ksei_holdings_updates": ksei_updates,
+                    "bing_holdings_updates": bing_updates,
+                }));
+            }
 
             println!(
                 "Merged entity {merge} into {keep} (aliases: {alias_updates}, ksei_holdings: {ksei_updates}, bing_holdings: {bing_updates})."

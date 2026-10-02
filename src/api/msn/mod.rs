@@ -1,4 +1,5 @@
 #[allow(dead_code, clippy::enum_variant_names)]
+#[cfg(feature = "ownership")]
 pub mod bing;
 mod client;
 mod map;

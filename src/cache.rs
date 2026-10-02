@@ -52,11 +52,7 @@ impl Cache {
         let Some(entry): Option<CacheEntry<T>> = self.read_entry(data_type, symbol)? else {
             return Ok(None);
         };
-        let age = Utc::now().signed_duration_since(entry.fetched_at);
-        if age
-            >= chrono::Duration::from_std(Duration::from_secs(entry.ttl_secs))
-                .map_err(|e| IdxError::CacheMiss(e.to_string()))?
-        {
+        if is_expired(entry.fetched_at, entry.ttl_secs) {
             return Ok(None);
         }
         Ok(Some(entry.data))
@@ -68,6 +64,25 @@ impl Cache {
         symbol: &str,
     ) -> Result<Option<T>, IdxError> {
         Ok(self.read_entry::<T>(data_type, symbol)?.map(|e| e.data))
+    }
+
+    /// Like [`Cache::get_stale`], but warns when the entry served is past its TTL.
+    /// Used by `--offline`, which otherwise serves arbitrarily old data silently.
+    pub fn get_offline<T: DeserializeOwned>(
+        &self,
+        data_type: &str,
+        symbol: &str,
+    ) -> Result<Option<T>, IdxError> {
+        let Some(entry) = self.read_entry::<T>(data_type, symbol)? else {
+            return Ok(None);
+        };
+        if is_expired(entry.fetched_at, entry.ttl_secs) {
+            runtime::warn(format!(
+                "offline: serving expired cache for {symbol} (fetched {})",
+                entry.fetched_at.to_rfc3339()
+            ));
+        }
+        Ok(Some(entry.data))
     }
 
     pub fn put<T: Serialize>(
@@ -184,12 +199,12 @@ impl Cache {
             }
         };
         if entry.schema_version != CURRENT_SCHEMA_VERSION {
-            eprintln!(
-                "debug: cache schema mismatch for {} (got {}, expected {})",
+            runtime::info(format!(
+                "cache schema mismatch for {} (got {}, expected {}), treating as miss",
                 path.display(),
                 entry.schema_version,
                 CURRENT_SCHEMA_VERSION
-            );
+            ));
             let _ = fs::remove_file(&path);
             return Ok(None);
         }
@@ -199,6 +214,12 @@ impl Cache {
     fn entry_path(&self, data_type: &str, symbol: &str) -> PathBuf {
         self.root.join(data_type).join(format!("{symbol}.json"))
     }
+}
+
+fn is_expired(fetched_at: DateTime<Utc>, ttl_secs: u64) -> bool {
+    let ttl =
+        chrono::Duration::from_std(Duration::from_secs(ttl_secs)).unwrap_or(chrono::Duration::MAX);
+    Utc::now().signed_duration_since(fetched_at) >= ttl
 }
 
 pub fn cache_dir() -> Result<PathBuf, IdxError> {
