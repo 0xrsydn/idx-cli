@@ -266,6 +266,31 @@ impl MsnClient {
         self.get_json(&url, symbol, "news")
     }
 
+    fn post_screener(
+        &self,
+        url: &str,
+        request: &ScreenerRequest,
+    ) -> Result<RawScreenerResponse, IdxError> {
+        if std::env::var("IDX_USE_MOCK_PROVIDER").is_ok() {
+            if let Some(err) = Self::mock_error() {
+                return Err(err);
+            }
+            if let Some(path) = std::env::var_os("IDX_MOCK_MSN_SCREENER_FIXTURE") {
+                let body = std::fs::read_to_string(path)
+                    .map_err(|e| IdxError::ParseError(format!("msn screener fixture: {e}")))?;
+                let mut response: RawScreenerResponse = serde_json::from_str(&body)
+                    .map_err(|e| IdxError::ParseError(format!("msn screener fixture: {e}")))?;
+                // Model MSN's request-sized batches while preserving its reported
+                // total, so complete-list fetching uses the same path as live data.
+                if let Some(quotes) = response.quote.as_mut() {
+                    quotes.truncate(request.limit);
+                }
+                return Ok(response);
+            }
+        }
+        self.post_json(url, request, "SCREENER", "screener")
+    }
+
     pub(super) fn fetch_screener(
         &self,
         filter: &str,
@@ -298,11 +323,11 @@ impl MsnClient {
         };
 
         if limit.is_some() {
-            return self.post_json(&url, &req, "SCREENER", "screener");
+            return self.post_screener(&url, &req);
         }
         fetch_complete_screener(|limit| {
             req.limit = limit;
-            self.post_json(&url, &req, "SCREENER", "screener")
+            self.post_screener(&url, &req)
         })
     }
 

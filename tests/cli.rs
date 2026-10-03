@@ -139,6 +139,22 @@ fn run_success_stdout(cmd: &mut Command) -> String {
     String::from_utf8(output.stdout).expect("utf8 stdout")
 }
 
+fn run_success_json(cmd: &mut Command) -> Value {
+    serde_json::from_str(&run_success_stdout(cmd)).expect("stdout contains only JSON")
+}
+
+fn run_error_json(cmd: &mut Command, code: &str) {
+    let output = cmd.output().expect("run failing command");
+    assert!(!output.status.success(), "unexpected success: {output:?}");
+    assert!(
+        output.stdout.is_empty(),
+        "error polluted stdout: {output:?}"
+    );
+    let error: Value = serde_json::from_slice(&output.stderr).expect("stderr contains JSON error");
+    assert_eq!(error["error"], true);
+    assert_eq!(error["code"], code);
+}
+
 fn spawn_single_response_server(content_type: &str, body: impl Into<Vec<u8>>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind local test server");
     let addr = listener.local_addr().expect("local addr");
@@ -384,48 +400,6 @@ fn prepare_snapshot_fixture(root: &Path) -> (PathBuf, PathBuf) {
 }
 
 #[test]
-fn help_works() {
-    test_bin("help").arg("--help").assert().success();
-}
-
-#[test]
-fn ownership_help_mentions_sync_as_preferred_bootstrap() {
-    test_bin("ownership-help")
-        .args(["ownership", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Preferred bootstrap path"))
-        .stdout(predicate::str::contains("idx ownership sync"))
-        .stdout(predicate::str::contains("idx ownership discover"));
-}
-
-#[test]
-fn ownership_import_help_mentions_sync_preference_and_fallback_files() {
-    test_bin("ownership-import-help")
-        .args(["ownership", "import", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Prefer `idx ownership sync`"))
-        .stdout(predicate::str::contains(
-            "above-1% XLSX or PDF (primary), ZIP/TXT archive (fallback)",
-        ))
-        .stdout(predicate::str::contains(
-            "idx ownership import --file /path/to/BalanceposEfek20260227.zip",
-        ));
-}
-
-#[test]
-fn ownership_sync_help_mentions_manifest_lookup_order() {
-    test_bin("ownership-sync-help")
-        .args(["ownership", "sync", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Manifest lookup order"))
-        .stdout(predicate::str::contains("IDX_OWNERSHIP_SNAPSHOT_MANIFEST"))
-        .stdout(predicate::str::contains("ownership.snapshot_manifest"));
-}
-
-#[test]
 fn version_prints_cargo_version() {
     test_bin("version")
         .arg("version")
@@ -449,13 +423,20 @@ fn quote_table_with_mock_contains_expected_columns() {
 
 #[test]
 fn quote_with_mock_provider_json() {
-    test_bin("quote-json")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["-o", "json", "stocks", "quote", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("symbol"))
-        .stdout(predicate::str::contains("price"));
+    let quotes = run_success_json(
+        test_bin("quote-json")
+            .env("IDX_PROVIDER", "yahoo")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "quote", "BBCA"]),
+    );
+    assert_eq!(quotes.as_array().unwrap().len(), 1);
+    let quote = &quotes[0];
+    assert_eq!(quote["symbol"], "BBCA.JK");
+    assert_eq!(quote["price"].as_i64(), Some(9875));
+    assert_eq!(quote["change"].as_i64(), Some(117));
+    assert_eq!(quote["volume"].as_u64(), Some(12_300_000));
+    assert_eq!(quote["prev_close"].as_i64(), Some(9758));
+    assert_eq!(quote["week52_high"].as_i64(), Some(10250));
 }
 
 #[test]
@@ -471,52 +452,48 @@ fn history_with_mock_provider_table_contains_columns() {
 }
 
 #[test]
-fn technical_with_mock_provider_table_contains_expected_rows() {
-    test_bin("technical-table")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "technical", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Technical Analysis for"))
-        .stdout(predicate::str::contains("RSI (14)"))
-        .stdout(predicate::str::contains("Overall Signal"))
-        .stdout(predicate::str::contains(
-            "Trend unavailable (need at least 200 daily candles)",
-        ));
-}
-
-#[test]
-fn technical_with_mock_provider_json_contains_fields() {
-    test_bin("technical-json")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["-o", "json", "stocks", "technical", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"symbol\""))
-        .stdout(predicate::str::contains("\"sma20\""))
-        .stdout(predicate::str::contains("\"signals\""));
-}
-
-#[test]
-fn msn_history_auto_falls_back_to_yahoo() {
-    test_bin("msn-history-auto-fallback")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "history", "BBCA", "--period", "3mo"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("DATE"));
-}
-
-#[test]
-fn msn_technical_auto_falls_back_to_yahoo() {
-    test_bin("msn-technical-auto-fallback")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["-o", "json", "stocks", "technical", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"symbol\""));
+fn technical_json_matches_history_and_auto_provider_fallback() {
+    let yahoo = run_success_json(
+        test_bin("technical-yahoo-json")
+            .env("IDX_PROVIDER", "yahoo")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "technical", "BBCA"]),
+    );
+    let msn_auto = run_success_json(
+        test_bin("technical-msn-auto-json")
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "technical", "BBCA"]),
+    );
+    assert_eq!(yahoo, msn_auto);
+    let history = run_success_json(
+        test_bin("history-json")
+            .env("IDX_PROVIDER", "yahoo")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "history", "BBCA", "--period", "3mo"]),
+    );
+    let rows = history.as_array().unwrap();
+    let latest = rows.last().unwrap();
+    assert_eq!(yahoo["symbol"], "BBCA.JK");
+    assert_eq!(yahoo["current_price"], latest["close"]);
+    assert_eq!(yahoo["as_of"], latest["date"]);
+    assert_eq!(
+        history,
+        serde_json::json!([
+            {"date": "2024-03-01", "open": 9800, "high": 9900, "low": 9750, "close": 9875, "volume": 12300000},
+            {"date": "2024-03-02", "open": 9850, "high": 9920, "low": 9800, "close": 9880, "volume": 11000000},
+            {"date": "2024-03-03", "open": 9860, "high": 9950, "low": 9820, "close": 9925, "volume": 14000000}
+        ])
+    );
+    assert_eq!(yahoo.get("sma20"), Some(&Value::Null));
+    assert_eq!(yahoo.get("sma200"), Some(&Value::Null));
+    let msn_history = run_success_json(
+        test_bin("history-msn-auto-json")
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "history", "BBCA", "--period", "3mo"]),
+    );
+    assert_eq!(history, msn_history);
 }
 
 #[test]
@@ -540,60 +517,18 @@ fn explicit_msn_history_provider_uses_msn_chart_fixture() {
 }
 
 #[test]
-fn profile_requires_msn_provider_in_json_mode() {
-    test_bin("profile-json-provider-gate")
-        .env("IDX_PROVIDER", "yahoo")
-        .args(["-o", "json", "stocks", "profile", "BBCA"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("\"error\": true"))
-        .stderr(predicate::str::contains("requires --provider msn"));
-}
-
-#[test]
-fn msn_profile_with_mock_fixture_table_contains_expected_fields() {
-    test_bin("msn-profile-table")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "profile", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Symbol"))
-        .stdout(predicate::str::contains("PT Bank Central Asia Tbk"))
-        .stdout(predicate::str::contains("Financials"))
-        .stdout(predicate::str::contains("https://www.bca.co.id/"));
-}
-
-#[test]
-fn msn_profile_with_mock_fixture_json_prefers_company_and_localized_fields() {
-    test_bin("msn-profile-json")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["-o", "json", "stocks", "profile", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "\"long_name\": \"PT Bank Central Asia Tbk\"",
-        ))
-        .stdout(predicate::str::contains(
-            "\"industry\": \"Banking Services\"",
-        ))
-        .stdout(predicate::str::contains("\"country\": \"Indonesia\""))
-        .stdout(predicate::str::contains("Indonesia-based commercial bank"));
-}
-
-#[test]
-fn msn_financials_with_mock_fixture_table_contains_sections() {
-    test_bin("msn-financials-table")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "financials", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Income Statement (2025-12-31)"))
-        .stdout(predicate::str::contains("Net Income"))
-        .stdout(predicate::str::contains("Operating Cash Flow"))
-        .stdout(predicate::str::contains("Cash Flow"));
+fn msn_profile_json_preserves_company_fields() {
+    let profile = run_success_json(
+        test_bin("msn-profile-json")
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "profile", "BBCA"]),
+    );
+    assert_eq!(profile["symbol"], "BBCA");
+    assert_eq!(profile["long_name"], "PT Bank Central Asia Tbk");
+    assert_eq!(profile["industry"], "Banking Services");
+    assert_eq!(profile["country"], "Indonesia");
+    assert_eq!(profile["website"], "https://www.bca.co.id/");
 }
 
 #[test]
@@ -612,41 +547,47 @@ fn msn_financials_with_statement_filter_table_only_shows_requested_section() {
 
 #[test]
 fn msn_financials_with_statement_filter_json_keeps_context_and_nulls_filtered_sections() {
-    test_bin("msn-financials-statement-json")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args([
-            "-o",
-            "json",
-            "stocks",
-            "financials",
-            "BBCA",
-            "--statement",
-            "income,balance",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"instrument\""))
-        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
-        .stdout(predicate::str::contains("\"income_statement\""))
-        .stdout(predicate::str::contains("\"balance_sheet\""))
-        .stdout(predicate::str::contains("\"cash_flow\": null"));
-}
-
-#[test]
-fn msn_earnings_with_mock_fixture_table_is_sectioned_and_formatted() {
-    test_bin("msn-earnings-table")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "earnings", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Earnings History"))
-        .stdout(predicate::str::contains("Earnings Forecast"))
-        .stdout(predicate::str::contains("FY2025"))
-        .stdout(predicate::str::contains("Q1 2026"))
-        .stdout(predicate::str::contains("110,000,000,000"))
-        .stdout(predicate::str::contains("2026-03-15"));
+    let full = run_success_json(
+        test_bin("msn-financials-json")
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "financials", "BBCA"]),
+    );
+    assert_eq!(full["instrument"]["symbol"], "BBCA.JK");
+    assert_eq!(full["income_statement"]["currency"], "IDR");
+    assert_eq!(full["income_statement"]["report_date"], "2025-12-31");
+    assert_eq!(
+        full["income_statement"]["values"]["netIncome"].as_f64(),
+        Some(400_000_000.0)
+    );
+    assert_eq!(
+        full["cash_flow"]["values"]["operatingCashFlow"].as_f64(),
+        Some(600_000_000.0)
+    );
+    for (filter, omitted) in [
+        ("income,balance", vec!["cash_flow"]),
+        ("cashflow", vec!["income_statement", "balance_sheet"]),
+    ] {
+        let filtered = run_success_json(
+            test_bin(&format!("financial-filter-{filter}"))
+                .env("IDX_PROVIDER", "msn")
+                .env("IDX_USE_MOCK_PROVIDER", "1")
+                .args([
+                    "-o",
+                    "json",
+                    "stocks",
+                    "financials",
+                    "BBCA",
+                    "--statement",
+                    filter,
+                ]),
+        );
+        let mut expected = full.clone();
+        for section in omitted {
+            expected[section] = Value::Null;
+        }
+        assert_eq!(filtered, expected);
+    }
 }
 
 #[test]
@@ -665,353 +606,215 @@ fn msn_earnings_with_filters_table_limits_scope_and_period() {
 }
 
 #[test]
-fn msn_earnings_with_mock_fixture_json_contains_forecast_and_history() {
-    test_bin("msn-earnings-json")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["-o", "json", "stocks", "earnings", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
-        .stdout(predicate::str::contains("\"forecast\""))
-        .stdout(predicate::str::contains("\"history\""))
-        .stdout(predicate::str::contains("Q12026"));
-}
-
-#[test]
-fn msn_earnings_with_filters_json_limits_rows() {
-    test_bin("msn-earnings-filter-json")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args([
-            "-o",
-            "json",
-            "stocks",
-            "earnings",
-            "BBCA",
+fn msn_earnings_json_filters_preserve_values() {
+    let full = run_success_json(
+        test_bin("msn-earnings-json")
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "earnings", "BBCA"]),
+    );
+    assert_eq!(full["symbol"], "BBCA.JK");
+    assert_eq!(full["eps_last_year"].as_f64(), Some(1200.0));
+    assert_eq!(full["forecast"].as_array().unwrap().len(), 2);
+    assert_eq!(full["history"].as_array().unwrap().len(), 2);
+    for (scope, period, key, period_type, field, value) in [
+        (
             "--forecast",
             "--annual",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
-        .stdout(predicate::str::contains("\"period_type\": \"2026\""))
-        .stdout(predicate::str::contains("\"history\": []"))
-        .stdout(predicate::str::contains("Q12026").not())
-        .stdout(predicate::str::contains("Q42025").not());
-}
-
-#[test]
-fn msn_sentiment_with_mock_fixture_table_contains_ranges() {
-    test_bin("msn-sentiment-table")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "sentiment", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("RANGE"))
-        .stdout(predicate::str::contains("1D"))
-        .stdout(predicate::str::contains("BULLISH"));
-}
-
-#[test]
-fn msn_sentiment_with_mock_fixture_json_contains_symbol_and_counts() {
-    test_bin("msn-sentiment-json")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["-o", "json", "stocks", "sentiment", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
-        .stdout(predicate::str::contains("\"time_range\": \"1D\""))
-        .stdout(predicate::str::contains("\"bullish\": 10"))
-        .stdout(predicate::str::contains("\"neutral\": 3"));
-}
-
-#[test]
-fn msn_insights_with_mock_fixture_table_contains_highlights_and_risks() {
-    test_bin("msn-insights-table")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "insights", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Mixed analyst signals"))
-        .stdout(predicate::str::contains(
-            "Last updated: 2026-03-26T04:14:57.9197955Z",
-        ))
-        .stdout(predicate::str::contains("Highlights:"))
-        .stdout(predicate::str::contains(
-            "Analyst price target: Analysts forecast more than 20% upside",
-        ))
-        .stdout(predicate::str::contains("Risks:"))
-        .stdout(predicate::str::contains(
-            "Quarterly Revenue YoY Growth: Revenue grew worse than peers",
-        ));
-}
-
-#[test]
-fn msn_insights_with_mock_fixture_json_contains_summary_and_last_updated() {
-    test_bin("msn-insights-json")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["-o", "json", "stocks", "insights", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
-        .stdout(predicate::str::contains(
-            "\"summary\": \"Mixed analyst signals",
-        ))
-        .stdout(predicate::str::contains(
-            "\"last_updated\": \"2026-03-26T04:14:57.9197955Z\"",
-        ))
-        .stdout(predicate::str::contains("Revenue grew worse than peers"));
-}
-
-#[test]
-fn msn_news_with_mock_fixture_table_contains_provider_and_title() {
-    test_bin("msn-news-table")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "news", "BBCA", "--limit", "5"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("BCA reports steady growth"))
-        .stdout(predicate::str::contains("Contoso News"));
-}
-
-#[test]
-fn msn_news_with_mock_fixture_json_contains_provider_and_timestamp() {
-    test_bin("msn-news-json")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["-o", "json", "stocks", "news", "BBCA", "--limit", "5"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"id\": \"news-1\""))
-        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
-        .stdout(predicate::str::contains(
-            "\"title\": \"BCA reports steady growth\"",
-        ))
-        .stdout(predicate::str::contains("\"provider\": \"Contoso News\""))
-        .stdout(predicate::str::contains(
-            "\"published_at\": \"2026-03-20T10:00:00Z\"",
-        ));
-}
-
-#[test]
-fn msn_screen_with_mock_fixture_table_contains_quotes() {
-    test_bin("msn-screen-table")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args([
-            "stocks",
-            "screen",
-            "--filter",
-            "top-performers",
-            "--limit",
-            "10",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("SYMBOL"))
-        .stdout(predicate::str::contains("BBCA.JK"))
-        .stdout(predicate::str::contains("BBRI.JK"));
-}
-
-#[test]
-fn msn_screen_with_mock_fixture_json_contains_normalized_symbols_and_ranges() {
-    test_bin("msn-screen-json")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args([
-            "-o",
-            "json",
-            "stocks",
-            "screen",
-            "--filter",
-            "top-performers",
-            "--limit",
-            "10",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"symbol\": \"BBCA.JK\""))
-        .stdout(predicate::str::contains("\"symbol\": \"BBRI.JK\""))
-        .stdout(predicate::str::contains("\"change\": 117"))
-        .stdout(predicate::str::contains("\"range_signal\": \"upper\""));
-}
-
-#[test]
-fn growth_with_mock_provider_table_contains_expected_rows() {
-    test_bin("growth-table")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "growth", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Growth Analysis"))
-        .stdout(predicate::str::contains("Revenue Growth"))
-        .stdout(predicate::str::contains("Overall"));
-}
-
-#[test]
-fn growth_with_mock_provider_json_contains_fields() {
-    test_bin("growth-json")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["-o", "json", "stocks", "growth", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"revenue_growth\""))
-        .stdout(predicate::str::contains("\"overall_signal\""));
-}
-
-#[test]
-fn valuation_with_mock_provider_table_contains_expected_rows() {
-    test_bin("valuation-table")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "valuation", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Valuation"))
-        .stdout(predicate::str::contains("P/E"))
-        .stdout(predicate::str::contains("Overall"));
-}
-
-#[test]
-fn risk_with_mock_provider_table_contains_expected_rows() {
-    test_bin("risk-table")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "risk", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Risk"))
-        .stdout(predicate::str::contains("Debt/Equity"))
-        .stdout(predicate::str::contains("Overall"));
-}
-
-#[test]
-fn fundamental_with_mock_provider_table_contains_expected_rows() {
-    test_bin("fundamental-table")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "fundamental", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Fundamental"))
-        .stdout(predicate::str::contains("Overall"));
-}
-
-#[test]
-fn compare_with_mock_provider_table_contains_resolved_symbol() {
-    test_bin("compare-table")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "compare", "BBCA,BBRI"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("BBCA.JK"));
-}
-
-#[test]
-fn infinity_msn_mock_fundamentals_succeed_for_analysis_commands() {
-    let fixture = fixture_path("msn_keyratios_infinity.json");
-    let fixture_str = fixture
-        .to_str()
-        .expect("fixture path should be valid unicode")
-        .to_string();
-    let cases = [
-        (
-            "growth-infinity-json",
-            vec!["-o", "json", "stocks", "growth", "BBCA"],
-            vec!["\"revenue_growth\"", "\"overall_signal\""],
+            "forecast",
+            "2026",
+            "eps_forecast",
+            1300.0,
         ),
         (
-            "valuation-infinity-json",
-            vec!["-o", "json", "stocks", "valuation", "BBCA"],
-            vec!["\"pe_trailing\": null", "\"overall_signal\""],
+            "--history",
+            "--quarterly",
+            "history",
+            "Q42025",
+            "eps_actual",
+            320.0,
         ),
-        (
-            "risk-infinity-json",
-            vec!["-o", "json", "stocks", "risk", "BBCA"],
-            vec!["\"debt_to_equity\"", "\"overall_signal\""],
-        ),
-        (
-            "fundamental-infinity-json",
-            vec!["-o", "json", "stocks", "fundamental", "BBCA"],
-            vec!["\"symbol\": \"BBCA.JK\"", "\"overall_signal\""],
-        ),
-        (
-            "compare-infinity-json",
-            vec!["-o", "json", "stocks", "compare", "BBCA,BBRI"],
-            vec!["\"symbol\": \"BBCA.JK\"", "\"symbol\": \"BBRI.JK\""],
-        ),
-    ];
-
-    for (name, args, needles) in cases {
-        let stdout = run_success_stdout(
-            test_bin(name)
+    ] {
+        let filtered = run_success_json(
+            test_bin(&format!("earnings-{scope}-{period}"))
                 .env("IDX_PROVIDER", "msn")
                 .env("IDX_USE_MOCK_PROVIDER", "1")
-                .env("IDX_MOCK_MSN_KEYRATIOS_FIXTURE", &fixture_str)
-                .args(args),
+                .args(["-o", "json", "stocks", "earnings", "BBCA", scope, period]),
         );
-
-        for needle in needles {
-            assert!(
-                stdout.contains(needle),
-                "missing `{needle}` in output: {stdout}"
-            );
-        }
+        let mut expected = full.clone();
+        expected["forecast"] = serde_json::json!([]);
+        expected["history"] = serde_json::json!([]);
+        let row = full[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["period_type"] == period_type)
+            .unwrap();
+        assert_eq!(row[field].as_f64(), Some(value));
+        expected[key] = serde_json::json!([row]);
+        assert_eq!(filtered, expected);
     }
 }
 
 #[test]
-fn negative_infinity_msn_mock_fundamentals_succeed_for_analysis_commands() {
-    let fixture = fixture_path("msn_keyratios_negative_infinity.json");
-    let fixture_str = fixture
-        .to_str()
-        .expect("fixture path should be valid unicode")
-        .to_string();
-    let cases = [
-        (
-            "growth-negative-infinity-json",
-            vec!["-o", "json", "stocks", "growth", "BBCA"],
-            vec!["\"revenue_growth\"", "\"overall_signal\""],
-        ),
-        (
-            "valuation-negative-infinity-json",
-            vec!["-o", "json", "stocks", "valuation", "BBCA"],
-            vec!["\"pe_trailing\": null", "\"overall_signal\""],
-        ),
-        (
-            "risk-negative-infinity-json",
-            vec!["-o", "json", "stocks", "risk", "BBCA"],
-            vec!["\"debt_to_equity\": null", "\"overall_signal\""],
-        ),
-        (
-            "fundamental-negative-infinity-json",
-            vec!["-o", "json", "stocks", "fundamental", "BBCA"],
-            vec!["\"symbol\": \"BBCA.JK\"", "\"overall_signal\""],
-        ),
-        (
-            "compare-negative-infinity-json",
-            vec!["-o", "json", "stocks", "compare", "BBCA,BBRI"],
-            vec!["\"symbol\": \"BBCA.JK\"", "\"symbol\": \"BBRI.JK\""],
-        ),
-    ];
+fn msn_sentiment_json_preserves_counts() {
+    let data = run_success_json(
+        test_bin("msn-sentiment-json")
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "sentiment", "BBCA"]),
+    );
+    assert_eq!(data["symbol"], "BBCA.JK");
+    let day = data["statistics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["time_range"] == "1D")
+        .unwrap();
+    assert_eq!(day["bullish"].as_i64(), Some(10));
+    assert_eq!(day["neutral"].as_i64(), Some(3));
+}
 
-    for (name, args, needles) in cases {
-        let stdout = run_success_stdout(
-            test_bin(name)
-                .env("IDX_PROVIDER", "msn")
+#[test]
+fn msn_insights_and_news_json_preserve_fixture_content() {
+    let insights = run_success_json(
+        test_bin("msn-insights-json")
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "insights", "BBCA"]),
+    );
+    assert_eq!(insights["symbol"], "BBCA.JK");
+    assert_eq!(insights["last_updated"], "2026-03-26T04:14:57.9197955Z");
+    assert!(
+        insights["risks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|risk| risk == "Quarterly Revenue YoY Growth: Revenue grew worse than peers")
+    );
+    let news = run_success_json(
+        test_bin("msn-news-json")
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "news", "BBCA", "--limit", "1"]),
+    );
+    assert_eq!(news.as_array().unwrap().len(), 1);
+    assert_eq!(news[0]["id"], "news-1");
+    assert_eq!(news[0]["symbol"], "BBCA.JK");
+    assert_eq!(news[0]["title"], "BCA reports steady growth");
+    assert_eq!(news[0]["provider"], "Contoso News");
+    assert_eq!(news[0]["published_at"], "2026-03-20T10:00:00Z");
+}
+
+#[test]
+fn analysis_json_preserves_metrics_across_reports_and_compare() {
+    let fundamental = run_success_json(
+        test_bin("fundamental-json")
+            .env("IDX_PROVIDER", "yahoo")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "fundamental", "BBCA"]),
+    );
+    assert_eq!(fundamental["symbol"], "BBCA.JK");
+    assert_eq!(
+        fundamental["growth"]["revenue_growth"].as_f64(),
+        Some(0.118)
+    );
+    assert_eq!(fundamental["valuation"]["pe_trailing"].as_f64(), Some(25.4));
+    assert_eq!(fundamental["risk"]["current_ratio"].as_f64(), Some(1.21));
+    for command in ["growth", "valuation", "risk"] {
+        let report = run_success_json(
+            test_bin(&format!("analysis-{command}"))
+                .env("IDX_PROVIDER", "yahoo")
                 .env("IDX_USE_MOCK_PROVIDER", "1")
-                .env("IDX_MOCK_MSN_KEYRATIOS_FIXTURE", &fixture_str)
-                .args(args),
+                .args(["-o", "json", "stocks", command, "BBCA"]),
         );
+        assert_eq!(report, fundamental[command]);
+    }
+    let comparison = run_success_json(
+        test_bin("compare-json")
+            .env("IDX_PROVIDER", "yahoo")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "compare", "BBCA,BBRI"]),
+    );
+    assert_eq!(comparison.as_array().unwrap().len(), 2);
+    assert_eq!(comparison[0], fundamental);
+    assert_eq!(comparison[1]["symbol"], "BBRI.JK");
+}
 
-        for needle in needles {
-            assert!(
-                stdout.contains(needle),
-                "missing `{needle}` in output: {stdout}"
+#[test]
+fn compare_partial_offline_success_preserves_data_and_diagnostics() {
+    let root = test_env_dir("compare-partial-offline");
+    let expected = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_PROVIDER", "yahoo")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "fundamental", "BBCA"]),
+    );
+    for quiet in [false, true] {
+        let mut cmd = bin_with_root(&root);
+        cmd.env("IDX_PROVIDER", "yahoo")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .env("IDX_MOCK_ERROR", "1")
+            .args(["-o", "json", "--offline", "stocks", "compare", "BBRI,BBCA"]);
+        if quiet {
+            cmd.arg("--quiet");
+        }
+        let output = cmd.output().expect("partial comparison");
+        assert!(output.status.success(), "{output:?}");
+        let actual: Value = serde_json::from_slice(&output.stdout).expect("clean JSON stdout");
+        assert_eq!(actual.as_array().unwrap(), std::slice::from_ref(&expected));
+        assert_eq!(output.stderr.is_empty(), quiet);
+    }
+}
+
+#[test]
+fn nonfinite_msn_fundamentals_are_null_in_analysis_json() {
+    for fixture in [
+        "msn_keyratios_infinity.json",
+        "msn_keyratios_negative_infinity.json",
+    ] {
+        for command in ["growth", "valuation", "risk", "fundamental", "compare"] {
+            let report = run_success_json(
+                test_bin(&format!("{fixture}-{command}"))
+                    .env("IDX_PROVIDER", "msn")
+                    .env("IDX_USE_MOCK_PROVIDER", "1")
+                    .env("IDX_MOCK_MSN_KEYRATIOS_FIXTURE", fixture_path(fixture))
+                    .args([
+                        "-o",
+                        "json",
+                        "stocks",
+                        command,
+                        if command == "compare" {
+                            "BBCA,BBRI"
+                        } else {
+                            "BBCA"
+                        },
+                    ]),
             );
+            match command {
+                "valuation" => assert_eq!(report.get("pe_trailing"), Some(&Value::Null)),
+                "risk" if fixture.contains("negative") => {
+                    assert_eq!(report.get("debt_to_equity"), Some(&Value::Null))
+                }
+                "fundamental" => {
+                    assert_eq!(report["symbol"], "BBCA.JK");
+                    assert_eq!(report["valuation"].get("pe_trailing"), Some(&Value::Null));
+                }
+                "compare" => {
+                    assert_eq!(report.as_array().unwrap().len(), 2);
+                    assert_eq!(report[0]["symbol"], "BBCA.JK");
+                    assert_eq!(report[1]["symbol"], "BBRI.JK");
+                    for row in report.as_array().unwrap() {
+                        assert_eq!(row["valuation"].get("pe_trailing"), Some(&Value::Null));
+                    }
+                }
+                "growth" => {
+                    assert_eq!(report["revenue_growth_pct"].as_f64(), Some(8.1));
+                    assert_eq!(report["earnings_growth_pct"].as_f64(), Some(12.1));
+                }
+                "risk" => assert_eq!(report["current_ratio"].as_f64(), Some(1.4)),
+                _ => unreachable!(),
+            }
         }
     }
 }
@@ -1043,66 +846,57 @@ fn config_init_creates_file() {
 }
 
 #[test]
-fn cache_info_and_clear_do_not_crash() {
-    let root = test_env_dir("cache");
-    let cache_home = root.join("cache");
-
-    bin_with_root(&root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .args(["cache", "info"])
-        .assert()
-        .success();
-
-    bin_with_root(&root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .args(["cache", "clear"])
-        .assert()
-        .success();
-}
-
-#[test]
-fn serves_stale_cache_on_provider_failure_with_warning() {
-    let root = test_env_dir("stale");
-    let cache_home = root.join("cache");
-
-    bin_with_root(&root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .env("IDX_CACHE_QUOTE_TTL", "0")
-        .args(["stocks", "quote", "BBCA"])
-        .assert()
-        .success();
-
-    bin_with_root(&root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .env("IDX_CACHE_QUOTE_TTL", "0")
-        .env("IDX_MOCK_ERROR", "1")
-        .args(["stocks", "quote", "BBCA"])
-        .assert()
-        .success()
-        .stderr(predicate::str::contains("warning: network failed"));
-}
-
-#[test]
-fn offline_warns_when_serving_expired_cache() {
-    let root = test_env_dir("offline-expired");
-
-    bin_with_root(&root)
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .env("IDX_CACHE_QUOTE_TTL", "0")
-        .args(["stocks", "quote", "BBCA"])
-        .assert()
-        .success();
-
-    bin_with_root(&root)
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["--offline", "stocks", "quote", "BBCA"])
-        .assert()
-        .success()
-        .stderr(predicate::str::contains(
-            "warning: offline: serving expired cache for BBCA.JK",
-        ));
+fn cache_lifecycle_preserves_json_data_and_stderr_diagnostics() {
+    for (command, provider) in [
+        ("quote", "yahoo"),
+        ("history", "yahoo"),
+        ("technical", "yahoo"),
+        ("profile", "msn"),
+    ] {
+        let root = test_env_dir(&format!("cache-lifecycle-{command}"));
+        run_error_json(
+            bin_with_root(&root)
+                .env("IDX_PROVIDER", provider)
+                .env("IDX_USE_MOCK_PROVIDER", "1")
+                .args(["-o", "json", "--offline", "stocks", command, "BBCA"]),
+            "CACHEMISS",
+        );
+        let warm = run_success_json(
+            bin_with_root(&root)
+                .env("IDX_PROVIDER", provider)
+                .env("IDX_USE_MOCK_PROVIDER", "1")
+                .env("IDX_CACHE_QUOTE_TTL", "0")
+                .env("IDX_CACHE_FUNDAMENTAL_TTL", "0")
+                .args(["-o", "json", "stocks", command, "BBCA"]),
+        );
+        for offline in [true, false] {
+            let mut cmd = bin_with_root(&root);
+            cmd.env("IDX_PROVIDER", provider)
+                .env("IDX_USE_MOCK_PROVIDER", "1")
+                .env("IDX_MOCK_ERROR", "1")
+                .env("IDX_CACHE_QUOTE_TTL", "0")
+                .env("IDX_CACHE_FUNDAMENTAL_TTL", "0")
+                .args(["-o", "json"]);
+            if offline {
+                cmd.arg("--offline");
+            }
+            let output = cmd.args(["stocks", command, "BBCA"]).output().unwrap();
+            assert!(output.status.success(), "{output:?}");
+            assert!(
+                !output.stderr.is_empty(),
+                "missing cache diagnostic for {command}"
+            );
+            let cached: Value = serde_json::from_slice(&output.stdout).expect("clean JSON stdout");
+            assert_eq!(cached, warm, "{command}: offline={offline}");
+        }
+        run_error_json(
+            bin_with_root(&root)
+                .env("IDX_PROVIDER", provider)
+                .env("IDX_USE_MOCK_PROVIDER", "1")
+                .args(["-o", "json", "--offline", "stocks", command, "BBRI"]),
+            "CACHEMISS",
+        );
+    }
 }
 
 #[test]
@@ -1125,13 +919,28 @@ fn version_and_cache_emit_json_in_json_mode() {
     let version: Value = serde_json::from_str(&version).expect("version json");
     assert_eq!(version["version"], env!("CARGO_PKG_VERSION"));
 
-    let info = run_success_stdout(bin_with_root(&root).args(["-o", "json", "cache", "info"]));
-    let info: Value = serde_json::from_str(&info).expect("cache info json");
-    assert!(info["files"].is_u64());
-
-    let cleared = run_success_stdout(bin_with_root(&root).args(["-o", "json", "cache", "clear"]));
-    let cleared: Value = serde_json::from_str(&cleared).expect("cache clear json");
-    assert!(cleared["removed"].is_u64());
+    let empty = run_success_json(bin_with_root(&root).args(["-o", "json", "cache", "info"]));
+    assert_eq!(empty["files"].as_u64(), Some(0));
+    run_success_json(
+        bin_with_root(&root)
+            .env("IDX_PROVIDER", "yahoo")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "quote", "BBCA"]),
+    );
+    let populated = run_success_json(bin_with_root(&root).args(["-o", "json", "cache", "info"]));
+    let files = populated["files"].as_u64().expect("cache file count");
+    assert!(files > 0, "successful quote must populate the cache");
+    let cleared = run_success_json(bin_with_root(&root).args(["-o", "json", "cache", "clear"]));
+    assert_eq!(cleared["removed"].as_u64(), Some(files));
+    let empty = run_success_json(bin_with_root(&root).args(["-o", "json", "cache", "info"]));
+    assert_eq!(empty["files"].as_u64(), Some(0));
+    run_error_json(
+        bin_with_root(&root)
+            .env("IDX_PROVIDER", "yahoo")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "--offline", "stocks", "quote", "BBCA"]),
+        "CACHEMISS",
+    );
 }
 
 #[test]
@@ -1210,13 +1019,17 @@ fn config_set_mixed_case_provider_does_not_break_future_loads() {
 
 #[test]
 fn ownership_import_fetch_bing_reports_unsupported() {
-    test_bin("ownership-fetch-bing-unsupported")
-        .args(["ownership", "import", "--fetch-bing", "BBCA"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "--fetch-bing import is not implemented yet",
-        ));
+    run_error_json(
+        test_bin("ownership-fetch-bing-unsupported").args([
+            "-o",
+            "json",
+            "ownership",
+            "import",
+            "--fetch-bing",
+            "BBCA",
+        ]),
+        "UNSUPPORTED",
+    );
 }
 
 #[test]
@@ -1640,26 +1453,32 @@ fn ownership_import_file_xlsx_supports_ticker_and_releases() {
         .assert()
         .success();
 
-    bin_with_root(&root)
-        .args(["ownership", "import", "--file", xlsx_path.to_str().unwrap()])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("(as of 2026-08-31)"));
-
-    let output = bin_with_root(&root)
-        .args(["-o", "json", "ownership", "ticker", "BBCA"])
-        .output()
-        .expect("ownership ticker json output");
-    assert!(output.status.success());
-    let body = String::from_utf8_lossy(&output.stdout);
-    assert!(body.contains("DWIMURIA INVESTAMA ANDALAN"), "{body}");
-
-    let output = bin_with_root(&root)
-        .args(["-o", "json", "ownership", "releases"])
-        .output()
-        .expect("ownership releases json output");
-    let releases: Value = serde_json::from_slice(&output.stdout).expect("parse releases json");
+    let imported = run_success_json(bin_with_root(&root).args([
+        "-o",
+        "json",
+        "ownership",
+        "import",
+        "--file",
+        xlsx_path.to_str().unwrap(),
+    ]));
+    assert_eq!(imported["as_of_date"], "2026-08-31");
+    assert_eq!(imported["inserted_rows"].as_u64(), Some(17));
+    let ticker =
+        run_success_json(bin_with_root(&root).args(["-o", "json", "ownership", "ticker", "BBCA"]));
+    assert_eq!(ticker["ksei_as_of"], "2026-08-31");
+    assert!(
+        ticker["holders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["name"] == "DWIMURIA INVESTAMA ANDALAN"
+                && row["percentage_bps"].as_i64() == Some(5494))
+    );
+    let releases =
+        run_success_json(bin_with_root(&root).args(["-o", "json", "ownership", "releases"]));
+    assert_eq!(releases.as_array().unwrap().len(), 1);
     assert_eq!(releases[0]["as_of_date"], "2026-08-31");
+    assert_eq!(releases[0]["row_count"].as_u64(), Some(17));
 }
 
 #[test]
@@ -1846,47 +1665,33 @@ fn ownership_import_file_zip_archive_supports_releases_ticker_and_changes() {
         .assert()
         .success();
 
-    bin_with_root(&root)
-        .args(["ownership", "import", "--file", jan_zip.to_str().unwrap()])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Imported 18 rows for 1 tickers"));
-
-    bin_with_root(&root)
-        .args(["ownership", "import", "--file", feb_zip.to_str().unwrap()])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Imported 18 rows for 1 tickers"));
-
-    bin_with_root(&root)
-        .args(["ownership", "releases"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("2026-02-27"))
-        .stdout(predicate::str::contains("2026-01-30"));
-
-    bin_with_root(&root)
-        .args(["ownership", "ticker", "AADI", "--source", "ksei"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("KSEI AGGREGATE LOCAL CP"))
-        .stdout(predicate::str::contains("KSEI AGGREGATE FOREIGN MF"));
-
-    let ticker_output = bin_with_root(&root)
-        .args([
+    for (file, date) in [(&jan_zip, "2026-01-30"), (&feb_zip, "2026-02-27")] {
+        let imported = run_success_json(bin_with_root(&root).args([
             "-o",
             "json",
             "ownership",
-            "ticker",
-            "AADI",
-            "--source",
-            "ksei",
-        ])
-        .output()
-        .expect("ownership ticker json output");
-    assert!(ticker_output.status.success());
-    let ticker: Value =
-        serde_json::from_slice(&ticker_output.stdout).expect("parse ownership ticker json");
+            "import",
+            "--file",
+            file.to_str().unwrap(),
+        ]));
+        assert_eq!(imported["inserted_rows"].as_u64(), Some(18));
+        assert_eq!(imported["ticker_count"].as_u64(), Some(1));
+        assert_eq!(imported["as_of_date"], date);
+    }
+    let releases =
+        run_success_json(bin_with_root(&root).args(["-o", "json", "ownership", "releases"]));
+    assert_eq!(releases.as_array().unwrap().len(), 2);
+    assert_eq!(releases[0]["as_of_date"], "2026-02-27");
+    assert_eq!(releases[1]["as_of_date"], "2026-01-30");
+    let ticker = run_success_json(bin_with_root(&root).args([
+        "-o",
+        "json",
+        "ownership",
+        "ticker",
+        "AADI",
+        "--source",
+        "ksei",
+    ]));
     let holders = ticker["holders"].as_array().expect("holders array");
     assert_eq!(ticker["ksei_as_of"].as_str(), Some("2026-02-27"));
     assert_eq!(holders.len(), 18);
@@ -1900,20 +1705,26 @@ fn ownership_import_file_zip_archive_supports_releases_ticker_and_changes() {
             && row["percentage_bps"].as_i64() == Some(6481)
     }));
 
-    bin_with_root(&root)
-        .args([
-            "ownership",
-            "changes",
-            "--from",
-            "2026-01-30",
-            "--to",
-            "2026-02-27",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("AADI"))
-        .stdout(predicate::str::contains("KSEI AGGREGATE LOCAL CP"))
-        .stdout(predicate::str::contains("DECREASED"));
+    let changes = run_success_json(bin_with_root(&root).args([
+        "-o",
+        "json",
+        "ownership",
+        "changes",
+        "--from",
+        "2026-01-30",
+        "--to",
+        "2026-02-27",
+    ]));
+    let local_cp = changes
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["ticker_code"] == "AADI" && row["entity_name"] == "KSEI AGGREGATE LOCAL CP")
+        .unwrap();
+    assert_eq!(local_cp["change_type"], "decreased");
+    assert_eq!(local_cp["old_bps"].as_i64(), Some(6481));
+    assert_eq!(local_cp["new_bps"].as_i64(), Some(6467));
+    assert_eq!(local_cp["delta_bps"].as_i64(), Some(-14));
 }
 
 #[test]
@@ -2008,141 +1819,127 @@ fn ownership_sync_rejects_body_larger_than_manifest_size() {
 #[test]
 fn ownership_sync_installs_snapshot_and_preserves_query_behavior() {
     let publisher_root = test_env_dir("ownership-sync-publisher");
-    let (_source_db, manifest_path) = prepare_snapshot_fixture(&publisher_root);
-
+    let (source_db, manifest_path) = prepare_snapshot_fixture(&publisher_root);
     let sync_root = test_env_dir("ownership-sync-consumer");
     let target_db = sync_root.join("ownership.db");
-
-    bin_with_root(&sync_root)
-        .args([
-            "config",
-            "set",
-            "ownership.db_path",
-            target_db.to_str().unwrap(),
-        ])
-        .assert()
-        .success();
-    bin_with_root(&sync_root)
-        .args([
-            "config",
-            "set",
-            "ownership.snapshot_manifest",
-            manifest_path.to_str().unwrap(),
-        ])
-        .assert()
-        .success();
-
-    bin_with_root(&sync_root)
-        .args(["ownership", "sync"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "Installed ownership snapshot 2026-02-27",
-        ));
-
-    assert!(target_db.exists());
-
-    bin_with_root(&sync_root)
-        .args(["ownership", "releases"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("2026-02-27"))
-        .stdout(predicate::str::contains("2026-01-31"));
-
-    bin_with_root(&sync_root)
-        .args(["ownership", "ticker", "AADI", "--source", "ksei"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("ADARO STRATEGIC INVESTMENTS"))
-        .stdout(predicate::str::contains("41.10%"));
-
-    bin_with_root(&sync_root)
-        .args([
+    run_success_stdout(bin_with_root(&sync_root).args([
+        "config",
+        "set",
+        "ownership.db_path",
+        target_db.to_str().unwrap(),
+    ]));
+    run_success_stdout(bin_with_root(&sync_root).args([
+        "config",
+        "set",
+        "ownership.snapshot_manifest",
+        manifest_path.to_str().unwrap(),
+    ]));
+    let queries = [
+        vec!["-o", "json", "ownership", "releases"],
+        vec![
+            "-o",
+            "json",
+            "ownership",
+            "ticker",
+            "AADI",
+            "--source",
+            "ksei",
+        ],
+        vec![
+            "-o",
+            "json",
             "ownership",
             "changes",
             "--from",
             "2026-01-31",
             "--to",
             "2026-02-27",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("AADI"))
-        .stdout(predicate::str::contains("INCREASED"))
-        .stdout(predicate::str::contains("+1.28%"));
+        ],
+    ];
+    let expected: Vec<Value> = queries
+        .iter()
+        .map(|args| run_success_json(bin_with_root(&publisher_root).args(args)))
+        .collect();
+    assert_eq!(expected[0].as_array().unwrap().len(), 2);
+    assert_eq!(expected[0][0]["as_of_date"], "2026-02-27");
+    assert_eq!(expected[1]["ksei_as_of"], "2026-02-27");
+    assert!(
+        expected[1]["holders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["name"] == "ADARO STRATEGIC INVESTMENTS"
+                && row["percentage_bps"].as_i64() == Some(4110))
+    );
+    assert!(
+        expected[2]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["ticker_code"] == "AADI"
+                && row["change_type"] == "increased"
+                && row["delta_bps"].as_i64() == Some(128))
+    );
+    for (force, action) in [
+        (false, "installed"),
+        (false, "no_change"),
+        (true, "refreshed"),
+    ] {
+        let mut cmd = bin_with_root(&sync_root);
+        cmd.args(["-o", "json", "ownership", "sync"]);
+        if force {
+            cmd.arg("--force");
+        }
+        let result = run_success_json(&mut cmd);
+        assert_eq!(result["action"], action);
+        assert_eq!(result["snapshot_version"], "2026-02-27");
+        assert_eq!(result["release_count"].as_u64(), Some(2));
+        for (args, expected) in queries.iter().zip(&expected) {
+            assert_eq!(
+                run_success_json(bin_with_root(&sync_root).args(args)),
+                *expected
+            );
+        }
+    }
 
-    bin_with_root(&sync_root)
-        .args(["ownership", "sync"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("already current"));
-
-    bin_with_root(&sync_root)
-        .args(["ownership", "sync", "--force"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "Refreshed ownership snapshot 2026-02-27",
-        ));
-}
-
-#[test]
-fn ownership_sync_rejects_checksum_mismatch() {
-    let publisher_root = test_env_dir("ownership-sync-bad-checksum");
-    let (source_db, manifest_path) = prepare_snapshot_fixture(&publisher_root);
+    let bytes = fs::read(&target_db).unwrap();
+    // Both failures happen after a usable local snapshot has been installed.
     write_snapshot_manifest(
         &manifest_path,
         &source_db,
         Some("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"),
     );
+    run_error_json(
+        bin_with_root(&sync_root).args(["-o", "json", "ownership", "sync", "--force"]),
+        "PARSEERROR",
+    );
+    assert_eq!(fs::read(&target_db).unwrap(), bytes);
+    for (args, expected) in queries.iter().zip(&expected) {
+        assert_eq!(
+            run_success_json(bin_with_root(&sync_root).args(args)),
+            *expected
+        );
+    }
 
-    let sync_root = test_env_dir("ownership-sync-bad-checksum-consumer");
-    let target_db = sync_root.join("ownership.db");
-
-    bin_with_root(&sync_root)
-        .args([
-            "config",
-            "set",
-            "ownership.db_path",
-            target_db.to_str().unwrap(),
-        ])
-        .assert()
-        .success();
-
-    bin_with_root(&sync_root)
-        .args([
-            "ownership",
-            "sync",
-            "--manifest",
-            manifest_path.to_str().unwrap(),
-        ])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("checksum mismatch"));
-}
-
-#[test]
-fn technical_serves_stale_cache_on_provider_failure_with_warning() {
-    let root = test_env_dir("technical-stale");
-    let cache_home = root.join("cache");
-
-    bin_with_root(&root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .env("IDX_CACHE_QUOTE_TTL", "0")
-        .args(["stocks", "technical", "BBCA"])
-        .assert()
-        .success();
-
-    bin_with_root(&root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .env("IDX_CACHE_QUOTE_TTL", "0")
-        .env("IDX_MOCK_ERROR", "1")
-        .args(["stocks", "technical", "BBCA"])
-        .assert()
-        .success()
-        .stderr(predicate::str::contains("warning: network failed"));
+    // A matching checksum must not make an invalid downloaded database installable.
+    let invalid = b"not a SQLite database";
+    let invalid_url = spawn_single_response_server("application/octet-stream", invalid.to_vec());
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["snapshot"]["download_url"] = invalid_url.into();
+    manifest["snapshot"]["sqlite_sha256"] = sha256_hex(invalid).into();
+    manifest["snapshot"]["size_bytes"] = invalid.len().into();
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    run_error_json(
+        bin_with_root(&sync_root).args(["-o", "json", "ownership", "sync", "--force"]),
+        "DATABASEERROR",
+    );
+    assert_eq!(fs::read(&target_db).unwrap(), bytes);
+    for (args, expected) in queries.iter().zip(&expected) {
+        assert_eq!(
+            run_success_json(bin_with_root(&sync_root).args(args)),
+            *expected
+        );
+    }
 }
 
 #[test]
@@ -2173,38 +1970,49 @@ fn quiet_suppresses_non_essential_history_messages() {
 #[test]
 fn cache_namespace_isolated_by_provider() {
     let root = test_env_dir("provider-cache");
-    let cache_home = root.join("cache");
-
-    // Populate Yahoo cache
-    bin_with_root(&root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .env("IDX_CACHE_QUOTE_TTL", "0")
-        .args(["stocks", "quote", "BBCA"])
-        .assert()
-        .success();
-
-    // MSN mock succeeds independently (uses MSN fixtures, not Yahoo's cache)
-    bin_with_root(&root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .env("IDX_CACHE_QUOTE_TTL", "0")
-        .args(["stocks", "quote", "BBCA"])
-        .assert()
-        .success();
-
-    // MSN with mock error fails — Yahoo's cached data is NOT reused for MSN
-    bin_with_root(&root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .env("IDX_CACHE_QUOTE_TTL", "0")
-        .env("IDX_MOCK_ERROR", "1")
-        .args(["stocks", "quote", "BBCA"])
-        .assert()
-        .success()
-        .stderr(predicate::str::contains("warning: network failed"));
+    let yahoo = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_PROVIDER", "yahoo")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "quote", "BBCA"]),
+    );
+    run_error_json(
+        bin_with_root(&root)
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "--offline", "stocks", "quote", "BBCA"]),
+        "CACHEMISS",
+    );
+    run_error_json(
+        bin_with_root(&root)
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .env("IDX_MOCK_ERROR", "1")
+            .args(["-o", "json", "stocks", "quote", "BBCA"]),
+        "PROVIDERUNAVAILABLE",
+    );
+    let msn = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "quote", "BBCA"]),
+    );
+    assert_ne!(
+        yahoo, msn,
+        "provider-specific percentage values must remain distinct"
+    );
+    for (provider, expected) in [("yahoo", yahoo), ("msn", msn)] {
+        assert_eq!(
+            run_success_json(
+                bin_with_root(&root)
+                    .env("IDX_PROVIDER", provider)
+                    .env("IDX_USE_MOCK_PROVIDER", "1")
+                    .env("IDX_MOCK_ERROR", "1")
+                    .args(["-o", "json", "--offline", "stocks", "quote", "BBCA"])
+            ),
+            expected
+        );
+    }
 }
 
 #[test]
@@ -2230,13 +2038,12 @@ fn invalid_provider_env_returns_non_zero() {
 
 #[test]
 fn invalid_provider_env_honors_json_output() {
-    test_bin("invalid-provider-json")
-        .env("IDX_PROVIDER", "bogus")
-        .args(["-o", "json", "version"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("\"error\": true"))
-        .stderr(predicate::str::contains("invalid provider"));
+    run_error_json(
+        test_bin("invalid-provider-json")
+            .env("IDX_PROVIDER", "bogus")
+            .args(["-o", "json", "version"]),
+        "CONFIGERROR",
+    );
 }
 
 #[test]
@@ -2253,76 +2060,28 @@ fn invalid_quote_ttl_env_returns_non_zero() {
 
 #[test]
 fn invalid_fundamental_ttl_env_honors_json_output() {
-    test_bin("invalid-fundamental-ttl-json")
-        .env("IDX_CACHE_FUNDAMENTAL_TTL", "bogus")
-        .args(["-o", "json", "version"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("\"error\": true"))
-        .stderr(predicate::str::contains(
-            "invalid IDX_CACHE_FUNDAMENTAL_TTL value",
-        ));
+    run_error_json(
+        test_bin("invalid-fundamental-ttl-json")
+            .env("IDX_CACHE_FUNDAMENTAL_TTL", "bogus")
+            .args(["-o", "json", "version"]),
+        "CONFIGERROR",
+    );
 }
 
 #[test]
 fn offline_and_no_cache_flags_are_rejected() {
-    test_bin("offline-no-cache")
-        .args(["--offline", "--no-cache", "stocks", "quote", "BBCA"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "cannot combine --offline with --no-cache",
-        ));
-}
-
-#[test]
-fn msn_profile_supports_offline_cache_reads() {
-    let root = test_env_dir("msn-profile-offline");
-    let cache_home = root.join("cache");
-
-    bin_with_root(&root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["stocks", "profile", "BBCA"])
-        .assert()
-        .success();
-
-    bin_with_root(&root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["--offline", "stocks", "profile", "BBCA"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("PT Bank Central Asia Tbk"));
-}
-
-#[test]
-fn msn_profile_serves_stale_cache_on_provider_failure_with_warning() {
-    let root = test_env_dir("msn-profile-stale");
-    let cache_home = root.join("cache");
-
-    bin_with_root(&root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .env("IDX_CACHE_FUNDAMENTAL_TTL", "0")
-        .args(["stocks", "profile", "BBCA"])
-        .assert()
-        .success();
-
-    bin_with_root(&root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .env("IDX_CACHE_FUNDAMENTAL_TTL", "0")
-        .env("IDX_MOCK_ERROR", "1")
-        .args(["stocks", "profile", "BBCA"])
-        .assert()
-        .success()
-        .stderr(predicate::str::contains("warning: network failed"))
-        .stdout(predicate::str::contains("PT Bank Central Asia Tbk"));
+    run_error_json(
+        test_bin("offline-no-cache").args([
+            "-o",
+            "json",
+            "--offline",
+            "--no-cache",
+            "stocks",
+            "quote",
+            "BBCA",
+        ]),
+        "INVALIDINPUT",
+    );
 }
 
 #[test]
@@ -2338,14 +2097,13 @@ fn msn_screen_rejects_invalid_filter() {
 
 #[test]
 fn msn_screen_rejects_invalid_region_in_json_mode() {
-    test_bin("msn-screen-invalid-region-json")
-        .env("IDX_PROVIDER", "msn")
-        .env("IDX_USE_MOCK_PROVIDER", "1")
-        .args(["-o", "json", "stocks", "screen", "--region", "eu"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("\"error\": true"))
-        .stderr(predicate::str::contains("invalid screener region"));
+    run_error_json(
+        test_bin("msn-screen-invalid-region-json")
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "screen", "--region", "eu"]),
+        "INVALIDINPUT",
+    );
 }
 
 #[test]
@@ -2389,13 +2147,14 @@ fn yahoo_provider_rejects_msn_only_stock_commands() {
     ];
 
     for (name, args) in cases {
-        test_bin(name)
-            .env("IDX_PROVIDER", "yahoo")
-            .env("IDX_USE_MOCK_PROVIDER", "1")
-            .args(args)
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("command requires --provider msn"));
+        run_error_json(
+            test_bin(name)
+                .env("IDX_PROVIDER", "yahoo")
+                .env("IDX_USE_MOCK_PROVIDER", "1")
+                .args(["-o", "json"])
+                .args(args),
+            "UNSUPPORTED",
+        );
     }
 }
 
@@ -2424,15 +2183,129 @@ fn industry_only_msn_mock_fundamentals_are_rejected_for_analysis_commands() {
     ];
 
     for (name, args) in cases {
-        test_bin(name)
-            .env("IDX_PROVIDER", "msn")
-            .env("IDX_USE_MOCK_PROVIDER", "1")
-            .env("IDX_MOCK_MSN_KEYRATIOS_FIXTURE", &fixture_str)
-            .args(args)
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains(
-                "company fundamentals unavailable from MSN; industry fallback is disabled",
-            ));
+        run_error_json(
+            test_bin(name)
+                .env("IDX_PROVIDER", "msn")
+                .env("IDX_USE_MOCK_PROVIDER", "1")
+                .env("IDX_MOCK_MSN_KEYRATIOS_FIXTURE", &fixture_str)
+                .args(["-o", "json"])
+                .args(args),
+            "PARSEERROR",
+        );
+    }
+}
+
+fn write_large_screener_fixture(root: &Path, count: Option<usize>) -> PathBuf {
+    let quotes: Vec<_> = (0..503)
+        .map(|i| {
+            serde_json::json!({
+                "symbol": format!("S{i:04}"),
+                "price": 1000,
+                "pricePreviousClose": 900,
+                "priceChangePercent": ((i + 2) % 503) as i64 - 251,
+                "accumulatedVolume": 1000 + (i + 1) % 503,
+                "marketCap": 1000000 - (i + 1) % 503,
+                "timeLastTraded": "2026-01-02T09:00:00Z"
+            })
+        })
+        .collect();
+    let mut raw = serde_json::json!({ "quote": quotes });
+    if let Some(count) = count {
+        raw["count"] = serde_json::json!(count);
+    }
+    let path = root.join("screener.json");
+    fs::write(&path, serde_json::to_vec(&raw).unwrap()).unwrap();
+    path
+}
+
+fn screener_fixture_command(root: &Path, fixture: &Path, filter: &str, limit: usize) -> Command {
+    let mut cmd = bin_with_root(root);
+    cmd.env("IDX_PROVIDER", "msn")
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .env("IDX_MOCK_MSN_SCREENER_FIXTURE", fixture)
+        .args([
+            "-o", "json", "stocks", "screen", "--filter", filter, "--limit",
+        ])
+        .arg(limit.to_string());
+    cmd
+}
+
+fn screener_symbols(value: &serde_json::Value) -> Vec<&str> {
+    value
+        .as_array()
+        .expect("screen array")
+        .iter()
+        .map(|quote| quote["symbol"].as_str().expect("normalized symbol"))
+        .collect()
+}
+
+#[test]
+fn msn_screen_ranks_complete_candidates_and_caches_before_limit() {
+    let cases: [(&str, Vec<usize>); 4] = [
+        (
+            "top-performers",
+            (0..=500).rev().chain([502, 501]).collect(),
+        ),
+        (
+            "worst-performers",
+            [501, 502].into_iter().chain(0..=500).collect(),
+        ),
+        ("high-volume", (0..=501).rev().chain([502]).collect()),
+        ("large-cap", [502].into_iter().chain(0..=501).collect()),
+    ];
+    for (filter, indices) in cases {
+        let root = test_env_dir(&format!("screen-complete-{filter}"));
+        let fixture = write_large_screener_fixture(&root, Some(503));
+        let expected: Vec<_> = indices.iter().map(|i| format!("S{i:04}.JK")).collect();
+        // A tiny first request must cache all candidates, including beyond row 500.
+        let small = run_success_json(&mut screener_fixture_command(&root, &fixture, filter, 3));
+        assert_eq!(screener_symbols(&small), expected[..3], "{filter}");
+        assert_eq!(small[0]["price"], 1000);
+        assert_eq!(small[0]["change"], 100);
+        fs::remove_file(&fixture).unwrap();
+        let mut full_cmd = screener_fixture_command(&root, &fixture, filter, 600);
+        full_cmd.env("IDX_MOCK_ERROR", "1").arg("--offline");
+        let full = run_success_json(&mut full_cmd);
+        assert_eq!(screener_symbols(&full), expected, "{filter}");
+        let rows = full.as_array().unwrap();
+        for limit in [1, 3, 17, 500, 503, 600] {
+            let mut cmd = screener_fixture_command(&root, &fixture, filter, limit);
+            cmd.env("IDX_MOCK_ERROR", "1").arg("--offline");
+            let offline = run_success_json(&mut cmd);
+            assert_eq!(
+                offline.as_array().unwrap(),
+                &rows[..limit.min(503)],
+                "{filter}: {limit}"
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn msn_screen_rejects_invalid_totals_without_populating_cache() {
+    for (name, count) in [("missing", None), ("incomplete", Some(504))] {
+        let root = test_env_dir(&format!("screen-total-{name}"));
+        let fixture = write_large_screener_fixture(&root, count);
+        run_error_json(
+            &mut screener_fixture_command(&root, &fixture, "top-performers", 3),
+            "PARSEERROR",
+        );
+        let mut offline = screener_fixture_command(&root, &fixture, "top-performers", 3);
+        run_error_json(offline.arg("--offline"), "CACHEMISS");
+        write_large_screener_fixture(&root, Some(503));
+        let recovered = run_success_json(&mut screener_fixture_command(
+            &root,
+            &fixture,
+            "top-performers",
+            600,
+        ));
+        let expected: Vec<_> = (0..=500)
+            .rev()
+            .chain([502, 501])
+            .map(|i| format!("S{i:04}.JK"))
+            .collect();
+        assert_eq!(screener_symbols(&recovered), expected);
+        fs::remove_dir_all(root).unwrap();
     }
 }
