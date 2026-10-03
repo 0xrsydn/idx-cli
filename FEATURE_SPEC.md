@@ -26,7 +26,7 @@ Use `TODO.md` as the execution log and smoke-history record.
 
 ## Verified Current State
 
-- Current automated coverage is `180` tests: `117` unit and `63` integration.
+- The canonical automated gate is `nix flake check -L`: unit/module and CLI integration tests, packaged-binary smoke, packaging, lint, and shell regressions. Per-run results belong in `TODO.md`, not a fixed test-count target here.
 - Reusable smoke coverage exists via `scripts/live-smoke.sh`; command groups are documented in `docs/SMOKE.md`.
 - The latest smoke notes in `TODO.md` report passing live table and JSON checks for all shipped `stocks` commands.
 - Cache/offline parity, JSON startup-error handling, screener input validation, and the recent MSN output cleanups have already been completed.
@@ -183,10 +183,7 @@ Priority order:
 
 Do not treat a core refactor or new provider feature as complete until all of the following are true:
 
-- `cargo build` passes
-- `cargo clippy -- -D warnings` passes
-- `cargo test` passes
-- `scripts/live-smoke.sh --mode mock` passes
+- `nix flake check -L` passes, including the packaged-binary mock smoke and the relevant behavioral integration scenarios
 - the relevant live smoke groups pass for changed user-facing behavior
 - `TODO.md` is updated with any new smoke finding, regression, or behavior change
 

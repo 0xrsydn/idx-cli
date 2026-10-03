@@ -151,18 +151,31 @@ Precedence order:
 
 ## Development
 
+The canonical local and CI verification command is:
+
 ```bash
-nix develop
-cargo test
+nix flake check -L
 ```
 
-Prek hooks are configured for quality gates:
+It covers Rust formatting, Clippy, tests, crate package verification, release
+builds, offline CLI smoke, publisher regressions, installer tests with `sh` and
+`dash`, and ShellCheck for installer/smoke scripts. The checks use pinned tools and cached Nix
+outputs; an unchanged successful check is reused rather than rerun.
 
-- pre-commit: `cargo fmt --check` + `cargo clippy -- -D warnings`
-- pre-push: `cargo test`
+For a focused edit/debug loop, use the same pinned toolchain:
 
-Script test suites (no live network): `scripts/install-sh-test.sh`,
-`scripts/publish-ownership-snapshot-test.sh`, and `scripts/npm-smoke.sh`.
+```bash
+nix develop --command cargo test full_screener
+```
+
+Configured Prek hooks keep whitespace/conflict checks at pre-commit and run
+`nix flake check -L` at pre-push. There is no separate full Cargo test/lint gate
+to repeat after a successful flake check.
+
+CI additionally checks the installer with native macOS tools for portability.
+Live-provider smoke remains opt-in; see [docs/SMOKE.md](docs/SMOKE.md) for check
+selection and caching details. The npm distribution harness remains available
+separately as `scripts/npm-smoke.sh`.
 
 ## License
 

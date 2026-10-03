@@ -114,11 +114,16 @@ let conn = Connection::open(path)
 - **Money (USD):** whole dollars (i64) for Bing data.
 
 ## Testing
-- **Unit tests:** pure functions (parsers, normalizers, signals)
-- **Integration tests:** in-memory SQLite (`Connection::open_in_memory()`), mock providers
+- **Canonical verification:** `nix flake check -L` locally and before pushing; CI uses the same gate. Do not repeat full Cargo build/lint/test runs after a successful flake check.
+- **Focused debugging:** use `nix develop --command cargo test <filter>` when iterating on one failure.
+- **Unit tests:** retain precise parser, normalization, calculation, and boundary regressions; avoid pinning incidental wording, enum counts, or internal wiring.
+- **Integration tests:** prefer CLI workflows, real temporary/in-memory SQLite, and deterministic local provider fixtures for user-visible contracts and state transitions.
+- **Output contracts:** parse JSON from stdout on success and stderr on failure; errors must leave stdout empty. Assert meaningful values, types, and stable error codes rather than substrings or diagnostic wording.
+- **Stateful workflows:** compare cached data across offline/failure transitions, and verify failed snapshot updates preserve both database bytes and query results. Keep packaged-binary smoke representative; put exhaustive boundaries in integration tests.
 - **Fixtures:** `tests/fixtures/*.json` — real API responses, sanitized
 - **No live API calls in CI** — `IDX_USE_MOCK_PROVIDER=1`
 - **Test naming:** `test_<function>_<scenario>` (e.g., `test_parse_id_number_with_dots`)
+- **Coverage over counts:** replacing redundant unit assertions with stronger integration scenarios must retain meaningful error, boundary, and data-integrity coverage.
 
 ## Git / VCS
 - **jj (Jujutsu)** as local workflow, colocated with git
