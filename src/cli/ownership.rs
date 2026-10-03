@@ -18,7 +18,6 @@ use crate::ownership::types::{
     ChangeType, FlowSignal, HolderRow, KseiHolding, OwnershipRelease, OwnershipSource,
 };
 use crate::ownership::{archive, db, entities, graph, parser, remote, search, snapshot, xlsx};
-use crate::runtime;
 
 #[derive(Debug, Args)]
 #[command(
@@ -786,28 +785,15 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
         ));
     }
 
-    if let Some(symbols) = &args.fetch_bing {
-        let clean: Vec<String> = symbols
+    if args.fetch_bing.as_ref().is_some_and(|symbols| {
+        symbols
             .iter()
-            .flat_map(|v| v.split(','))
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_uppercase())
-            .collect();
-
-        if !clean.is_empty() {
-            runtime::info(format!(
-                "--fetch-bing requested for {} symbol(s), implementation deferred for Sprint 6",
-                clean.len()
-            ));
-            for symbol in &clean {
-                runtime::info(format!("  - {symbol}"));
-            }
-
-            return Err(IdxError::Unsupported(
-                "--fetch-bing import is not implemented yet".to_string(),
-            ));
-        }
+            .flat_map(|value| value.split(','))
+            .any(|value| !value.trim().is_empty())
+    }) {
+        return Err(IdxError::Unsupported(
+            "--fetch-bing import is not implemented yet".to_string(),
+        ));
     }
 
     let Some(import_input) = resolve_import_input(args)? else {

@@ -647,7 +647,7 @@ pub fn handle(
         }
         StocksSubcommand::Compare { symbols } => {
             let mut reports: Vec<FundamentalReport> = Vec::new();
-            let mut last_error = None;
+            let mut failures = Vec::new();
 
             for sym in symbols.iter().flat_map(|s| s.split(',')) {
                 let resolved = crate::api::resolve_symbol(sym, &config.exchange)?;
@@ -664,19 +664,22 @@ pub fn handle(
                     analyze_fundamental,
                 ) {
                     Ok(report) => reports.push(report),
-                    Err(err) => {
-                        runtime::warn(format!(
-                            "failed to fetch fundamentals for {resolved}: {err}"
-                        ));
-                        last_error = Some(err);
-                    }
+                    Err(err) => failures.push((resolved, err)),
                 }
             }
 
             if reports.is_empty() {
-                return Err(last_error.unwrap_or_else(|| {
+                return Err(failures.pop().map(|(_, err)| err).unwrap_or_else(|| {
                     IdxError::CacheMiss("fundamental/no symbols could be compared".to_string())
                 }));
+            }
+
+            // Partial success needs diagnostics; total failure must leave stderr
+            // available for the single structured error emitted by the caller.
+            for (resolved, err) in failures {
+                runtime::warn(format!(
+                    "failed to fetch fundamentals for {resolved}: {err}"
+                ));
             }
 
             render_compare(&reports, &config.output, config.no_color)

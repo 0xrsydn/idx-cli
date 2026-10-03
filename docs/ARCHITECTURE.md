@@ -137,6 +137,7 @@ CLI flags > environment variables > config file > defaults
 - Table mode: human-readable error on stderr
 - JSON mode: `{"error": true, "code": "...", "message": "..."}`
 - Exit code 0 on success, non-zero on failure
+- A totally failed `stocks compare` emits one structured error in JSON mode; per-symbol warnings are retained for partial success, not printed ahead of a total-failure error.
 
 ## CLI Output and Offline Cache
 - `version`, `cache info`, `cache clear`, and `ownership resolve map|merge` emit
