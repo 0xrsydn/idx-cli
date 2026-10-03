@@ -5,12 +5,15 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  # Everything that compiles Rust runs as a `nix flake check` derivation
-  # (fmt, clippy, tests, package verify, build, offline smoke). Crane splits
-  # the crate dependency build into its own derivation, and the Nix store is
-  # restored from the GitHub Actions cache, so unchanged derivations are
-  # substituted instead of rebuilt.
+  # The same complete offline gate is used locally and in CI.
   nix:
     runs-on: ubuntu-latest
 
@@ -24,44 +27,27 @@ jobs:
       - name: Restore and save Nix store
         uses: nix-community/cache-nix-action@v7
         with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.nix', 'flake.lock', 'Cargo.lock', 'Cargo.toml') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-
+          primary-key: nix-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.nix', 'flake.lock', 'Cargo.lock', 'Cargo.toml') }}-${{ hashFiles('src/**', 'tests/**', 'scripts/**', 'install.sh', 'README.md', 'LICENSE') }}
+          restore-prefixes-first-match: |
+            nix-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.nix', 'flake.lock', 'Cargo.lock', 'Cargo.toml') }}-
+            nix-v2-${{ runner.os }}-${{ runner.arch }}-
           gc-max-store-size-linux: 8G
 
       - name: Flake check
         run: nix flake check -L
 
-      - name: Run default app
-        run: nix run .#default -- version
-
-      - name: Publish ownership snapshot tests
-        run: scripts/publish-ownership-snapshot-test.sh
-
-      - name: Build ownership publisher
-        run: |
-          nix build .#ownership-publisher
-          ./result/bin/idx-ownership-publish --help
-
+  # Keep native BSD/macOS tools in the installer portability check; the Linux
+  # sh/dash scenarios and ShellCheck are covered by the flake.
   install-script:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14]
+        os: [macos-14]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: ShellCheck
-        if: runner.os == 'Linux'
-        run: |
-          shellcheck -s sh install.sh
-          shellcheck scripts/install-sh-test.sh
-
       - name: Test install.sh with sh
         run: scripts/install-sh-test.sh
-
-      - name: Test install.sh with dash
-        if: runner.os == 'Linux'
-        run: INSTALL_SH_SHELL=dash scripts/install-sh-test.sh

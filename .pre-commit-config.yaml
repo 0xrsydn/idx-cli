@@ -7,24 +7,10 @@ repos:
 
   - repo: local
     hooks:
-      - id: cargo-fmt
-        name: cargo fmt
-        entry: cargo fmt --check
+      - id: nix-flake-check
+        name: nix flake check
+        entry: nix flake check -L
         language: system
-        types: [rust]
         pass_filenames: false
-
-      - id: cargo-clippy
-        name: cargo clippy
-        entry: cargo clippy -- -D warnings
-        language: system
-        types: [rust]
-        pass_filenames: false
-
-      - id: cargo-test
-        name: cargo test
-        entry: cargo nextest run
-        language: system
-        types: [rust]
-        pass_filenames: false
+        always_run: true
         stages: [pre-push]

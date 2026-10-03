@@ -32,8 +32,8 @@ cp "$repo_root/scripts/publish-ownership-snapshot.sh" "$publisher"
 chmod +x "$publisher"
 
 # --- fake gh ---------------------------------------------------------------
-cat >"$bin_dir/gh" <<'FAKE_GH'
-#!/usr/bin/env bash
+printf '#!%s\n' "$BASH" >"$bin_dir/gh"
+cat >>"$bin_dir/gh" <<'FAKE_GH'
 set -euo pipefail
 state="${FAKE_GH_STATE:?}"
 remote="$state/remote"
@@ -144,8 +144,8 @@ FAKE_GH
 chmod +x "$bin_dir/gh"
 
 # --- fake idx --------------------------------------------------------------
-cat >"$bin_dir/idx" <<'FAKE_IDX'
-#!/usr/bin/env bash
+printf '#!%s\n' "$BASH" >"$bin_dir/idx"
+cat >>"$bin_dir/idx" <<'FAKE_IDX'
 set -euo pipefail
 if [[ "${1:-}" == "version" ]]; then
     exit 0
@@ -160,8 +160,8 @@ FAKE_IDX
 chmod +x "$bin_dir/idx"
 
 # --- stub builder ----------------------------------------------------------
-cat >"$scripts_dir/build-latest-ownership-snapshot.sh" <<'STUB_BUILDER'
-#!/usr/bin/env bash
+printf '#!%s\n' "$BASH" >"$scripts_dir/build-latest-ownership-snapshot.sh"
+cat >>"$scripts_dir/build-latest-ownership-snapshot.sh" <<'STUB_BUILDER'
 set -euo pipefail
 out=""
 history="0"

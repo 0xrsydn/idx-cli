@@ -7,6 +7,7 @@ set -Eeuo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 installer="${repo_root}/install.sh"
 test_shell="${INSTALL_SH_SHELL:-sh}"
+fixture_shell="$(command -v sh)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/idx-install-test.XXXXXX")"
 server_pid=
 
@@ -73,7 +74,7 @@ EOF
 make_release() {
   local tag="$1" dir="${root}/gh/0xrsydn/idx-cli/releases/download/$1"
   mkdir -p "$dir"
-  printf '#!/bin/sh\necho "idx fake %s"\n' "$tag" >"${dir}/${asset}"
+  printf '#!%s\necho "idx fake %s"\n' "$fixture_shell" "$tag" >"${dir}/${asset}"
   chmod +x "${dir}/${asset}"
   (cd "$dir" && echo "$(sha256 "$asset")  ${asset}" >SHA256SUMS)
 }
@@ -83,7 +84,7 @@ make_release v0.2.4
 # v0.0.9: checksum does not match the binary.
 bad="${root}/gh/0xrsydn/idx-cli/releases/download/v0.0.9"
 mkdir -p "$bad"
-printf '#!/bin/sh\necho tampered\n' >"${bad}/${asset}"
+printf '#!%s\necho tampered\n' "$fixture_shell" >"${bad}/${asset}"
 printf '%064d  %s\n' 0 "$asset" >"${bad}/SHA256SUMS"
 
 port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
@@ -151,7 +152,7 @@ fi
 shim="${work}/shim"
 mkdir -p "$shim"
 # shellcheck disable=SC2016 # literal $1 belongs to the shim
-printf '#!/bin/sh\ncase "$1" in -s) echo FreeBSD ;; *) echo amd64 ;; esac\n' >"${shim}/uname"
+printf '#!%s\ncase "$1" in -s) echo FreeBSD ;; *) echo amd64 ;; esac\n' "$fixture_shell" >"${shim}/uname"
 chmod +x "${shim}/uname"
 if run_installer env PATH="${shim}:${PATH}" "$test_shell" "$installer" --dir "${work}/bsd" >"${work}/out6" 2>&1; then
   fail "rejects unsupported OS (installer succeeded)"
