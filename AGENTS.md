@@ -1,7 +1,8 @@
 # AGENTS.md
 
 `idx-cli` is a Rust CLI (binary `idx`) for Indonesian stock market analysis
-(`stocks`) and KSEI shareholder ownership (`ownership`).
+(`stocks`) and KSEI shareholder ownership (`ownership`), plus an MCP server
+(binary `idx-mcp`) over the same library.
 
 ## Navigation
 ```text
@@ -19,6 +20,8 @@ crates/idx-cli/             binary `idx`
 ├── src/config.rs           IdxConfig: output format and color resolution
 ├── src/output/             table.rs, json.rs, style.rs
 └── tests/                  cli.rs (behavior), golden.rs + golden/ (output parity)
+crates/idx-mcp/             binary `idx-mcp`: stdio MCP tools (server.rs), inputs (params.rs)
+└── tests/mcp.rs            JSON-RPC over stdio against the mock provider
 scripts/                    smoke, installer, and ownership snapshot publisher
 ```
 

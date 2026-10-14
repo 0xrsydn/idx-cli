@@ -601,7 +601,7 @@ fn handle_changes(
     args: &ChangesArgs,
     config: &IdxConfig,
 ) -> Result<(), IdxError> {
-    let changes = investor.changes(&args.from, &args.to)?;
+    let changes = investor.changes(&args.from, &args.to, None)?;
 
     if config.output.is_json() {
         return json::print_json(&changes);

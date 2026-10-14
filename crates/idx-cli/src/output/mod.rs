@@ -215,7 +215,7 @@ pub fn emit_error(err: &IdxError, format: &OutputFormat) {
     }
     let payload = serde_json::json!({
         "error": true,
-        "code": format!("{:?}", err.code()).to_uppercase(),
+        "code": err.code().to_string(),
         "message": err.to_string()
     });
     let pretty = *format == OutputFormat::Json && std::io::stderr().is_terminal();

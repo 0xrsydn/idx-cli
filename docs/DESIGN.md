@@ -1,6 +1,6 @@
 # System Design: idx-core and its frontends
 
-**Status:** Accepted 2026-10-14. Implementation on `refactor/idx-core`; phases 0-3 done.
+**Status:** Accepted 2026-10-14. Implementation on `refactor/idx-core`; phases 0-4 done.
 
 ## Goal
 
@@ -228,9 +228,25 @@ keeps the tool list short for agents:
 | `get_ownership_changes` | `from`, `to`, `ticker?` | `investor().changes` |
 | `ownership_status` | none | `investor().status` |
 
-Ownership bootstrap: if the local DB is empty, investor tools return an error
-telling the agent to call `ownership_sync`. That tool is opt-in through a
-server flag, because it downloads several MB.
+Ownership bootstrap: if the local DB is empty, investor tools return a
+`NOMARKETDATA` error telling the agent to call `ownership_sync`. That tool is
+listed only when the server runs with `--allow-sync`, because it downloads
+several MB.
+
+As built (phase 4):
+
+- Live tools return `Fetched<T>` objects; `get_quotes` wraps its list as
+  `{quotes}`. `get_company` and `analyze_stock` return one key per section
+  (default: all) and list failed sections under `errors`, failing only if every
+  section fails.
+- `get_ownership_changes` returns at most `limit` rows (default 200) with the
+  full count in `total`.
+- Each call runs on a blocking thread with a fresh `Idx`, so tools share the
+  CLI's config, cache, and database. With a shared cache, tool data equals
+  the CLI's JSON value for value (checked live for every tool); object keys
+  come out sorted.
+- `crates/idx-mcp/tests/mcp.rs` drives the binary over stdio JSON-RPC with
+  the mock provider; `nix flake check` also smoke-tests the packaged server.
 
 ## Frontend: idx-api (later)
 
@@ -324,9 +340,5 @@ every phase passes both parity gates.
 
 1. Are the exit-code classes right, and should `compare` with partial results
    still exit `0`?
-2. MCP tool granularity: is the grouped table above right, or should it be one
-   tool per CLI command?
-3. Should `ownership_sync` be available to agents by default?
-4. Which source should back IHSG index, breadth, and sector data, and should it
-   land before or after idx-mcp?
-5. Is idx-api self-hosted only?
+2. Which source should back IHSG index, breadth, and sector data?
+3. Is idx-api self-hosted only?

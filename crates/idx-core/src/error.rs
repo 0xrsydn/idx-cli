@@ -55,6 +55,13 @@ pub enum ErrorCode {
     NoMarketData,
 }
 
+/// The stable wire form frontends emit, e.g. `SYMBOLNOTFOUND`.
+impl std::fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{self:?}").to_uppercase())
+    }
+}
+
 impl IdxError {
     pub fn code(&self) -> ErrorCode {
         match self {

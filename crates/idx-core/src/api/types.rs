@@ -294,6 +294,17 @@ pub enum Period {
 }
 
 impl Period {
+    pub const ALL: [Self; 8] = [
+        Self::OneDay,
+        Self::FiveDays,
+        Self::OneMonth,
+        Self::ThreeMonths,
+        Self::SixMonths,
+        Self::OneYear,
+        Self::TwoYears,
+        Self::FiveYears,
+    ];
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::OneDay => "1d",
@@ -320,6 +331,8 @@ pub enum Interval {
 }
 
 impl Interval {
+    pub const ALL: [Self; 3] = [Self::Day, Self::Week, Self::Month];
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Day => "1d",
@@ -327,4 +340,38 @@ impl Interval {
             Self::Month => "1mo",
         }
     }
+}
+
+impl std::str::FromStr for Period {
+    type Err = crate::error::IdxError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        parse_named(value, "period", &Self::ALL, Self::as_str)
+    }
+}
+
+impl std::str::FromStr for Interval {
+    type Err = crate::error::IdxError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        parse_named(value, "interval", &Self::ALL, Self::as_str)
+    }
+}
+
+fn parse_named<T: Clone>(
+    value: &str,
+    what: &str,
+    all: &[T],
+    name: fn(&T) -> &'static str,
+) -> Result<T, crate::error::IdxError> {
+    all.iter()
+        .find(|item| name(item) == value)
+        .cloned()
+        .ok_or_else(|| {
+            let names: Vec<_> = all.iter().map(name).collect();
+            crate::error::IdxError::InvalidInput(format!(
+                "invalid {what} '{value}' (expected one of: {})",
+                names.join(", ")
+            ))
+        })
 }

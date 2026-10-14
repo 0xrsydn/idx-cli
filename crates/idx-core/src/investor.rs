@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use rusqlite::Connection;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -53,6 +53,18 @@ impl Investor {
 
     pub fn releases(&self) -> Result<Vec<OwnershipRelease>, IdxError> {
         db::query_releases(&self.connect()?)
+    }
+
+    /// Whether the database has data, and which releases it holds.
+    pub fn status(&self) -> Result<OwnershipStatus, IdxError> {
+        let db_path = self.db_path()?;
+        let releases = db::query_releases(&db::open_db_at(&db_path)?)?;
+        Ok(OwnershipStatus {
+            db_path: db_path.display().to_string(),
+            populated: !releases.is_empty(),
+            latest_as_of_date: releases.iter().map(|r| r.as_of_date).max(),
+            releases,
+        })
     }
 
     /// Holders of `symbol` in the latest release, optionally limited to one
@@ -132,8 +144,19 @@ impl Investor {
         db::query_bing_flow(&conn, ticker_id)
     }
 
-    pub fn changes(&self, from: &str, to: &str) -> Result<Vec<ChangeRow>, IdxError> {
-        db::query_changes(&self.connect()?, from, to)
+    /// Holder changes between two release dates, optionally for one ticker.
+    pub fn changes(
+        &self,
+        from: &str,
+        to: &str,
+        ticker: Option<&str>,
+    ) -> Result<Vec<ChangeRow>, IdxError> {
+        let mut rows = db::query_changes(&self.connect()?, from, to)?;
+        if let Some(ticker) = ticker {
+            let ticker = ticker.trim().to_uppercase();
+            rows.retain(|row| row.ticker_code == ticker);
+        }
+        Ok(rows)
     }
 
     pub fn graph(
@@ -378,6 +401,15 @@ pub struct MergeResult {
     pub alias_updates: i64,
     pub ksei_holdings_updates: i64,
     pub bing_holdings_updates: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OwnershipStatus {
+    pub db_path: String,
+    /// False until `sync` or `import` has loaded at least one release.
+    pub populated: bool,
+    pub latest_as_of_date: Option<NaiveDate>,
+    pub releases: Vec<OwnershipRelease>,
 }
 
 /// Holder sources for `Investor::ticker`.

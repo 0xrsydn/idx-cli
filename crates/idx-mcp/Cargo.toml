@@ -1,0 +1,31 @@
+[package]
+name = "idx-mcp"
+description = "MCP server for Indonesian stock market (IDX) market, financial, and ownership data"
+version.workspace = true
+edition.workspace = true
+# rmcp requires 1.88.
+rust-version = "1.88"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["idx", "stocks", "indonesia", "mcp", "finance"]
+categories = ["finance"]
+include = ["/Cargo.toml", "/LICENSE", "/src/**"]
+
+[[bin]]
+name = "idx-mcp"
+path = "src/main.rs"
+
+[dependencies]
+idx-core.workspace = true
+clap.workspace = true
+rmcp = { version = "3.5", default-features = false, features = ["server", "macros", "transport-io"] }
+schemars = "1"
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }
+
+[dev-dependencies]
+# Tests drive the binary with the mock provider; release builds exclude it.
+idx-core = { workspace = true, features = ["testing"] }

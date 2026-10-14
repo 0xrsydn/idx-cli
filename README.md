@@ -144,7 +144,7 @@ idx composes with `jq`, Python, and other shell tools:
 ```bash
 idx stocks quote BBCA BBRI | jq -r '.[] | "\(.symbol) \(.price)"'
 idx -o jsonl stocks history BBCA --period 1y | tail -5
-idx stocks screen --filter low-pe | jq -r '.[].symbol' | idx stocks compare -
+idx stocks screen --filter high-dividend | jq -r '.[].symbol' | idx stocks compare -
 ```
 
 - stdout carries only data; warnings and errors go to stderr
@@ -156,6 +156,27 @@ idx stocks screen --filter low-pe | jq -r '.[].symbol' | idx stocks compare -
 
 If you ran `idx config init` before v0.3, your config pins `output = "table"`;
 change it to `auto` with `idx config set general.output auto`.
+
+## MCP server
+
+`idx-mcp` serves the same data to MCP clients over stdio, as 11 tools:
+`get_quotes`, `get_price_history`, `screen_stocks`, `get_company`,
+`analyze_stock`, `compare_stocks`, `get_shareholders`,
+`get_investor_holdings`, `search_investors`, `get_ownership_changes`, and
+`ownership_status`. Live results come wrapped as
+`{data, source, fetched_at, stale}`; errors use the CLI's `{error, code,
+message}` body. It shares idx's config, cache, and ownership database.
+
+Until it is released, build it from this repo:
+
+```bash
+cargo install --path crates/idx-mcp   # or: nix build .#idx-mcp
+claude mcp add idx -- idx-mcp          # Claude Code; other clients run `idx-mcp`
+```
+
+Ownership tools need a populated database: run `idx ownership sync` once, or
+start the server with `idx-mcp --allow-sync` to expose an `ownership_sync`
+tool (it downloads several MB).
 
 ## Documentation
 

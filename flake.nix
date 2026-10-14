@@ -37,10 +37,12 @@
           ./crates/idx-core/tests/fixtures
           ./crates/idx-cli/Cargo.toml
           ./crates/idx-cli/src
+          ./crates/idx-mcp/Cargo.toml
+          ./crates/idx-mcp/src
         ];
         testSrc = lib.fileset.toSource {
           root = ./.;
-          fileset = lib.fileset.unions (rustFiles ++ [ ./crates/idx-cli/tests ]);
+          fileset = lib.fileset.unions (rustFiles ++ [ ./crates/idx-cli/tests ./crates/idx-mcp/tests ]);
         };
         src = lib.fileset.toSource {
           root = ./.;
@@ -65,12 +67,26 @@
         idxPackage = craneLib.buildPackage (commonArgs // {
           cargoArtifacts = releaseCargoArtifacts;
           CARGO_PROFILE = "release";
+          cargoExtraArgs = "--locked -p idx-cli";
           doCheck = false;
           nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.makeWrapper ];
           postInstall = ''
             wrapProgram "$out/bin/idx" \
               --prefix PATH : "${lib.makeBinPath runtimeDeps}"
           '';
+        });
+        mcpPackage = craneLib.buildPackage (commonArgs // {
+          pname = "idx-mcp";
+          cargoArtifacts = releaseCargoArtifacts;
+          CARGO_PROFILE = "release";
+          cargoExtraArgs = "--locked -p idx-mcp";
+          doCheck = false;
+          nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.makeWrapper ];
+          postInstall = ''
+            wrapProgram "$out/bin/idx-mcp" \
+              --prefix PATH : "${lib.makeBinPath runtimeDeps}"
+          '';
+          meta.mainProgram = "idx-mcp";
         });
         # Self-contained ownership snapshot publisher for scheduled hosts
         # (e.g. a NixOS systemd timer): no checkout, `nix develop` or cargo
@@ -147,6 +163,7 @@
       in
       {
         packages.default = idxPackage;
+        packages.idx-mcp = mcpPackage;
         packages.ownership-publisher = ownershipPublisher;
         apps.default = {
           type = "app";
@@ -155,6 +172,7 @@
         };
         checks = {
           default = idxPackage;
+          idx-mcp = mcpPackage;
           ownership-publisher = pkgs.runCommand "idx-ownership-publisher-smoke" { } ''
             ${ownershipPublisher}/bin/idx-ownership-publish --help
             touch "$out"
@@ -187,6 +205,8 @@
                 ./crates/idx-cli/tests
                 ./crates/idx-core/LICENSE
                 ./crates/idx-cli/LICENSE
+                ./crates/idx-mcp/tests
+                ./crates/idx-mcp/LICENSE
                 ./LICENSE
                 ./README.md
               ]);
@@ -206,6 +226,13 @@
               tar -xzf target/package/idx-cli-${version}.crate -C "$verify"
               cp Cargo.lock "$verify/idx-cli-${version}/"
               (cd "$verify/idx-cli-${version}" && cargo build --offline \
+                --config 'patch.crates-io.idx-core.path="../idx-core-${version}"' \
+                --target-dir "$verify/target")
+              # idx-mcp: same as idx-cli.
+              cargo package -p idx-mcp --registry crates-io --no-verify --exclude-lockfile --offline --allow-dirty
+              tar -xzf target/package/idx-mcp-${version}.crate -C "$verify"
+              cp Cargo.lock "$verify/idx-mcp-${version}/"
+              (cd "$verify/idx-mcp-${version}" && cargo build --offline \
                 --config 'patch.crates-io.idx-core.path="../idx-core-${version}"' \
                 --target-dir "$verify/target")
             '';
@@ -228,6 +255,21 @@
               set -e
               test "$status" -eq 3
               jq -e '.code == "CACHEMISS"' err.json
+              touch "$out"
+            '';
+          # The packaged server answers initialize and lists its tools over
+          # stdio; tool behavior is covered by crates/idx-mcp/tests.
+          packaged-mcp = pkgs.runCommand "idx-packaged-mcp"
+            { nativeBuildInputs = with pkgs; [ coreutils jq ]; }
+            ''
+              export HOME="$TMPDIR" XDG_CACHE_HOME="$TMPDIR/cache" XDG_CONFIG_HOME="$TMPDIR/config" XDG_DATA_HOME="$TMPDIR/data"
+              {
+                echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"check","version":"0"}}}'
+                echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+                echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+                sleep 2
+              } | timeout 30 ${mcpPackage}/bin/idx-mcp > out.jsonl
+              jq -se 'map(select(.id == 2))[0].result.tools | length == 11' out.jsonl
               touch "$out"
             '';
           install-script-sh = installerCheck "sh";
