@@ -48,7 +48,8 @@ Current schema version: `1`
     "latest_as_of_date": "2026-02-27",
     "latest_release_sha256": "<latest ownership_releases.sha256>",
     "latest_row_count": 7261,
-    "ticker_count": 955
+    "ticker_count": 955,
+    "replaces_sqlite_sha256": ["<sqlite_sha256 of an earlier build for this date>"]
   }
 }
 ```
@@ -62,6 +63,9 @@ Semantics:
   follow `download_url` and validate it with `sqlite_sha256` and `size_bytes`.
 - `sqlite_sha256` and `size_bytes` are validated before install.
 - `latest_*` and `release_count` are validated against the downloaded SQLite contents before replacement.
+- `replaces_sqlite_sha256` (optional, omitted when empty) lists earlier builds
+  published for the same `latest_as_of_date` that this snapshot supersedes, for
+  example after a parser fix. Clients up to v0.2.x ignore it.
 
 ## Replacement Rules
 
@@ -70,6 +74,9 @@ Without `--force`, sync behaves conservatively:
 - no local DB: install snapshot
 - empty local DB: replace with snapshot
 - local latest release older than snapshot: replace with snapshot
+- local DB file is byte-identical to `sqlite_sha256`: no-op
+- local DB file is byte-identical to a build in `replaces_sqlite_sha256`: replace
+  (queries never write to a synced file, so this means it was not modified)
 - local latest release/date/count matches snapshot: no-op
 - local latest release matches but has fewer releases than snapshot: replace to fill missing history
 - local DB newer than snapshot: no-op and keep local data

@@ -58,6 +58,12 @@ pub struct OwnershipSnapshotArtifact {
     pub latest_release_sha256: String,
     pub latest_row_count: usize,
     pub ticker_count: usize,
+    /// `sqlite_sha256` of earlier builds published for the same
+    /// `latest_as_of_date` that this snapshot replaces (e.g. after a parser
+    /// fix). A local database still byte-identical to one of them is updated
+    /// without `--force`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub replaces_sqlite_sha256: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -85,6 +91,9 @@ pub struct OwnershipSyncResult {
 
 #[derive(Debug, Clone)]
 struct LocalSnapshotState {
+    /// SHA-256 of the database file. Queries leave a synced file
+    /// byte-identical, so this identifies an unmodified published snapshot.
+    file_sha256: String,
     latest_release: Option<OwnershipRelease>,
     release_count: usize,
 }
@@ -307,6 +316,9 @@ fn validate_manifest(manifest: &OwnershipSnapshotManifest) -> Result<(), IdxErro
         &snapshot.latest_release_sha256,
         "snapshot.latest_release_sha256",
     )?;
+    for sha256 in &snapshot.replaces_sqlite_sha256 {
+        validate_sha256_hex(sha256, "snapshot.replaces_sqlite_sha256")?;
+    }
 
     Ok(())
 }
@@ -326,6 +338,12 @@ fn inspect_local_db(db_path: &Path) -> Result<Option<LocalSnapshotState>, IdxErr
         return Ok(None);
     }
 
+    // Hash before opening: schema setup may write to an empty database.
+    let bytes = fs::read(db_path)
+        .map_err(|e| IdxError::Io(format!("failed to read {}: {e}", db_path.display())))?;
+    let file_sha256 = sha256_hex(&bytes);
+    drop(bytes);
+
     let conn = Connection::open(db_path).map_err(|e| {
         IdxError::DatabaseError(format!("failed to open {}: {e}", db_path.display()))
     })?;
@@ -333,6 +351,7 @@ fn inspect_local_db(db_path: &Path) -> Result<Option<LocalSnapshotState>, IdxErr
     let releases = db::query_releases(&conn)?;
 
     Ok(Some(LocalSnapshotState {
+        file_sha256,
         latest_release: releases.first().cloned(),
         release_count: releases.len(),
     }))
@@ -390,6 +409,33 @@ fn build_sync_decision(
             reason: format!(
                 "published snapshot advances local ownership data from {} to {}",
                 latest.as_of_date.format("%Y-%m-%d"),
+                snapshot.latest_as_of_date.format("%Y-%m-%d")
+            ),
+        };
+    }
+
+    if local.file_sha256 == snapshot.sqlite_sha256 {
+        return SyncDecision {
+            action: OwnershipSyncAction::NoChange,
+            should_download: false,
+            reason: format!(
+                "ownership snapshot already current at {} with {} release(s)",
+                snapshot.latest_as_of_date.format("%Y-%m-%d"),
+                snapshot.release_count
+            ),
+        };
+    }
+
+    if snapshot
+        .replaces_sqlite_sha256
+        .iter()
+        .any(|sha256| sha256.eq_ignore_ascii_case(&local.file_sha256))
+    {
+        return SyncDecision {
+            action: OwnershipSyncAction::Updated,
+            should_download: true,
+            reason: format!(
+                "published snapshot for {} was rebuilt; replacing the earlier build",
                 snapshot.latest_as_of_date.format("%Y-%m-%d")
             ),
         };
@@ -758,8 +804,11 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
             latest_row_count: 7261,
             ticker_count: 955,
+            replaces_sqlite_sha256: Vec::new(),
         };
         let local = super::LocalSnapshotState {
+            file_sha256: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                .to_string(),
             latest_release: Some(OwnershipRelease {
                 id: 1,
                 source_url: None,
@@ -775,6 +824,99 @@ mod tests {
         assert_eq!(decision.action, OwnershipSyncAction::Updated);
         assert!(decision.should_download);
         assert!(decision.reason.contains("missing historical releases"));
+    }
+
+    fn same_date_snapshot(replaces: Vec<String>) -> OwnershipSnapshotArtifact {
+        OwnershipSnapshotArtifact {
+            kind: "sqlite".to_string(),
+            compression: "none".to_string(),
+            version: "2026-09-30".to_string(),
+            download_url: "/tmp/ownership.sqlite".to_string(),
+            sqlite_sha256: "a".repeat(64),
+            size_bytes: 123,
+            release_count: 3,
+            latest_as_of_date: NaiveDate::from_ymd_opt(2026, 9, 30).unwrap(),
+            latest_release_sha256: "b".repeat(64),
+            latest_row_count: 7154,
+            ticker_count: 961,
+            replaces_sqlite_sha256: replaces,
+        }
+    }
+
+    /// A local database at the snapshot's date, release, and history.
+    fn same_release_local(
+        snapshot: &OwnershipSnapshotArtifact,
+        file_sha256: &str,
+    ) -> super::LocalSnapshotState {
+        super::LocalSnapshotState {
+            file_sha256: file_sha256.to_string(),
+            latest_release: Some(OwnershipRelease {
+                id: 3,
+                source_url: None,
+                sha256: snapshot.latest_release_sha256.clone(),
+                as_of_date: snapshot.latest_as_of_date,
+                row_count: snapshot.latest_row_count,
+                imported_at: 0,
+            }),
+            release_count: snapshot.release_count,
+        }
+    }
+
+    #[test]
+    fn build_sync_decision_replaces_an_unmodified_earlier_build() {
+        let earlier = "e".repeat(64);
+        let snapshot = same_date_snapshot(vec![earlier.clone()]);
+
+        let decision = build_sync_decision(
+            Some(&same_release_local(&snapshot, &earlier)),
+            &snapshot,
+            false,
+        );
+        assert_eq!(decision.action, OwnershipSyncAction::Updated);
+        assert!(decision.should_download);
+        assert!(
+            decision.reason.contains("was rebuilt"),
+            "{}",
+            decision.reason
+        );
+
+        let current = same_release_local(&snapshot, &snapshot.sqlite_sha256);
+        let decision = build_sync_decision(Some(&current), &snapshot, false);
+        assert_eq!(decision.action, OwnershipSyncAction::NoChange);
+        assert!(!decision.should_download);
+    }
+
+    #[test]
+    fn build_sync_decision_keeps_a_locally_modified_database() {
+        // Same release metadata but a file matching no published build (local
+        // imports or entity edits): unchanged behavior, never replaced silently.
+        let snapshot = same_date_snapshot(vec!["e".repeat(64)]);
+        let local = same_release_local(&snapshot, &"f".repeat(64));
+
+        let decision = build_sync_decision(Some(&local), &snapshot, false);
+        assert_eq!(decision.action, OwnershipSyncAction::NoChange);
+        assert!(!decision.should_download);
+    }
+
+    #[test]
+    fn manifest_rejects_malformed_replaced_sha256() {
+        let mut manifest = OwnershipSnapshotManifest {
+            schema_version: SNAPSHOT_MANIFEST_SCHEMA_VERSION,
+            generated_at: "2026-10-14T00:00:00Z".to_string(),
+            source: None,
+            snapshot: same_date_snapshot(vec!["not-a-sha".to_string()]),
+        };
+        let err = parse_manifest(&serde_json::to_string(&manifest).unwrap())
+            .expect_err("malformed replaced sha256");
+        assert!(err.to_string().contains("replaces_sqlite_sha256"), "{err}");
+
+        manifest.snapshot.replaces_sqlite_sha256.clear();
+        let raw = serde_json::to_string(&manifest).unwrap();
+        assert!(
+            !raw.contains("replaces_sqlite_sha256"),
+            "omitted when empty: {raw}"
+        );
+        parse_manifest(&raw).expect("manifest without replaced builds");
     }
 
     #[test]
@@ -805,6 +947,9 @@ mod tests {
                     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
                 latest_row_count: 7261,
                 ticker_count: 955,
+                replaces_sqlite_sha256: vec![
+                    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string(),
+                ],
             },
         };
 
