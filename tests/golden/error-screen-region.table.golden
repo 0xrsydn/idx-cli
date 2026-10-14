@@ -1,4 +1,4 @@
-exit: 1
+exit: 2
 --- stdout
 --- stderr
 Error: invalid input: invalid screener region 'eu' (expected one of: id, us, sg, hk, jp)

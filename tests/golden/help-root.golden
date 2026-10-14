@@ -16,9 +16,9 @@ Commands:
 
 Options:
   -o, --output <OUTPUT>
-          Output format
+          Output format [default: auto = table on a terminal, json when piped]
           
-          [possible values: table, json]
+          [possible values: auto, table, json, jsonl]
 
       --no-color
           Disable colored output

@@ -446,11 +446,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -468,11 +468,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -490,11 +490,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -568,11 +568,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -590,11 +590,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -612,11 +612,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -634,11 +634,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -740,11 +740,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -762,11 +762,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -784,11 +784,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -1436,11 +1436,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -1466,11 +1466,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -1496,11 +1496,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -1526,11 +1526,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -1556,11 +1556,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -1578,11 +1578,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -1600,11 +1600,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -1630,11 +1630,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -1916,11 +1916,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -1938,11 +1938,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -1960,11 +1960,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2052,11 +2052,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2074,11 +2074,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2100,11 +2100,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2126,11 +2126,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2152,11 +2152,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2178,11 +2178,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2200,11 +2200,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2222,11 +2222,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2244,11 +2244,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2270,11 +2270,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2292,11 +2292,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2314,11 +2314,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2586,11 +2586,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2608,11 +2608,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2634,11 +2634,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2656,11 +2656,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2678,11 +2678,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2700,11 +2700,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2734,11 +2734,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2756,11 +2756,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2782,11 +2782,11 @@ _idx() {
                     return 0
                     ;;
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2804,11 +2804,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -2826,11 +2826,11 @@ _idx() {
             fi
             case "${prev}" in
                 --output)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 -o)
-                    COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
                     ;;
                 *)

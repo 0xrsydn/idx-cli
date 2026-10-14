@@ -1,5 +1,5 @@
+use crate::output::style::Paint;
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
-use owo_colors::OwoColorize;
 
 use crate::analysis::fundamental::{FundamentalReport, GrowthReport, RiskReport, ValuationReport};
 use crate::analysis::signals::Signal;

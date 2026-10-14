@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use clap::ValueEnum;
@@ -7,7 +8,7 @@ use serde::Deserialize;
 
 use crate::cli::Cli;
 use crate::error::IdxError;
-use crate::output::OutputFormat;
+use crate::output::{OutputFormat, OutputSetting};
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -92,7 +93,7 @@ struct FileGeneral {
     provider: Option<ProviderKind>,
     history_provider: Option<HistoryProviderKind>,
     exchange: Option<String>,
-    output: Option<OutputFormat>,
+    output: Option<OutputSetting>,
     color: Option<bool>,
 }
 
@@ -108,7 +109,7 @@ impl Default for IdxConfig {
             provider: ProviderKind::Msn,
             history_provider: HistoryProviderKind::Auto,
             exchange: "JK".to_string(),
-            output: OutputFormat::Table,
+            output: OutputSetting::Auto.resolve(stdout_is_terminal()),
             no_color: false,
             quote_ttl: 300,
             fundamental_ttl: 3600,
@@ -130,15 +131,12 @@ impl IdxConfig {
             cfg.exchange = exchange;
         }
         if let Ok(output) = std::env::var("IDX_OUTPUT") {
-            cfg.output = if output.eq_ignore_ascii_case("json") {
-                OutputFormat::Json
-            } else if output.eq_ignore_ascii_case("table") {
-                OutputFormat::Table
-            } else {
-                return Err(IdxError::ConfigError(format!(
-                    "invalid IDX_OUTPUT value: '{output}', expected 'json' or 'table'"
-                )));
-            };
+            let setting = OutputSetting::parse(&output).ok_or_else(|| {
+                IdxError::ConfigError(format!(
+                    "invalid IDX_OUTPUT value: '{output}', expected 'auto', 'table', 'json', or 'jsonl'"
+                ))
+            })?;
+            cfg.output = setting.resolve(stdout_is_terminal());
         }
         if let Ok(no_color) = std::env::var("IDX_NO_COLOR") {
             cfg.no_color = no_color == "1" || no_color.eq_ignore_ascii_case("true");
@@ -151,9 +149,9 @@ impl IdxConfig {
         }
 
         if let Some(output) = cli.output {
-            cfg.output = output;
+            cfg.output = output.resolve(stdout_is_terminal());
         }
-        cfg.no_color = cfg.no_color || cli.no_color;
+        cfg.no_color = cfg.no_color || cli.no_color || !stdout_is_terminal();
 
         Ok(cfg)
     }
@@ -176,7 +174,7 @@ impl IdxConfig {
                     cfg.exchange = exchange;
                 }
                 if let Some(output) = general.output {
-                    cfg.output = output;
+                    cfg.output = output.resolve(stdout_is_terminal());
                 }
                 if let Some(color) = general.color {
                     cfg.no_color = !color;
@@ -216,8 +214,12 @@ fn parse_env_ttl(name: &str) -> Result<Option<u64>, IdxError> {
     Ok(Some(parsed))
 }
 
+pub fn stdout_is_terminal() -> bool {
+    std::io::stdout().is_terminal()
+}
+
 pub fn default_config_toml() -> String {
-    "[general]\nprovider = \"msn\"\nhistory_provider = \"auto\"\nexchange = \"JK\"\noutput = \"table\"\ncolor = true\n\n[cache]\nquote_ttl = 300\nfundamental_ttl = 3600\n".to_string()
+    "[general]\nprovider = \"msn\"\nhistory_provider = \"auto\"\nexchange = \"JK\"\noutput = \"auto\"\ncolor = true\n\n[cache]\nquote_ttl = 300\nfundamental_ttl = 3600\n".to_string()
 }
 
 pub fn config_path() -> Result<PathBuf, IdxError> {
@@ -292,9 +294,9 @@ fn normalize_config_value(key: &str, value: &str) -> Result<toml::Value, IdxErro
             HistoryProviderKind::parse(value)?.as_str().to_string(),
         )),
         "general.output" => {
-            if !value.eq_ignore_ascii_case("table") && !value.eq_ignore_ascii_case("json") {
+            if OutputSetting::parse(value).is_none() {
                 return Err(IdxError::InvalidInput(format!(
-                    "invalid output format '{value}': expected 'table' or 'json'"
+                    "invalid output format '{value}': expected 'auto', 'table', 'json', or 'jsonl'"
                 )));
             }
             Ok(toml::Value::String(value.to_ascii_lowercase()))

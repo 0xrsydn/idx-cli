@@ -1,6 +1,6 @@
 exit: 0
 --- stdout
-[1mHistory for BBCA.JK[0m
+History for BBCA.JK
 ┌────────────┬───────┬───────┬───────┬───────┬────────┐
 │ DATE       ┆ OPEN  ┆ HIGH  ┆ LOW   ┆ CLOSE ┆ VOLUME │
 ╞════════════╪═══════╪═══════╪═══════╪═══════╪════════╡

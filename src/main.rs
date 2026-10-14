@@ -44,7 +44,7 @@ use crate::api::default_provider;
 use crate::cli::{Cli, Commands};
 use crate::config::IdxConfig;
 use crate::error::IdxError;
-use crate::output::{OutputFormat, emit_error};
+use crate::output::{OutputFormat, OutputSetting, emit_error};
 
 fn main() {
     if let Err(err) = run() {
@@ -62,16 +62,19 @@ fn run() -> Result<(), IdxError> {
             return Err(err);
         }
     };
+    output::json::configure(config.output, config::stdout_is_terminal());
+    output::style::set_color(!config.no_color);
 
     match &cli.command {
-        Commands::Version => match config.output {
-            OutputFormat::Json => {
+        Commands::Version => {
+            if config.output.is_json() {
                 output::json::print_json(&serde_json::json!({
                     "version": env!("CARGO_PKG_VERSION")
                 }))?;
+            } else {
+                println!("{}", env!("CARGO_PKG_VERSION"));
             }
-            OutputFormat::Table => println!("{}", env!("CARGO_PKG_VERSION")),
-        },
+        }
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             let name = cmd.get_name().to_owned();
@@ -119,13 +122,15 @@ fn run() -> Result<(), IdxError> {
     Ok(())
 }
 
+/// Output format for errors raised before the configuration has loaded.
 fn bootstrap_output_format(cli: &Cli) -> OutputFormat {
-    if let Some(output) = cli.output {
-        return output;
-    }
-
-    match std::env::var("IDX_OUTPUT") {
-        Ok(value) if value.eq_ignore_ascii_case("json") => OutputFormat::Json,
-        _ => OutputFormat::Table,
-    }
+    let setting = cli
+        .output
+        .or_else(|| {
+            std::env::var("IDX_OUTPUT")
+                .ok()
+                .and_then(|value| OutputSetting::parse(&value))
+        })
+        .unwrap_or_default();
+    setting.resolve(config::stdout_is_terminal())
 }

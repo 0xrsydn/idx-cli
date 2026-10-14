@@ -32,7 +32,7 @@ clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 ureq = { version = "3", features = ["json", "cookies"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 comfy-table = "7"
 owo-colors = "4"
 toml = "0.8"

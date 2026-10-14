@@ -1,11 +1,4 @@
 exit: 0
 --- stdout
-{
-  "action": "imported",
-  "inserted_rows": 17,
-  "ticker_count": 4,
-  "as_of_date": "2026-08-31",
-  "sha256": "7c1a4c209b8ce5bde9112436a0c64d66b042915995b584d2bbf7ca7b15ce81e3",
-  "source_url": null
-}
+{"action":"imported","inserted_rows":17,"ticker_count":4,"as_of_date":"2026-08-31","sha256":"7c1a4c209b8ce5bde9112436a0c64d66b042915995b584d2bbf7ca7b15ce81e3","source_url":null}
 --- stderr

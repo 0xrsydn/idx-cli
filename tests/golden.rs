@@ -10,8 +10,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
 use serde::Deserialize;
@@ -40,6 +41,9 @@ struct Case {
     /// Commands run first in the same environment; their output is ignored.
     #[serde(default)]
     before: Vec<Vec<String>>,
+    /// Text piped to the command's stdin.
+    #[serde(default)]
+    stdin: Option<String>,
 }
 
 fn default_formats() -> Vec<String> {
@@ -56,6 +60,15 @@ fn work_dir() -> PathBuf {
 
 /// Runs idx with an isolated home under `root` and only the given IDX_* env.
 fn idx(root: &Path, args: &[String], env: &BTreeMap<String, String>) -> std::process::Output {
+    idx_with_stdin(root, args, env, None)
+}
+
+fn idx_with_stdin(
+    root: &Path,
+    args: &[String],
+    env: &BTreeMap<String, String>,
+    stdin: Option<&str>,
+) -> std::process::Output {
     let mut cmd = Command::new(IDX);
     cmd.current_dir(REPO).args(args);
     for (key, _) in std::env::vars_os() {
@@ -68,8 +81,17 @@ fn idx(root: &Path, args: &[String], env: &BTreeMap<String, String>) -> std::pro
         .env("XDG_CACHE_HOME", root.join("cache"))
         .env("XDG_DATA_HOME", root.join("data"))
         .env("IDX_USE_MOCK_PROVIDER", "1")
-        .envs(env);
-    cmd.output().expect("run idx")
+        .envs(env)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().expect("spawn idx");
+    let mut pipe = child.stdin.take().expect("stdin pipe");
+    if let Some(input) = stdin {
+        pipe.write_all(input.as_bytes()).expect("write stdin");
+    }
+    drop(pipe);
+    child.wait_with_output().expect("run idx")
 }
 
 /// Fixture ownership DB: the above-1% XLSX (2026-08-31) plus two KSEI archive
@@ -161,7 +183,8 @@ fn cli_output_matches_golden_files() {
                 idx(&root, before, &case.env);
             }
 
-            let actual = render(&root, &idx(&root, &args, &case.env));
+            let output = idx_with_stdin(&root, &args, &case.env, case.stdin.as_deref());
+            let actual = render(&root, &output);
             let path = golden_dir().join(format!("{name}.golden"));
             if update {
                 fs::write(&path, &actual).expect("write golden");

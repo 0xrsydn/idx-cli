@@ -25,7 +25,7 @@ pub fn handle(cmd: &CacheCmd, format: &OutputFormat) -> Result<(), IdxError> {
     match &cmd.command {
         CacheSubcommand::Info => {
             let info = cache.info()?;
-            if matches!(format, OutputFormat::Json) {
+            if format.is_json() {
                 return json::print_json(&serde_json::json!({
                     "path": info.path,
                     "files": info.files,
@@ -52,7 +52,7 @@ pub fn handle(cmd: &CacheCmd, format: &OutputFormat) -> Result<(), IdxError> {
         }
         CacheSubcommand::Clear => {
             let (removed, failed) = cache.clear()?;
-            if matches!(format, OutputFormat::Json) {
+            if format.is_json() {
                 return json::print_json(&serde_json::json!({
                     "removed": removed,
                     "failed": failed,

@@ -2,16 +2,15 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::output::style::Paint;
 use chrono::Utc;
 use clap::{Args, Subcommand};
 use comfy_table::{Cell, ContentArrangement, Table, presets::UTF8_FULL};
-use owo_colors::OwoColorize;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::config::IdxConfig;
 use crate::error::IdxError;
-use crate::output::OutputFormat;
 use crate::output::json;
 use crate::output::table::format_idr;
 use crate::ownership::types::{
@@ -219,7 +218,7 @@ fn handle_sync(args: &SyncArgs, config: &IdxConfig) -> Result<(), IdxError> {
     let db_path = db::db_path(config)?;
     let result = snapshot::sync_snapshot(&manifest_source, &db_path, args.force)?;
 
-    if matches!(config.output, OutputFormat::Json) {
+    if config.output.is_json() {
         return json::print_json(&result);
     }
 
@@ -269,7 +268,7 @@ fn handle_discover(args: &DiscoverArgs, config: &IdxConfig) -> Result<(), IdxErr
     let family = parse_discovery_family(&args.family)?;
     let reports = remote::discover_idx_ownership_reports(family, args.limit)?;
 
-    if matches!(config.output, OutputFormat::Json) {
+    if config.output.is_json() {
         return json::print_json(&reports);
     }
 
@@ -337,7 +336,7 @@ fn handle_ticker(args: &TickerArgs, config: &IdxConfig) -> Result<(), IdxError> 
         )));
     }
 
-    if matches!(config.output, OutputFormat::Json) {
+    if config.output.is_json() {
         return json::print_json(&data);
     }
 
@@ -407,7 +406,7 @@ fn handle_entity(args: &EntityArgs, config: &IdxConfig) -> Result<(), IdxError> 
 
     let data = db::query_entity_holdings(&conn, entity.0)?;
 
-    if matches!(config.output, OutputFormat::Json) {
+    if config.output.is_json() {
         return json::print_json(&data);
     }
 
@@ -440,7 +439,7 @@ fn handle_search(args: &SearchArgs, config: &IdxConfig) -> Result<(), IdxError> 
     let conn = db::open_db(config)?;
     let entities = search::fts_search(&conn, &args.query, args.limit)?;
 
-    if matches!(config.output, OutputFormat::Json) {
+    if config.output.is_json() {
         return json::print_json(&entities);
     }
 
@@ -475,7 +474,7 @@ fn handle_cross_holders(args: &CrossHolderArgs, config: &IdxConfig) -> Result<()
     let conn = db::open_db(config)?;
     let rows = db::query_cross_holders(&conn, args.min_tickers, args.top)?;
 
-    if matches!(config.output, OutputFormat::Json) {
+    if config.output.is_json() {
         return json::print_json(&rows);
     }
 
@@ -509,7 +508,7 @@ fn handle_concentration(args: &ConcentrationArgs, config: &IdxConfig) -> Result<
 
     let rows = db::query_concentration(&conn, &by, args.top)?;
 
-    if matches!(config.output, OutputFormat::Json) {
+    if config.output.is_json() {
         return json::print_json(&rows);
     }
 
@@ -551,14 +550,14 @@ fn handle_flow(args: &FlowArgs, config: &IdxConfig) -> Result<(), IdxError> {
 
     let flow = db::query_bing_flow(&conn, ticker_id)?;
     let Some(flow) = flow else {
-        if matches!(config.output, OutputFormat::Json) {
+        if config.output.is_json() {
             return json::print_json(&Option::<crate::ownership::types::InstitutionalFlow>::None);
         }
         println!("No institutional flow data available for {symbol}.");
         return Ok(());
     };
 
-    if matches!(config.output, OutputFormat::Json) {
+    if config.output.is_json() {
         return json::print_json(&flow);
     }
 
@@ -599,7 +598,7 @@ fn handle_graph(args: &GraphArgs, config: &IdxConfig) -> Result<(), IdxError> {
     let conn = db::open_db(config)?;
     let (nodes, edges) = graph::query_ownership_graph(&conn, &args.root, args.depth)?;
 
-    if matches!(config.output, OutputFormat::Json) {
+    if config.output.is_json() {
         #[derive(Serialize)]
         struct GraphOutput<'a> {
             nodes: &'a [crate::ownership::types::GraphNode],
@@ -630,7 +629,7 @@ fn handle_changes(args: &ChangesArgs, config: &IdxConfig) -> Result<(), IdxError
     let conn = db::open_db(config)?;
     let changes = db::query_changes(&conn, &args.from, &args.to)?;
 
-    if matches!(config.output, OutputFormat::Json) {
+    if config.output.is_json() {
         return json::print_json(&changes);
     }
 
@@ -679,7 +678,7 @@ fn handle_resolve(args: &ResolveArgs, config: &IdxConfig) -> Result<(), IdxError
         ResolveCommand::Unresolved { limit } => {
             let rows = db::list_unresolved(&conn, *limit)?;
 
-            if matches!(config.output, OutputFormat::Json) {
+            if config.output.is_json() {
                 return json::print_json(&rows);
             }
 
@@ -718,7 +717,7 @@ fn handle_resolve(args: &ResolveArgs, config: &IdxConfig) -> Result<(), IdxError
         }
         ResolveCommand::Map { alias, entity } => {
             db::manual_map(&conn, alias, entity)?;
-            if matches!(config.output, OutputFormat::Json) {
+            if config.output.is_json() {
                 return json::print_json(&serde_json::json!({
                     "action": "mapped",
                     "alias": alias,
@@ -753,7 +752,7 @@ fn handle_resolve(args: &ResolveArgs, config: &IdxConfig) -> Result<(), IdxError
 
             db::merge_entities(&conn, *keep, *merge)?;
 
-            if matches!(config.output, OutputFormat::Json) {
+            if config.output.is_json() {
                 return json::print_json(&serde_json::json!({
                     "action": "merged",
                     "keep": keep,
@@ -813,7 +812,7 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
             source_url: import_input.source_url,
         };
 
-        if matches!(config.output, OutputFormat::Json) {
+        if config.output.is_json() {
             return json::print_json(&result);
         }
 
@@ -897,7 +896,7 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
         source_url: release.source_url.clone(),
     };
 
-    if matches!(config.output, OutputFormat::Json) {
+    if config.output.is_json() {
         return json::print_json(&result);
     }
 
@@ -915,7 +914,7 @@ fn handle_releases(config: &IdxConfig) -> Result<(), IdxError> {
     let conn = db::open_db(config)?;
     let releases = db::query_releases(&conn)?;
 
-    if matches!(config.output, OutputFormat::Json) {
+    if config.output.is_json() {
         return json::print_json(&releases);
     }
 

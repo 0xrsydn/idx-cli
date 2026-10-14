@@ -73,7 +73,10 @@ fn candidate_is_idx_binary(path: &Path) -> bool {
         return false;
     }
 
-    let Ok(output) = std::process::Command::new(path).arg("version").output() else {
+    let Ok(output) = std::process::Command::new(path)
+        .args(["-o", "table", "version"])
+        .output()
+    else {
         return false;
     };
 
@@ -111,6 +114,10 @@ fn bin_with_root(root: &Path) -> Command {
 
     let mut cmd = bin();
     cmd.current_dir(env!("CARGO_MANIFEST_DIR"));
+    // Tests run with piped stdout, where the default (auto) format is JSON.
+    // Pin table so tests that assert table text keep doing so; `-o` and
+    // per-test IDX_OUTPUT still override this.
+    cmd.env("IDX_OUTPUT", "table");
     cmd.env("XDG_CONFIG_HOME", &config_home);
     cmd.env("XDG_CACHE_HOME", &cache_home);
     cmd
@@ -1271,18 +1278,18 @@ fn ownership_discover_json_includes_status() {
     }"#;
     let json_url = spawn_single_response_server("application/json", body.to_string());
 
-    test_bin("ownership-discover-json-status")
-        .env("IDX_CURL_IMPERSONATE_BIN", "curl")
-        .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
-        .env("IDX_OWNERSHIP_DATA_PAGE_URL", UNREACHABLE_DATA_PAGE_URL)
-        .env(
-            "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
-            "http://127.0.0.1/pengumuman",
-        )
-        .args(["-o", "json", "ownership", "discover", "--limit", "1"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"status\": \"supported\""));
+    let discovered = run_success_json(
+        test_bin("ownership-discover-json-status")
+            .env("IDX_CURL_IMPERSONATE_BIN", "curl")
+            .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
+            .env("IDX_OWNERSHIP_DATA_PAGE_URL", UNREACHABLE_DATA_PAGE_URL)
+            .env(
+                "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
+                "http://127.0.0.1/pengumuman",
+            )
+            .args(["-o", "json", "ownership", "discover", "--limit", "1"]),
+    );
+    assert_eq!(discovered[0]["status"], "supported");
 }
 
 #[test]

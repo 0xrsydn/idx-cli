@@ -1,8 +1,4 @@
 exit: 0
 --- stdout
-{
-  "action": "mapped",
-  "alias": "SALIM ANTHONI",
-  "entity": "ANTHONI SALIM"
-}
+{"action":"mapped","alias":"SALIM ANTHONI","entity":"ANTHONI SALIM"}
 --- stderr

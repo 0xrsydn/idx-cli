@@ -112,7 +112,11 @@ idx ownership changes --from 2026-07-31 --to 2026-08-31
 
 ### Output
 
-- Human-readable tables on stdout, JSON with `-o json`, errors on stderr
+- Tables when you run idx in a terminal; compact JSON when its output is piped
+  or captured, so scripts and AI agents get structured data with no flag
+- `-o table|json|jsonl` (or `IDX_OUTPUT`, or `general.output` in the config)
+  overrides that; `jsonl` prints one array item per line
+- Errors go to stderr, as one JSON object in JSON modes
 
 ## Configuration
 
@@ -133,11 +137,25 @@ Precedence order:
 3. Config file
 4. Built-in defaults
 
-## Agent-friendly usage
+## Scripting and agents
 
-- Use `idx --help` and subcommand help for discoverability
-- Use `-o json` / `--output json` for structured output
+idx composes with `jq`, Python, and other shell tools:
+
+```bash
+idx stocks quote BBCA BBRI | jq -r '.[] | "\(.symbol) \(.price)"'
+idx -o jsonl stocks history BBCA --period 1y | tail -5
+idx stocks screen --filter low-pe | jq -r '.[].symbol' | idx stocks compare -
+```
+
+- stdout carries only data; warnings and errors go to stderr
+- `-` reads symbols from stdin for `stocks quote` and `stocks compare`
+- No color codes when output is not a terminal
+- Exit codes: `0` success, `2` invalid input or config, `3` not found or no
+  cached data, `4` upstream unavailable (retry later), `5` unsupported, `1` other
 - `idx completions <shell>` generates shell completions
+
+If you ran `idx config init` before v0.3, your config pins `output = "table"`;
+change it to `auto` with `idx config set general.output auto`.
 
 ## Documentation
 

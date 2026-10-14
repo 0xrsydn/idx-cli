@@ -76,8 +76,23 @@ impl IdxError {
         }
     }
 
+    /// Exit status by error class, so scripts can branch without parsing
+    /// stderr. Clap usage errors also exit 2. See docs/DESIGN.md.
     pub fn exit_code(&self) -> i32 {
-        1
+        match self.code() {
+            ErrorCode::InvalidInput | ErrorCode::ConfigError => 2,
+            ErrorCode::SymbolNotFound | ErrorCode::NoMarketData | ErrorCode::CacheMiss => 3,
+            ErrorCode::Http
+            | ErrorCode::RateLimited
+            | ErrorCode::ProviderUnavailable
+            | ErrorCode::Offline
+            | ErrorCode::AuthError => 4,
+            ErrorCode::Unsupported => 5,
+            ErrorCode::Io
+            | ErrorCode::ParseError
+            | ErrorCode::DatabaseError
+            | ErrorCode::PdfParseError => 1,
+        }
     }
 }
 

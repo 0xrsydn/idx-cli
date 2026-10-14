@@ -6,7 +6,7 @@ pub mod stocks;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::output::OutputFormat;
+use crate::output::OutputSetting;
 
 #[derive(Debug, Clone, ValueEnum)]
 pub enum Shell {
@@ -23,8 +23,14 @@ pub enum Shell {
     long_about = "idx-cli is a Rust command-line tool for Indonesian stock market (IDX) analysis.\nIt supports quote lookup, historical data, local caching, and output formats for both humans and AI agents."
 )]
 pub struct Cli {
-    #[arg(short, long, value_enum, global = true, help = "Output format")]
-    pub output: Option<OutputFormat>,
+    #[arg(
+        short,
+        long,
+        value_enum,
+        global = true,
+        help = "Output format [default: auto = table on a terminal, json when piped]"
+    )]
+    pub output: Option<OutputSetting>,
     #[arg(long, global = true, help = "Disable colored output")]
     pub no_color: bool,
     #[arg(short, long, global = true, help = "Suppress non-essential output")]

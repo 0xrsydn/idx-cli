@@ -1,9 +1,11 @@
 # Golden output cases for tests/golden.rs.
 #
 # Each case runs once per entry in `formats` (default: table and json) with
-# `-o <format>` prepended; `formats = []` runs the args as given. Every run uses
-# the mock provider (IDX_USE_MOCK_PROVIDER=1) and an isolated home directory.
-# `ownership = true` seeds the fixture DB; `before` runs setup commands first.
+# `-o <format>` prepended; `formats = []` runs the args as given, which means
+# the auto format: stdout is a pipe here, so auto resolves to compact JSON.
+# Every run uses the mock provider (IDX_USE_MOCK_PROVIDER=1) and an isolated
+# home directory. `ownership = true` seeds the fixture DB; `before` runs setup
+# commands first; `stdin` is piped to the command.
 #
 # `idx version` is excluded on purpose: its output changes with every release.
 
@@ -63,6 +65,22 @@ args = ["config", "set", "general.provider", "yahoo"]
 formats = []
 
 [[case]]
+name = "config-set-output-jsonl"
+args = ["config", "set", "general.output", "jsonl"]
+formats = []
+
+[[case]]
+name = "config-set-output-invalid"
+args = ["config", "set", "general.output", "yaml"]
+formats = []
+
+[[case]]
+name = "config-output-table-pins-format"
+args = ["stocks", "quote", "BBCA"]
+formats = []
+before = [["config", "set", "general.output", "table"]]
+
+[[case]]
 name = "cache-info-empty"
 args = ["cache", "info"]
 
@@ -78,10 +96,12 @@ args = ["stocks", "quote", "BBCA"]
 
 [[case]]
 name = "stocks-quote-multi"
+formats = ["table", "json", "jsonl"]
 args = ["stocks", "quote", "BBCA,BBRI"]
 
 [[case]]
 name = "stocks-history"
+formats = ["table", "json", "jsonl"]
 args = ["stocks", "history", "BBCA"]
 
 [[case]]
@@ -111,6 +131,7 @@ args = ["stocks", "risk", "BBCA"]
 
 [[case]]
 name = "stocks-fundamental"
+formats = ["table", "json", "jsonl"]
 args = ["stocks", "fundamental", "BBCA"]
 
 [[case]]
@@ -170,6 +191,38 @@ name = "stocks-screen-large-cap"
 args = ["stocks", "screen", "--filter", "large-cap"]
 
 [[case]]
+name = "auto-format-piped"
+args = ["stocks", "quote", "BBCA,BBRI"]
+formats = []
+
+[[case]]
+name = "auto-format-env-table"
+args = ["stocks", "quote", "BBCA"]
+formats = []
+env = { IDX_OUTPUT = "table" }
+
+[[case]]
+name = "stocks-quote-stdin"
+args = ["stocks", "quote", "-"]
+stdin = "BBCA\nBBRI\n"
+
+[[case]]
+name = "stocks-compare-stdin"
+args = ["stocks", "compare", "-"]
+stdin = "BBCA, BBRI"
+
+[[case]]
+name = "error-stdin-empty"
+args = ["stocks", "quote", "-"]
+stdin = ""
+
+[[case]]
+name = "error-invalid-output-env"
+args = ["stocks", "quote", "BBCA"]
+formats = []
+env = { IDX_OUTPUT = "yaml" }
+
+[[case]]
 name = "stocks-quote-offline-warm"
 args = ["--offline", "stocks", "quote", "BBCA"]
 before = [["stocks", "quote", "BBCA"]]
@@ -214,6 +267,7 @@ env = { IDX_MOCK_MSN_KEYRATIOS_FIXTURE = "tests/fixtures/msn_keyratios_industry_
 
 [[case]]
 name = "error-screen-region"
+formats = ["table", "json", "jsonl"]
 args = ["stocks", "screen", "--region", "eu"]
 
 [[case]]
@@ -298,6 +352,7 @@ ownership = true
 
 [[case]]
 name = "ownership-changes"
+formats = ["table", "json", "jsonl"]
 args = ["ownership", "changes", "--from", "2026-01-30", "--to", "2026-02-27"]
 ownership = true
 

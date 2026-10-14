@@ -1,6 +1,6 @@
 # System Design: idx-core and its frontends
 
-**Status:** Accepted 2026-10-14. Implementation on `refactor/idx-core`; nothing implemented yet.
+**Status:** Accepted 2026-10-14. Implementation on `refactor/idx-core`; phases 0-1 done.
 
 ## Goal
 
@@ -164,8 +164,8 @@ is another 20-30% smaller than pretty JSON.
   Already true.
 - No ANSI color when stdout is not a terminal. Today some table headers emit
   bold codes even when piped.
-- Commands that take symbols accept `-` to read them from stdin, one per line or
-  whitespace-separated:
+- `stocks quote` and `stocks compare` accept `-` to read symbols from stdin,
+  separated by whitespace or commas:
   `idx stocks screen --filter low-pe | jq -r '.[].symbol' | idx stocks compare -`
 - Exit codes by error class (today every error exits `1`):
 
@@ -175,7 +175,7 @@ is another 20-30% smaller than pretty JSON.
   | 1 | other failure | `IO`, `DATABASEERROR`, `PARSEERROR`, ... |
   | 2 | invalid usage or input | clap errors, `INVALIDINPUT`, `CONFIGERROR` |
   | 3 | not found or no data | `SYMBOLNOTFOUND`, `NOMARKETDATA`, `CACHEMISS` |
-  | 4 | upstream unavailable, retry later | `HTTP`, `RATELIMITED`, `PROVIDERUNAVAILABLE`, `OFFLINE` |
+  | 4 | upstream unavailable, retry later | `HTTP`, `RATELIMITED`, `PROVIDERUNAVAILABLE`, `OFFLINE`, `AUTHERROR` |
   | 5 | unsupported | `UNSUPPORTED` |
 
 - JSON keeps today's top-level shape: no `{data, meta}` wrapper, so `jq` paths

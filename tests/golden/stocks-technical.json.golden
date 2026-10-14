@@ -1,28 +1,4 @@
 exit: 0
 --- stdout
-{
-  "symbol": "BBCA.JK",
-  "as_of": "2024-03-03",
-  "current_price": 9925,
-  "sma20": null,
-  "sma50": null,
-  "sma200": null,
-  "rsi14": null,
-  "macd": {
-    "line": null,
-    "signal": null,
-    "histogram": null
-  },
-  "volume": {
-    "current": 14000000,
-    "average20": null,
-    "ratio20": null
-  },
-  "signals": {
-    "rsi": "Neutral",
-    "macd": "Neutral",
-    "trend": "Neutral",
-    "overall": "Neutral"
-  }
-}
+{"symbol":"BBCA.JK","as_of":"2024-03-03","current_price":9925,"sma20":null,"sma50":null,"sma200":null,"rsi14":null,"macd":{"line":null,"signal":null,"histogram":null},"volume":{"current":14000000,"average20":null,"ratio20":null},"signals":{"rsi":"Neutral","macd":"Neutral","trend":"Neutral","overall":"Neutral"}}
 --- stderr

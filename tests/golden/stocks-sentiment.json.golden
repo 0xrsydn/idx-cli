@@ -1,20 +1,4 @@
 exit: 0
 --- stdout
-{
-  "symbol": "BBCA.JK",
-  "statistics": [
-    {
-      "time_range": "1D",
-      "bullish": 10,
-      "bearish": 2,
-      "neutral": 3
-    },
-    {
-      "time_range": "1W",
-      "bullish": 25,
-      "bearish": 5,
-      "neutral": 7
-    }
-  ]
-}
+{"symbol":"BBCA.JK","statistics":[{"time_range":"1D","bullish":10,"bearish":2,"neutral":3},{"time_range":"1W","bullish":25,"bearish":5,"neutral":7}]}
 --- stderr

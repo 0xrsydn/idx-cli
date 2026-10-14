@@ -1,8 +1,4 @@
-exit: 1
+exit: 4
 --- stdout
 --- stderr
-{
-  "code": "PROVIDERUNAVAILABLE",
-  "error": true,
-  "message": "provider unavailable"
-}
+{"code":"PROVIDERUNAVAILABLE","error":true,"message":"provider unavailable"}

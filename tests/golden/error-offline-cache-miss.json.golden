@@ -1,8 +1,4 @@
-exit: 1
+exit: 3
 --- stdout
 --- stderr
-{
-  "code": "CACHEMISS",
-  "error": true,
-  "message": "cache miss: msn-quote/BBCA.JK"
-}
+{"code":"CACHEMISS","error":true,"message":"cache miss: msn-quote/BBCA.JK"}

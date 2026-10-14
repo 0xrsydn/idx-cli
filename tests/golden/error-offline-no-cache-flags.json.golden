@@ -1,8 +1,4 @@
-exit: 1
+exit: 2
 --- stdout
 --- stderr
-{
-  "code": "INVALIDINPUT",
-  "error": true,
-  "message": "invalid input: cannot combine --offline with --no-cache"
-}
+{"code":"INVALIDINPUT","error":true,"message":"invalid input: cannot combine --offline with --no-cache"}

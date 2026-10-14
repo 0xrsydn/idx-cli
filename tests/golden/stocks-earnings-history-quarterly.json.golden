@@ -1,22 +1,4 @@
 exit: 0
 --- stdout
-{
-  "symbol": "BBCA.JK",
-  "eps_last_year": 1200.0,
-  "revenue_last_year": 100000000000.0,
-  "forecast": [],
-  "history": [
-    {
-      "eps_actual": 320.0,
-      "eps_forecast": null,
-      "eps_surprise": 5.0,
-      "eps_surprise_pct": 1.5,
-      "revenue_actual": 27000000000.0,
-      "revenue_forecast": null,
-      "revenue_surprise": 200000000.0,
-      "earning_release_date": "2025-11-20",
-      "period_type": "Q42025"
-    }
-  ]
-}
+{"symbol":"BBCA.JK","eps_last_year":1200.0,"revenue_last_year":100000000000.0,"forecast":[],"history":[{"eps_actual":320.0,"eps_forecast":null,"eps_surprise":5.0,"eps_surprise_pct":1.5,"revenue_actual":27000000000.0,"revenue_forecast":null,"revenue_surprise":200000000.0,"earning_release_date":"2025-11-20","period_type":"Q42025"}]}
 --- stderr

@@ -1,20 +1,4 @@
 exit: 0
 --- stdout
-[
-  {
-    "symbol": "BBCA.JK",
-    "price": 9875,
-    "change": 117,
-    "change_pct": 1.2,
-    "volume": 12300000,
-    "market_cap": 1215200000000000,
-    "week52_high": 10250,
-    "week52_low": 7800,
-    "week52_position": 0.8469387755102041,
-    "range_signal": "upper",
-    "prev_close": 9758,
-    "avg_volume": 10000000,
-    "as_of": null
-  }
-]
+[{"symbol":"BBCA.JK","price":9875,"change":117,"change_pct":1.2,"volume":12300000,"market_cap":1215200000000000,"week52_high":10250,"week52_low":7800,"week52_position":0.8469387755102041,"range_signal":"upper","prev_close":9758,"avg_volume":10000000,"as_of":null}]
 --- stderr

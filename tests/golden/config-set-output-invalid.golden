@@ -1,0 +1,4 @@
+exit: 2
+--- stdout
+--- stderr
+{"code":"INVALIDINPUT","error":true,"message":"invalid input: invalid output format 'yaml': expected 'auto', 'table', 'json', or 'jsonl'"}

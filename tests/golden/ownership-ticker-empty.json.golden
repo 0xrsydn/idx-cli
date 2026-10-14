@@ -1,8 +1,4 @@
-exit: 1
+exit: 3
 --- stdout
 --- stderr
-{
-  "code": "SYMBOLNOTFOUND",
-  "error": true,
-  "message": "symbol not found: BBCA"
-}
+{"code":"SYMBOLNOTFOUND","error":true,"message":"symbol not found: BBCA"}

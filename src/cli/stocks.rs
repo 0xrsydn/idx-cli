@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::io::Read;
 
 use clap::{Args, Subcommand, ValueEnum};
 use serde::{Serialize, de::DeserializeOwned};
@@ -49,6 +50,34 @@ const SCREENER_FILTERS: &[&str] = &[
 ];
 
 const SCREENER_REGIONS: &[&str] = &["id", "us", "sg", "hk", "jp"];
+
+/// Splits comma-separated symbol arguments; `-` reads symbols from stdin,
+/// separated by whitespace or commas.
+fn expand_symbols(args: &[String]) -> Result<Vec<String>, IdxError> {
+    let mut symbols = Vec::new();
+    for arg in args {
+        if arg == "-" {
+            let mut input = String::new();
+            std::io::stdin()
+                .read_to_string(&mut input)
+                .map_err(|e| IdxError::Io(e.to_string()))?;
+            let from_stdin: Vec<String> = input
+                .split(|c: char| c.is_whitespace() || c == ',')
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .collect();
+            if from_stdin.is_empty() {
+                return Err(IdxError::InvalidInput(
+                    "no symbols read from stdin".to_string(),
+                ));
+            }
+            symbols.extend(from_stdin);
+        } else {
+            symbols.extend(arg.split(',').map(String::from));
+        }
+    }
+    Ok(symbols)
+}
 
 fn cache_bucket(provider: ProviderKind, key: &str) -> String {
     format!("{}-{key}", provider.as_str())
@@ -124,10 +153,10 @@ pub struct StocksCmd {
 pub enum StocksSubcommand {
     #[command(
         about = "Get real-time stock quotes",
-        after_help = "Examples:\n  idx stocks quote BBCA\n  idx stocks quote BBCA,BBRI,BMRI\n  idx -o json stocks quote BBCA"
+        after_help = "Examples:\n  idx stocks quote BBCA\n  idx stocks quote BBCA,BBRI,BMRI\n  idx -o json stocks quote BBCA\n  echo BBCA BBRI | idx stocks quote -"
     )]
     Quote {
-        /// One or more symbols, comma-separated or space-separated.
+        /// One or more symbols, comma-separated or space-separated; `-` reads them from stdin.
         #[arg(required = true)]
         symbols: Vec<String>,
     },
@@ -228,10 +257,10 @@ pub enum StocksSubcommand {
     },
     #[command(
         about = "Compare fundamentals across stocks",
-        after_help = "Examples:\n  idx stocks compare BBCA BBRI BMRI\n  idx stocks compare BBCA,BBRI,BMRI\n  idx -o json stocks compare BBCA,BBRI"
+        after_help = "Examples:\n  idx stocks compare BBCA BBRI BMRI\n  idx stocks compare BBCA,BBRI,BMRI\n  idx -o json stocks compare BBCA,BBRI\n  idx stocks screen --filter low-pe | jq -r '.[].symbol' | idx stocks compare -"
     )]
     Compare {
-        /// One or more symbols, comma-separated or space-separated.
+        /// One or more symbols, comma-separated or space-separated; `-` reads them from stdin.
         #[arg(required = true)]
         symbols: Vec<String>,
     },
@@ -257,8 +286,8 @@ pub fn handle(
         StocksSubcommand::Quote { symbols } => {
             let quote_bucket = cache_bucket(provider.kind(), "quote");
             let mut quotes = Vec::new();
-            for sym in symbols.iter().flat_map(|s| s.split(',')) {
-                let resolved = crate::api::resolve_symbol(sym, &config.exchange)?;
+            for sym in expand_symbols(symbols)? {
+                let resolved = crate::api::resolve_symbol(&sym, &config.exchange)?;
                 if !no_cache && let Some(q) = cache.get(&quote_bucket, &resolved)? {
                     quotes.push(q);
                     continue;
@@ -305,7 +334,7 @@ pub fn handle(
                 history_provider(provider.kind(), history_mode, verbose)?;
             if matches!(history_mode, HistoryProviderKind::Auto)
                 && history_source != provider.kind()
-                && !matches!(config.output, crate::output::OutputFormat::Json)
+                && !config.output.is_json()
             {
                 runtime::info(format!(
                     "history provider fallback active ({} -> {})",
@@ -373,7 +402,7 @@ pub fn handle(
                 history_provider(provider.kind(), history_mode, verbose)?;
             if matches!(history_mode, HistoryProviderKind::Auto)
                 && history_source != provider.kind()
-                && !matches!(config.output, crate::output::OutputFormat::Json)
+                && !config.output.is_json()
             {
                 runtime::info(format!(
                     "history provider fallback active ({} -> {})",
@@ -649,8 +678,8 @@ pub fn handle(
             let mut reports: Vec<FundamentalReport> = Vec::new();
             let mut failures = Vec::new();
 
-            for sym in symbols.iter().flat_map(|s| s.split(',')) {
-                let resolved = crate::api::resolve_symbol(sym, &config.exchange)?;
+            for sym in expand_symbols(symbols)? {
+                let resolved = crate::api::resolve_symbol(&sym, &config.exchange)?;
                 match fetch_fundamental_analysis_report(
                     &cache,
                     provider.market(),
