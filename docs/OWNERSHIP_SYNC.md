@@ -76,7 +76,8 @@ Without `--force`, sync behaves conservatively:
 - local latest release older than snapshot: replace with snapshot
 - local DB file is byte-identical to `sqlite_sha256`: no-op
 - local DB file is byte-identical to a build in `replaces_sqlite_sha256`: replace
-  (queries never write to a synced file, so this means it was not modified)
+  (queries never write to a synced file, so this means it was not modified;
+  committed changes still in the `-wal` file are checkpointed before hashing)
 - local latest release/date/count matches snapshot: no-op
 - local latest release matches but has fewer releases than snapshot: replace to fill missing history
 - local DB newer than snapshot: no-op and keep local data

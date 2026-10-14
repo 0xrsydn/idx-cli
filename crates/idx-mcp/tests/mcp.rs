@@ -243,6 +243,17 @@ fn errors_carry_cli_codes() {
     assert!(is_error);
     assert_eq!(body["code"], "INVALIDINPUT");
 
+    for (tool, arguments) in [
+        ("get_quotes", json!({"symbols": []})),
+        ("compare_stocks", json!({"symbols": []})),
+        ("get_company", json!({"symbol": "BBCA", "sections": []})),
+        ("analyze_stock", json!({"symbol": "BBCA", "kinds": []})),
+    ] {
+        let (is_error, body) = client.call(tool, arguments);
+        assert!(is_error, "{tool}: {body}");
+        assert_eq!(body["code"], "INVALIDINPUT", "{tool}");
+    }
+
     // Empty ownership database: investor tools point at the sync path.
     let status = client.ok("ownership_status", json!({}));
     assert_eq!(status["populated"], false);

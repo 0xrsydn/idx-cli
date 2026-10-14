@@ -93,7 +93,9 @@ pub struct OwnershipSyncResult {
 struct LocalSnapshotState {
     /// SHA-256 of the database file. Queries leave a synced file
     /// byte-identical, so this identifies an unmodified published snapshot.
-    file_sha256: String,
+    /// `None` when committed changes could not be checkpointed out of the
+    /// WAL, so the file alone does not show the database's contents.
+    file_sha256: Option<String>,
     latest_release: Option<OwnershipRelease>,
     release_count: usize,
 }
@@ -338,11 +340,14 @@ fn inspect_local_db(db_path: &Path) -> Result<Option<LocalSnapshotState>, IdxErr
         return Ok(None);
     }
 
-    // Hash before opening: schema setup may write to an empty database.
-    let bytes = fs::read(db_path)
-        .map_err(|e| IdxError::Io(format!("failed to read {}: {e}", db_path.display())))?;
-    let file_sha256 = sha256_hex(&bytes);
-    drop(bytes);
+    let file_sha256 = if checkpoint_wal(db_path) {
+        // Hash before opening: schema setup may write to an empty database.
+        let bytes = fs::read(db_path)
+            .map_err(|e| IdxError::Io(format!("failed to read {}: {e}", db_path.display())))?;
+        Some(sha256_hex(&bytes))
+    } else {
+        None
+    };
 
     let conn = Connection::open(db_path).map_err(|e| {
         IdxError::DatabaseError(format!("failed to open {}: {e}", db_path.display()))
@@ -355,6 +360,20 @@ fn inspect_local_db(db_path: &Path) -> Result<Option<LocalSnapshotState>, IdxErr
         latest_release: releases.first().cloned(),
         release_count: releases.len(),
     }))
+}
+
+/// Moves committed WAL frames into the database file, so its hash covers local
+/// edits too. Returns false when changes remain in the WAL.
+fn checkpoint_wal(db_path: &Path) -> bool {
+    let wal_path = sidecar_path(db_path, "-wal");
+    let wal_is_empty = || fs::metadata(&wal_path).map_or(true, |meta| meta.len() == 0);
+    if wal_is_empty() {
+        return true;
+    }
+    if let Ok(conn) = Connection::open(db_path) {
+        let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+    }
+    wal_is_empty()
 }
 
 fn build_sync_decision(
@@ -414,7 +433,8 @@ fn build_sync_decision(
         };
     }
 
-    if local.file_sha256 == snapshot.sqlite_sha256 {
+    let file_sha256 = local.file_sha256.as_deref();
+    if file_sha256 == Some(snapshot.sqlite_sha256.as_str()) {
         return SyncDecision {
             action: OwnershipSyncAction::NoChange,
             should_download: false,
@@ -429,7 +449,7 @@ fn build_sync_decision(
     if snapshot
         .replaces_sqlite_sha256
         .iter()
-        .any(|sha256| sha256.eq_ignore_ascii_case(&local.file_sha256))
+        .any(|sha256| file_sha256.is_some_and(|local| sha256.eq_ignore_ascii_case(local)))
     {
         return SyncDecision {
             action: OwnershipSyncAction::Updated,
@@ -657,19 +677,23 @@ fn build_backup_path(db_path: &Path) -> PathBuf {
     }
 }
 
+fn sidecar_path(db_path: &Path, suffix: &str) -> PathBuf {
+    let file_name = format!(
+        "{}{suffix}",
+        db_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("ownership.db")
+    );
+    match db_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.join(&file_name),
+        _ => PathBuf::from(&file_name),
+    }
+}
+
 fn remove_sqlite_sidecars(db_path: &Path) -> Result<(), IdxError> {
     for suffix in ["-wal", "-shm"] {
-        let file_name = format!(
-            "{}{suffix}",
-            db_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("ownership.db")
-        );
-        let sidecar = match db_path.parent() {
-            Some(parent) if !parent.as_os_str().is_empty() => parent.join(&file_name),
-            _ => PathBuf::from(&file_name),
-        };
+        let sidecar = sidecar_path(db_path, suffix);
 
         if sidecar.exists() {
             fs::remove_file(&sidecar).map_err(|e| {
@@ -807,8 +831,7 @@ mod tests {
             replaces_sqlite_sha256: Vec::new(),
         };
         let local = super::LocalSnapshotState {
-            file_sha256: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-                .to_string(),
+            file_sha256: Some("d".repeat(64)),
             latest_release: Some(OwnershipRelease {
                 id: 1,
                 source_url: None,
@@ -849,7 +872,7 @@ mod tests {
         file_sha256: &str,
     ) -> super::LocalSnapshotState {
         super::LocalSnapshotState {
-            file_sha256: file_sha256.to_string(),
+            file_sha256: Some(file_sha256.to_string()),
             latest_release: Some(OwnershipRelease {
                 id: 3,
                 source_url: None,
@@ -1035,5 +1058,50 @@ mod tests {
             })
             .unwrap();
         assert_eq!(release_count, 1);
+    }
+
+    #[test]
+    fn local_hash_covers_committed_changes_still_in_the_wal() {
+        let dir = std::env::temp_dir().join(format!(
+            "idx-snapshot-wal-{}-{}",
+            std::process::id(),
+            fastrand::u64(..)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("ownership.db");
+        let release = |sha256: &str| OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: sha256.to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 9, 30).unwrap(),
+            row_count: 1,
+            imported_at: 1,
+        };
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            ensure_schema(&conn).unwrap();
+            insert_release(&conn, &release("published")).unwrap();
+        }
+        let published = super::sha256_hex(&std::fs::read(&db_path).unwrap());
+
+        // A committed edit that stays in the WAL: the main file still hashes
+        // as the published build while the connection is open.
+        let editor = Connection::open(&db_path).unwrap();
+        ensure_schema(&editor).unwrap();
+        editor
+            .query_row("PRAGMA wal_autocheckpoint = 0", [], |_| Ok(()))
+            .unwrap();
+        insert_release(&editor, &release("local edit")).unwrap();
+        assert_eq!(
+            super::sha256_hex(&std::fs::read(&db_path).unwrap()),
+            published
+        );
+
+        let local = super::inspect_local_db(&db_path).unwrap().unwrap();
+        assert_ne!(local.file_sha256.as_deref(), Some(published.as_str()));
+        assert_eq!(local.release_count, 2);
+
+        drop(editor);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

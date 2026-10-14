@@ -99,6 +99,9 @@ for one or more IDX tickers."
     )]
     async fn get_quotes(&self, params: Parameters<SymbolsParams>) -> ToolResult {
         let SymbolsParams { symbols } = params.0;
+        if let Some(err) = empty_input("symbols", &symbols) {
+            return err;
+        }
         self.live(move |idx| {
             let quotes = idx.market().quotes(&symbols, CachePolicy::Default)?;
             Ok(json!({ "quotes": quotes }))
@@ -155,6 +158,9 @@ earnings, analyst sentiment, insights, and news. Sections that fail are listed u
     async fn get_company(&self, params: Parameters<CompanyParams>) -> ToolResult {
         let CompanyParams { symbol, sections } = params.0;
         let sections = sections.unwrap_or_else(|| CompanySection::ALL.to_vec());
+        if let Some(err) = empty_input("sections", &sections) {
+            return err;
+        }
         self.live(move |idx| {
             let financial = idx.financial();
             let policy = CachePolicy::Default;
@@ -195,6 +201,9 @@ are listed under `errors`; the call fails only if every analysis fails."
     async fn analyze_stock(&self, params: Parameters<AnalyzeParams>) -> ToolResult {
         let AnalyzeParams { symbol, kinds } = params.0;
         let kinds = kinds.unwrap_or_else(|| AnalysisKind::ALL.to_vec());
+        if let Some(err) = empty_input("kinds", &kinds) {
+            return err;
+        }
         self.live(move |idx| {
             let analysis = idx.analysis();
             let policy = CachePolicy::Default;
@@ -224,6 +233,9 @@ tickers. Tickers that fail are listed under `failures`."
     )]
     async fn compare_stocks(&self, params: Parameters<SymbolsParams>) -> ToolResult {
         let SymbolsParams { symbols } = params.0;
+        if let Some(err) = empty_input("symbols", &symbols) {
+            return err;
+        }
         self.live(move |idx| {
             let comparison = idx.analysis().compare(&symbols, CachePolicy::Default)?;
             let failures: Vec<Value> = comparison
@@ -374,6 +386,17 @@ where
     Ok(match result {
         Ok(value) => CallToolResult::structured(value),
         Err(err) => CallToolResult::structured_error(Value::Object(error_body(&err))),
+    })
+}
+
+/// An explicitly empty list is an input error, as in the CLI, rather than an
+/// empty success an agent could mistake for data.
+fn empty_input<T>(field: &str, values: &[T]) -> Option<ToolResult> {
+    values.is_empty().then(|| {
+        let err = IdxError::InvalidInput(format!("{field} must not be empty"));
+        Ok(CallToolResult::structured_error(Value::Object(error_body(
+            &err,
+        ))))
     })
 }
 
