@@ -119,7 +119,7 @@ let conn = Connection::open(path)
 - **Unit tests:** retain precise parser, normalization, calculation, and boundary regressions; avoid pinning incidental wording, enum counts, or internal wiring.
 - **Integration tests:** prefer CLI workflows, real temporary/in-memory SQLite, and deterministic local provider fixtures for user-visible contracts and state transitions.
 - **Output contracts:** parse JSON from stdout on success and stderr on failure; errors must leave stdout empty. Assert meaningful values, types, and stable error codes rather than substrings or diagnostic wording.
-- **Stateful workflows:** compare cached data across offline/failure transitions, and verify failed snapshot updates preserve both database bytes and query results. Keep packaged-binary smoke representative; put exhaustive boundaries in integration tests.
+- **Stateful workflows:** compare cached data across offline/failure transitions, and verify failed snapshot updates preserve both database bytes and query results. Put behavioral coverage in `tests/cli.rs`, not shell smoke.
 - **Fixtures:** `tests/fixtures/*.json` — real API responses, sanitized
 - **No live API calls in CI** — `IDX_USE_MOCK_PROVIDER=1`
 - **Test naming:** `test_<function>_<scenario>` (e.g., `test_parse_id_number_with_dots`)

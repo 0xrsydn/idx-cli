@@ -60,13 +60,13 @@ curl -fsSL https://crates.io/api/v1/crates/idx-cli
 For a real release or release-hygiene fix, verify the repo state first.
 
 Run the canonical gate (fmt, clippy, tests, release build, `cargo package`
-verification, and mock smoke):
+verification, and a packaged-binary check):
 
 ```bash
 nix flake check -L
 ```
 
-Run targeted smoke when the release changes user-facing CLI behavior. For
+Run `scripts/live-smoke.sh` when the release changes provider-facing behavior. For
 ownership-sync changes, re-verify a clean-machine flow:
 
 ```bash

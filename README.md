@@ -146,7 +146,7 @@ Precedence order:
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): providers, ownership ingest, and discovery
 - [docs/OWNERSHIP_SYNC.md](docs/OWNERSHIP_SYNC.md): snapshot manifest and sync rules
 - [docs/OWNERSHIP_PUBLISH.md](docs/OWNERSHIP_PUBLISH.md): maintainer snapshot publishing
-- [docs/SMOKE.md](docs/SMOKE.md): smoke tests against live providers
+- [docs/SMOKE.md](docs/SMOKE.md): test layout and the live provider drift check
 - [ROADMAP.md](ROADMAP.md): planned work
 
 ## Development
@@ -157,10 +157,10 @@ The canonical local and CI verification command is:
 nix flake check -L
 ```
 
-It covers Rust formatting, Clippy, tests, crate package verification, release
-builds, offline CLI smoke, publisher regressions, installer tests with `sh` and
-`dash`, and ShellCheck for installer/smoke scripts. The checks use pinned tools and cached Nix
-outputs; an unchanged successful check is reused rather than rerun.
+It covers Rust formatting, Clippy, unit and CLI integration tests, crate
+package verification, the packaged binary, publisher regressions, installer
+tests with `sh` and `dash`, and ShellCheck. The checks use pinned tools and
+cached Nix outputs; an unchanged successful check is reused rather than rerun.
 
 For a focused edit/debug loop, use the same pinned toolchain:
 
@@ -172,10 +172,10 @@ Configured Prek hooks keep whitespace/conflict checks at pre-commit and run
 `nix flake check -L` at pre-push. There is no separate full Cargo test/lint gate
 to repeat after a successful flake check.
 
-CI additionally checks the installer with native macOS tools for portability.
-Live-provider smoke remains opt-in; see [docs/SMOKE.md](docs/SMOKE.md) for check
-selection and caching details. The npm distribution harness remains available
-separately as `scripts/npm-smoke.sh`.
+CI additionally checks the installer with native macOS tools. The live
+provider drift check (`scripts/live-smoke.sh`) is opt-in; see
+[docs/SMOKE.md](docs/SMOKE.md). The npm wrapper has its own harness,
+`scripts/npm-smoke.sh`.
 
 ## License
 

@@ -21,7 +21,7 @@ Docs:
 - `docs/ARCHITECTURE.md`: providers, ownership ingest/discovery, error and output contract
 - `docs/CONVENTIONS.md`: types, naming, testing, and git rules
 - `docs/OWNERSHIP_SYNC.md` / `docs/OWNERSHIP_PUBLISH.md`: snapshot consumer contract / maintainer publishing
-- `docs/SMOKE.md`: smoke runner and Nix check coverage
+- `docs/SMOKE.md`: Nix checks, test layout, and the live drift check
 - `ROADMAP.md`: open work
 
 ## Rules
@@ -36,7 +36,7 @@ Docs:
 
 ## Verify
 ```bash
-nix flake check -L                       # canonical gate (fmt, clippy, tests, package, smoke)
+nix flake check -L                       # canonical gate (fmt, clippy, tests, package)
 nix develop --command cargo test <name>  # focused loop
-scripts/live-smoke.sh --mode full        # opt-in live providers
+scripts/live-smoke.sh                    # opt-in live provider drift check
 ```

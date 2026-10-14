@@ -189,19 +189,19 @@
             doInstallCargoArtifacts = false;
             installPhaseCommand = "touch $out";
           });
-          smoke-mock = pkgs.runCommand "idx-smoke-mock"
-            { nativeBuildInputs = with pkgs; [ bash coreutils diffutils findutils gnugrep gnused gawk jq ]; }
+          # Sanity check of the packaged (wrapped) binary; CLI behavior is
+          # covered by tests/cli.rs.
+          packaged-cli = pkgs.runCommand "idx-packaged-cli"
+            { nativeBuildInputs = with pkgs; [ bash jq ]; }
             ''
-              mkdir -p scripts
-              cp ${./scripts/live-smoke.sh} scripts/live-smoke.sh
-              chmod u+w scripts/live-smoke.sh
-              patchShebangs scripts/live-smoke.sh
               # The mock provider reads fixtures relative to the working dir.
               mkdir -p tests
               cp -r ${./tests/fixtures} tests/fixtures
               export HOME="$TMPDIR"
-              ${idxPackage}/bin/idx version
-              bash scripts/live-smoke.sh --bin ${idxPackage}/bin/idx --no-build --mode mock
+              ${idxPackage}/bin/idx -o json version | jq -e '.version | type == "string"'
+              ${idxPackage}/bin/idx completions bash | bash -n
+              IDX_USE_MOCK_PROVIDER=1 ${idxPackage}/bin/idx -o json stocks quote BBCA \
+                | jq -e '.[0].price | type == "number"'
               touch "$out"
             '';
           install-script-sh = installerCheck "sh";
