@@ -4,14 +4,13 @@ pub mod table;
 
 use std::io::IsTerminal;
 
-use chrono::NaiveDate;
 use clap::ValueEnum;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use idx_core::analysis::fundamental::{
     FundamentalReport, GrowthReport, RiskReport, ValuationReport,
 };
-use idx_core::analysis::signals::TechnicalSignal;
+use idx_core::analysis::report::TechnicalReport;
 use idx_core::api::types::{
     CompanyProfile, EarningsReport, FinancialStatements, InsightData, NewsItem, Ohlc, Quote,
     SentimentData,
@@ -60,34 +59,6 @@ impl OutputFormat {
     pub fn is_json(self) -> bool {
         matches!(self, Self::Json | Self::Jsonl)
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TechnicalReport {
-    pub symbol: String,
-    pub as_of: NaiveDate,
-    pub current_price: i64,
-    pub sma20: Option<f64>,
-    pub sma50: Option<f64>,
-    pub sma200: Option<f64>,
-    pub rsi14: Option<f64>,
-    pub macd: MacdSnapshot,
-    pub volume: VolumeSnapshot,
-    pub signals: TechnicalSignal,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MacdSnapshot {
-    pub line: Option<f64>,
-    pub signal: Option<f64>,
-    pub histogram: Option<f64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VolumeSnapshot {
-    pub current: u64,
-    pub average20: Option<f64>,
-    pub ratio20: Option<f64>,
 }
 
 pub fn render_quotes(

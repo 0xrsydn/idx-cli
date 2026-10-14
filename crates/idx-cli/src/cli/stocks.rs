@@ -1,55 +1,18 @@
-use std::cmp::Ordering;
 use std::io::Read;
 
-use clap::{Args, Subcommand, ValueEnum};
-use serde::{Serialize, de::DeserializeOwned};
+use clap::{Args, Subcommand};
 
-use crate::config::{HistoryProviderKind, IdxConfig, ProviderKind};
+use crate::config::{HistoryProviderKind, IdxConfig};
 use crate::output::{
-    MacdSnapshot, TechnicalReport, VolumeSnapshot, render_compare, render_earnings,
-    render_financials, render_fundamental, render_growth, render_history, render_insights,
-    render_news, render_profile, render_quotes, render_risk, render_screener, render_sentiment,
-    render_technical, render_valuation,
+    render_compare, render_earnings, render_financials, render_fundamental, render_growth,
+    render_history, render_insights, render_news, render_profile, render_quotes, render_risk,
+    render_screener, render_sentiment, render_technical, render_valuation,
 };
-use idx_core::analysis::fundamental::{
-    FundamentalReport, GrowthReport, RiskReport, ValuationReport, analyze_fundamental,
-    analyze_growth, analyze_risk, analyze_valuation,
-};
-use idx_core::analysis::signals::{self, Signal, TechnicalSignal};
-use idx_core::analysis::technical;
-use idx_core::api::types::{
-    CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, Interval,
-    NewsItem, Ohlc, Period, Quote, SentimentData,
-};
-use idx_core::api::{MarketDataProvider, SelectedProvider, history_provider};
-use idx_core::cache::Cache;
+use idx_core::api::types::{Interval, Period};
 use idx_core::error::IdxError;
-use idx_core::runtime;
-
-struct FundamentalCacheSpec {
-    bucket: String,
-    ttl_secs: u64,
-}
-
-struct CacheFetchSpec<'a> {
-    bucket: &'a str,
-    key: &'a str,
-    ttl_secs: u64,
-    subject: &'a str,
-}
-
-const SCREENER_FILTERS: &[&str] = &[
-    "top-performers",
-    "worst-performers",
-    "high-dividend",
-    "low-pe",
-    "52w-high",
-    "52w-low",
-    "high-volume",
-    "large-cap",
-];
-
-const SCREENER_REGIONS: &[&str] = &["id", "us", "sg", "hk", "jp"];
+use idx_core::financial::{EarningsFilter, StatementFilter, StatementKind};
+use idx_core::market::ScreenQuery;
+use idx_core::{CachePolicy, Idx, runtime};
 
 /// Splits comma-separated symbol arguments; `-` reads symbols from stdin,
 /// separated by whitespace or commas.
@@ -79,22 +42,11 @@ fn expand_symbols(args: &[String]) -> Result<Vec<String>, IdxError> {
     Ok(symbols)
 }
 
-fn cache_bucket(provider: ProviderKind, key: &str) -> String {
-    format!("{}-{key}", provider.as_str())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum FinancialStatementKind {
-    Income,
-    Balance,
-    Cashflow,
-}
-
 #[derive(Debug, Clone, Args, Default)]
 pub struct FinancialsFilterArgs {
     /// Limit output to one or more statements.
     #[arg(long, value_enum, value_delimiter = ',', num_args = 1..)]
-    statement: Vec<FinancialStatementKind>,
+    statement: Vec<StatementKind>,
 }
 
 #[derive(Debug, Clone, Copy, Args, Default)]
@@ -113,33 +65,15 @@ pub struct EarningsFilterArgs {
     quarterly: bool,
 }
 
-impl EarningsFilterArgs {
-    fn include_forecast(self) -> bool {
-        self.forecast || !self.history
-    }
-
-    fn include_history(self) -> bool {
-        self.history || !self.forecast
-    }
-
-    fn includes_period(self, period_type: &str) -> bool {
-        if !self.annual && !self.quarterly {
-            return true;
-        }
-
-        match classify_earnings_period(period_type) {
-            EarningsPeriodKind::Annual => self.annual || !self.quarterly,
-            EarningsPeriodKind::Quarterly => self.quarterly || !self.annual,
-            EarningsPeriodKind::Unknown => false,
+impl From<EarningsFilterArgs> for EarningsFilter {
+    fn from(args: EarningsFilterArgs) -> Self {
+        Self {
+            forecast: args.forecast,
+            history: args.history,
+            annual: args.annual,
+            quarterly: args.quarterly,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EarningsPeriodKind {
-    Annual,
-    Quarterly,
-    Unknown,
 }
 
 #[derive(Debug, Args)]
@@ -269,1085 +203,131 @@ pub enum StocksSubcommand {
 pub fn handle(
     cmd: &StocksCmd,
     config: &IdxConfig,
-    provider: &SelectedProvider,
     offline: bool,
     no_cache: bool,
-    verbose: bool,
 ) -> Result<(), IdxError> {
-    if offline && no_cache {
-        return Err(IdxError::InvalidInput(
-            "cannot combine --offline with --no-cache".to_string(),
-        ));
-    }
-
-    let cache = Cache::new()?;
+    let policy = CachePolicy::from_flags(offline, no_cache)?;
+    let idx = Idx::new(config.core.clone())?;
+    let format = &config.output;
+    let no_color = config.no_color;
 
     match &cmd.command {
         StocksSubcommand::Quote { symbols } => {
-            let quote_bucket = cache_bucket(provider.kind(), "quote");
-            let mut quotes = Vec::new();
-            for sym in expand_symbols(symbols)? {
-                let resolved = idx_core::api::resolve_symbol(&sym, &config.exchange)?;
-                if !no_cache && let Some(q) = cache.get(&quote_bucket, &resolved)? {
-                    quotes.push(q);
-                    continue;
-                }
-                if offline {
-                    let stale = cache
-                        .get_offline(&quote_bucket, &resolved)?
-                        .ok_or_else(|| IdxError::CacheMiss(format!("{quote_bucket}/{resolved}")))?;
-                    quotes.push(stale);
-                    continue;
-                }
-
-                match provider.market().quote(&resolved) {
-                    Ok(q) => {
-                        if !no_cache {
-                            cache.put(&quote_bucket, &resolved, &q, config.quote_ttl)?;
-                        }
-                        quotes.push(q);
-                    }
-                    Err(err) => {
-                        if !no_cache
-                            && let Some(stale) = cache.get_stale(&quote_bucket, &resolved)?
-                        {
-                            runtime::warn(format!(
-                                "network failed, serving stale cache for {resolved}"
-                            ));
-                            quotes.push(stale);
-                            continue;
-                        }
-                        return Err(err);
-                    }
-                }
-            }
-            render_quotes(&quotes, &config.output, config.no_color)
+            let quotes = idx.market().quotes(&expand_symbols(symbols)?, policy)?;
+            let quotes: Vec<_> = quotes.into_iter().map(|q| q.data).collect();
+            render_quotes(&quotes, format, no_color)
         }
         StocksSubcommand::History {
             symbol,
             period,
             interval,
-            history_provider: history_provider_override,
+            history_provider,
         } => {
-            let history_mode = history_provider_override.unwrap_or(config.history_provider);
-            let (history_source, hist_provider) =
-                history_provider(provider.kind(), history_mode, verbose)?;
-            if matches!(history_mode, HistoryProviderKind::Auto)
-                && history_source != provider.kind()
-                && !config.output.is_json()
-            {
-                runtime::info(format!(
-                    "history provider fallback active ({} -> {})",
-                    provider.kind().as_str(),
-                    history_source.as_str()
-                ));
-            }
-            let history_bucket = format!("{}-history", history_source.as_str());
-            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
-            let key = format!("{}-{}", period.as_str(), interval.as_str());
-            if !no_cache
-                && let Some(history) = cache.get::<Vec<idx_core::api::types::Ohlc>>(
-                    &history_bucket,
-                    &format!("{resolved}-{key}"),
-                )?
-            {
-                return render_history(&resolved, &history, &config.output);
-            }
-            if offline {
-                let stale = cache
-                    .get_offline::<Vec<idx_core::api::types::Ohlc>>(
-                        &history_bucket,
-                        &format!("{resolved}-{key}"),
-                    )?
-                    .ok_or_else(|| {
-                        IdxError::CacheMiss(format!("{history_bucket}/{resolved}-{key}"))
-                    })?;
-                return render_history(&resolved, &stale, &config.output);
-            }
-
-            match hist_provider.history(&resolved, period, interval) {
-                Ok(history) => {
-                    if !no_cache {
-                        cache.put(
-                            &history_bucket,
-                            &format!("{resolved}-{key}"),
-                            &history,
-                            config.quote_ttl,
-                        )?;
-                    }
-                    render_history(&resolved, &history, &config.output)
-                }
-                Err(err) => {
-                    if !no_cache
-                        && let Some(stale) = cache.get_stale::<Vec<idx_core::api::types::Ohlc>>(
-                            &history_bucket,
-                            &format!("{resolved}-{key}"),
-                        )?
-                    {
-                        runtime::warn(format!(
-                            "network failed, serving stale cache for {resolved}"
-                        ));
-                        return render_history(&resolved, &stale, &config.output);
-                    }
-                    Err(err)
-                }
-            }
+            let source = idx.market().history_source(*history_provider);
+            announce_history_fallback(&idx, source, config);
+            let history = idx
+                .market()
+                .history(symbol, period, interval, source, policy)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.core.exchange)?;
+            render_history(&resolved, &history.data, format)
         }
         StocksSubcommand::Technical {
             symbol,
-            history_provider: history_provider_override,
+            history_provider,
         } => {
-            let history_mode = history_provider_override.unwrap_or(config.history_provider);
-            let (history_source, hist_provider) =
-                history_provider(provider.kind(), history_mode, verbose)?;
-            if matches!(history_mode, HistoryProviderKind::Auto)
-                && history_source != provider.kind()
-                && !config.output.is_json()
-            {
-                runtime::info(format!(
-                    "history provider fallback active ({} -> {})",
-                    provider.kind().as_str(),
-                    history_source.as_str()
-                ));
-            }
-            let technical_bucket = format!("{}-technical", history_source.as_str());
-            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
-            if !no_cache
-                && let Some(report) = cache.get::<TechnicalReport>(&technical_bucket, &resolved)?
-            {
-                return render_technical(&report, &config.output, config.no_color);
-            }
-            if offline {
-                let stale = cache
-                    .get_offline::<TechnicalReport>(&technical_bucket, &resolved)?
-                    .ok_or_else(|| IdxError::CacheMiss(format!("{technical_bucket}/{resolved}")))?;
-                return render_technical(&stale, &config.output, config.no_color);
-            }
-
-            match hist_provider.history(&resolved, &Period::OneYear, &Interval::Day) {
-                Ok(history) => {
-                    let report = build_technical_report(&resolved, &history)?;
-                    if !no_cache {
-                        cache.put(&technical_bucket, &resolved, &report, config.quote_ttl)?;
-                    }
-                    render_technical(&report, &config.output, config.no_color)
-                }
-                Err(err) => {
-                    if !no_cache
-                        && let Some(stale) =
-                            cache.get_stale::<TechnicalReport>(&technical_bucket, &resolved)?
-                    {
-                        runtime::warn(format!(
-                            "network failed, serving stale cache for {resolved}"
-                        ));
-                        return render_technical(&stale, &config.output, config.no_color);
-                    }
-                    Err(err)
-                }
-            }
+            let source = idx.market().history_source(*history_provider);
+            announce_history_fallback(&idx, source, config);
+            let report = idx.analysis().technical(symbol, source, policy)?;
+            render_technical(&report.data, format, no_color)
         }
         StocksSubcommand::Growth { symbol } => {
-            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
-            let report: GrowthReport = fetch_fundamental_analysis_report(
-                &cache,
-                provider.market(),
-                &resolved,
-                FundamentalCacheSpec {
-                    bucket: cache_bucket(provider.kind(), "growth"),
-                    ttl_secs: config.fundamental_ttl,
-                },
-                offline,
-                no_cache,
-                |_, fundamentals| analyze_growth(fundamentals),
-            )?;
-            render_growth(&resolved, &report, &config.output, config.no_color)
+            let report = idx.analysis().growth(symbol, policy)?;
+            render_growth(&resolve(symbol, config)?, &report.data, format, no_color)
         }
         StocksSubcommand::Valuation { symbol } => {
-            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
-            let report: ValuationReport = fetch_fundamental_analysis_report(
-                &cache,
-                provider.market(),
-                &resolved,
-                FundamentalCacheSpec {
-                    bucket: cache_bucket(provider.kind(), "valuation"),
-                    ttl_secs: config.fundamental_ttl,
-                },
-                offline,
-                no_cache,
-                |_, fundamentals| analyze_valuation(fundamentals),
-            )?;
-            render_valuation(&resolved, &report, &config.output, config.no_color)
+            let report = idx.analysis().valuation(symbol, policy)?;
+            render_valuation(&resolve(symbol, config)?, &report.data, format, no_color)
         }
         StocksSubcommand::Risk { symbol } => {
-            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
-            let report: RiskReport = fetch_fundamental_analysis_report(
-                &cache,
-                provider.market(),
-                &resolved,
-                FundamentalCacheSpec {
-                    bucket: cache_bucket(provider.kind(), "risk"),
-                    ttl_secs: config.fundamental_ttl,
-                },
-                offline,
-                no_cache,
-                |_, fundamentals| analyze_risk(fundamentals),
-            )?;
-            render_risk(&resolved, &report, &config.output, config.no_color)
+            let report = idx.analysis().risk(symbol, policy)?;
+            render_risk(&resolve(symbol, config)?, &report.data, format, no_color)
         }
         StocksSubcommand::Fundamental { symbol } => {
-            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
-            let report: FundamentalReport = fetch_fundamental_analysis_report(
-                &cache,
-                provider.market(),
-                &resolved,
-                FundamentalCacheSpec {
-                    bucket: cache_bucket(provider.kind(), "fundamental"),
-                    ttl_secs: config.fundamental_ttl,
-                },
-                offline,
-                no_cache,
-                analyze_fundamental,
-            )?;
-            render_fundamental(&report, &config.output, config.no_color)
+            let report = idx.analysis().fundamental(symbol, policy)?;
+            render_fundamental(&report.data, format, no_color)
         }
         StocksSubcommand::Profile { symbol } => {
-            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
-            let bucket = cache_bucket(provider.kind(), "profile-v2");
-            let profile_provider = provider.profile_provider(&resolved)?;
-            let profile: CompanyProfile = fetch_with_cache(
-                &cache,
-                CacheFetchSpec {
-                    bucket: &bucket,
-                    key: &resolved,
-                    ttl_secs: config.fundamental_ttl,
-                    subject: &resolved,
-                },
-                offline,
-                no_cache,
-                || profile_provider.profile(&resolved),
-            )?;
-            render_profile(&profile, &config.output)
+            let profile = idx.financial().profile(symbol, policy)?;
+            render_profile(&profile.data, format)
         }
         StocksSubcommand::Financials { symbol, filters } => {
-            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
-            let bucket = cache_bucket(provider.kind(), "financials");
-            let financials_provider = provider.financials_provider(&resolved)?;
-            let mut financials: FinancialStatements = fetch_with_cache(
-                &cache,
-                CacheFetchSpec {
-                    bucket: &bucket,
-                    key: &resolved,
-                    ttl_secs: config.fundamental_ttl,
-                    subject: &resolved,
-                },
-                offline,
-                no_cache,
-                || financials_provider.financials(&resolved),
-            )?;
-            if financials.instrument.symbol.trim().is_empty()
-                || !financials.instrument.symbol.contains('.')
-            {
-                financials.instrument.symbol = resolved.clone();
-            }
-            let filtered = filter_financial_statements(&financials, filters);
-            render_financials(&filtered, &config.output)
+            let filter = StatementFilter {
+                statements: filters.statement.clone(),
+            };
+            let financials = idx.financial().statements(symbol, &filter, policy)?;
+            render_financials(&financials.data, format)
         }
         StocksSubcommand::Earnings { symbol, filters } => {
-            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
-            let bucket = cache_bucket(provider.kind(), "earnings");
-            let earnings_provider = provider.earnings_provider(&resolved)?;
-            let mut earnings: EarningsReport = fetch_with_cache(
-                &cache,
-                CacheFetchSpec {
-                    bucket: &bucket,
-                    key: &resolved,
-                    ttl_secs: config.fundamental_ttl,
-                    subject: &resolved,
-                },
-                offline,
-                no_cache,
-                || earnings_provider.earnings(&resolved),
-            )?;
-            if earnings.symbol.is_empty() {
-                earnings.symbol = resolved.clone();
-            }
-            let filtered = filter_earnings_report(&earnings, filters);
-            render_earnings(&filtered, &config.output)
+            let earnings =
+                idx.financial()
+                    .earnings(symbol, EarningsFilter::from(*filters), policy)?;
+            render_earnings(&earnings.data, format)
         }
         StocksSubcommand::Sentiment { symbol } => {
-            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
-            let bucket = cache_bucket(provider.kind(), "sentiment");
-            let sentiment_provider = provider.sentiment_provider(&resolved)?;
-            let sentiment: SentimentData = fetch_with_cache(
-                &cache,
-                CacheFetchSpec {
-                    bucket: &bucket,
-                    key: &resolved,
-                    ttl_secs: config.fundamental_ttl,
-                    subject: &resolved,
-                },
-                offline,
-                no_cache,
-                || sentiment_provider.sentiment(&resolved),
-            )?;
-            render_sentiment(&sentiment, &config.output)
+            let sentiment = idx.financial().sentiment(symbol, policy)?;
+            render_sentiment(&sentiment.data, format)
         }
         StocksSubcommand::Insights { symbol } => {
-            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
-            let bucket = cache_bucket(provider.kind(), "insights-v2");
-            let insights_provider = provider.insights_provider(&resolved)?;
-            let mut insights: InsightData = fetch_with_cache(
-                &cache,
-                CacheFetchSpec {
-                    bucket: &bucket,
-                    key: &resolved,
-                    ttl_secs: config.fundamental_ttl,
-                    subject: &resolved,
-                },
-                offline,
-                no_cache,
-                || insights_provider.insights(&resolved),
-            )?;
-            if insights.symbol.is_empty() {
-                insights.symbol = resolved.clone();
-            }
-            render_insights(&insights, &config.output)
+            let insights = idx.financial().insights(symbol, policy)?;
+            render_insights(&insights.data, format)
         }
         StocksSubcommand::News { symbol, limit } => {
-            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
-            let bucket = cache_bucket(provider.kind(), "news");
-            let key = format!("{resolved}-{limit}");
-            let news_provider = provider.news_provider(&resolved)?;
-            let mut news: Vec<NewsItem> = fetch_with_cache(
-                &cache,
-                CacheFetchSpec {
-                    bucket: &bucket,
-                    key: &key,
-                    ttl_secs: config.quote_ttl,
-                    subject: &resolved,
-                },
-                offline,
-                no_cache,
-                || news_provider.news(&resolved, *limit),
-            )?;
-            for item in &mut news {
-                if item.symbol.is_empty() {
-                    item.symbol = resolved.clone();
-                }
-            }
-            render_news(&news, &config.output)
+            let news = idx.financial().news(symbol, *limit, policy)?;
+            render_news(&news.data, format)
         }
         StocksSubcommand::Screen {
             filter,
             region,
             limit,
         } => {
-            let filter_key = screener_filter_key(filter)?;
-            let region_key = screener_region_key(region)?;
-            // Filters re-sorted client-side need the whole MSN list: MSN orders
-            // by 1-year return, so truncating first and then sorting by day
-            // change made `--limit 3` return different stocks than `--limit 25`.
-            let needs_full_fetch = matches!(
-                filter.as_str(),
-                "high-volume" | "large-cap" | "top-performers" | "worst-performers"
-            );
-            let fetch_limit = (!needs_full_fetch).then_some(*limit);
-            let bucket = cache_bucket(provider.kind(), "screen");
-            let key = match fetch_limit {
-                Some(limit) => format!("{filter}:{region}:{limit}"),
-                None => format!("{filter}:{region}:all"),
+            let query = ScreenQuery {
+                filter: filter.parse()?,
+                region: region.parse()?,
+                limit: *limit,
             };
-            let screener_provider = provider.screener_provider("screen")?;
-            let mut quotes: Vec<Quote> = fetch_with_cache(
-                &cache,
-                CacheFetchSpec {
-                    bucket: &bucket,
-                    key: &key,
-                    ttl_secs: config.quote_ttl,
-                    subject: "screen",
-                },
-                offline,
-                no_cache,
-                || screener_provider.screener(filter_key, region_key, fetch_limit),
-            )?;
-            sort_screener_quotes(&mut quotes, filter);
-            quotes.truncate(*limit);
-            render_screener(&quotes, &config.output, config.no_color)
+            let quotes = idx.market().screen(&query, policy)?;
+            render_screener(&quotes.data, format, no_color)
         }
         StocksSubcommand::Compare { symbols } => {
-            let mut reports: Vec<FundamentalReport> = Vec::new();
-            let mut failures = Vec::new();
-
-            for sym in expand_symbols(symbols)? {
-                let resolved = idx_core::api::resolve_symbol(&sym, &config.exchange)?;
-                match fetch_fundamental_analysis_report(
-                    &cache,
-                    provider.market(),
-                    &resolved,
-                    FundamentalCacheSpec {
-                        bucket: cache_bucket(provider.kind(), "fundamental"),
-                        ttl_secs: config.fundamental_ttl,
-                    },
-                    offline,
-                    no_cache,
-                    analyze_fundamental,
-                ) {
-                    Ok(report) => reports.push(report),
-                    Err(err) => failures.push((resolved, err)),
-                }
-            }
-
-            if reports.is_empty() {
-                return Err(failures.pop().map(|(_, err)| err).unwrap_or_else(|| {
-                    IdxError::CacheMiss("fundamental/no symbols could be compared".to_string())
-                }));
-            }
-
+            let comparison = idx.analysis().compare(&expand_symbols(symbols)?, policy)?;
             // Partial success needs diagnostics; total failure must leave stderr
             // available for the single structured error emitted by the caller.
-            for (resolved, err) in failures {
+            for (resolved, err) in comparison.failures {
                 runtime::warn(format!(
                     "failed to fetch fundamentals for {resolved}: {err}"
                 ));
             }
-
-            render_compare(&reports, &config.output, config.no_color)
+            let reports: Vec<_> = comparison.reports.into_iter().map(|r| r.data).collect();
+            render_compare(&reports, format, no_color)
         }
     }
 }
 
-fn fetch_with_cache<T, F>(
-    cache: &Cache,
-    cache_spec: CacheFetchSpec<'_>,
-    offline: bool,
-    no_cache: bool,
-    fetch_fn: F,
-) -> Result<T, IdxError>
-where
-    T: Serialize + DeserializeOwned,
-    F: FnOnce() -> Result<T, IdxError>,
-{
-    if !offline
-        && !no_cache
-        && let Some(cached) = cache.get::<T>(cache_spec.bucket, cache_spec.key)?
-    {
-        return Ok(cached);
-    }
-
-    if offline {
-        if no_cache {
-            return Err(IdxError::InvalidInput(
-                "cannot combine --offline with --no-cache".to_string(),
-            ));
-        }
-
-        return cache
-            .get_offline::<T>(cache_spec.bucket, cache_spec.key)?
-            .ok_or_else(|| {
-                IdxError::CacheMiss(format!("{}/{}", cache_spec.bucket, cache_spec.key))
-            });
-    }
-
-    match fetch_fn() {
-        Ok(data) => {
-            if !no_cache {
-                cache.put(
-                    cache_spec.bucket,
-                    cache_spec.key,
-                    &data,
-                    cache_spec.ttl_secs,
-                )?;
-            }
-            Ok(data)
-        }
-        Err(err) => {
-            if !no_cache
-                && let Some(stale) = cache.get_stale::<T>(cache_spec.bucket, cache_spec.key)?
-            {
-                runtime::warn(format!(
-                    "network failed, serving stale cache for {}",
-                    cache_spec.subject
-                ));
-                return Ok(stale);
-            }
-            Err(err)
-        }
-    }
+fn resolve(symbol: &str, config: &IdxConfig) -> Result<String, IdxError> {
+    idx_core::api::resolve_symbol(symbol, &config.core.exchange)
 }
 
-fn fetch_fundamental_analysis_report<T, F>(
-    cache: &Cache,
-    provider: &dyn MarketDataProvider,
-    resolved: &str,
-    cache_spec: FundamentalCacheSpec,
-    offline: bool,
-    no_cache: bool,
-    analyzer: F,
-) -> Result<T, IdxError>
-where
-    T: Serialize + DeserializeOwned,
-    F: FnOnce(&str, &Fundamentals) -> T,
-{
-    if !no_cache && let Some(report) = cache.get::<T>(&cache_spec.bucket, resolved)? {
-        return Ok(report);
-    }
-
-    if offline {
-        return cache
-            .get_offline::<T>(&cache_spec.bucket, resolved)?
-            .ok_or_else(|| IdxError::CacheMiss(format!("{}/{resolved}", cache_spec.bucket)));
-    }
-
-    match provider.fundamentals(resolved) {
-        Ok(fundamentals) => {
-            let report = analyzer(resolved, &fundamentals);
-            if !no_cache {
-                cache.put(&cache_spec.bucket, resolved, &report, cache_spec.ttl_secs)?;
-            }
-            Ok(report)
-        }
-        Err(err) => {
-            if !no_cache && let Some(stale) = cache.get_stale::<T>(&cache_spec.bucket, resolved)? {
-                runtime::warn(format!(
-                    "network failed, serving stale cache for {resolved}"
-                ));
-                return Ok(stale);
-            }
-            Err(err)
-        }
-    }
-}
-
-fn build_technical_report(symbol: &str, history: &[Ohlc]) -> Result<TechnicalReport, IdxError> {
-    let latest = history
-        .last()
-        .ok_or_else(|| IdxError::ParseError(format!("no history available for {symbol}")))?;
-    let closes: Vec<f64> = history.iter().map(|item| item.close as f64).collect();
-    let volumes: Vec<f64> = history.iter().map(|item| item.volume as f64).collect();
-
-    let sma20 = last_value(&technical::sma(&closes, 20));
-    let sma50 = last_value(&technical::sma(&closes, 50));
-    let sma200 = last_value(&technical::sma(&closes, 200));
-    let rsi14 = last_value(&technical::rsi(&closes, 14));
-    let macd = technical::macd(&closes, 12, 26, 9);
-    let macd_line = last_value(&macd.macd_line);
-    let signal_line = last_value(&macd.signal_line);
-    let histogram = last_value(&macd.histogram);
-    let previous_histogram = previous_value(&macd.histogram);
-    let average_volume20 = average_last(&volumes, 20);
-    let volume_ratio20 = technical::volume_ratio(&volumes, 20);
-
-    let rsi_signal = rsi14.map_or(Signal::Neutral, signals::interpret_rsi);
-    let macd_signal = histogram
-        .map(|value| signals::interpret_macd(value, previous_histogram))
-        .unwrap_or(Signal::Neutral);
-    let trend_signal = signals::interpret_trend(latest.close as f64, sma50, sma200);
-    let overall = signals::overall_signal(rsi_signal, macd_signal, trend_signal);
-
-    Ok(TechnicalReport {
-        symbol: symbol.to_string(),
-        as_of: latest.date,
-        current_price: latest.close,
-        sma20,
-        sma50,
-        sma200,
-        rsi14,
-        macd: MacdSnapshot {
-            line: macd_line,
-            signal: signal_line,
-            histogram,
-        },
-        volume: VolumeSnapshot {
-            current: latest.volume,
-            average20: average_volume20,
-            ratio20: volume_ratio20,
-        },
-        signals: TechnicalSignal {
-            rsi: rsi_signal,
-            macd: macd_signal,
-            trend: trend_signal,
-            overall,
-        },
-    })
-}
-
-fn last_value(values: &[Option<f64>]) -> Option<f64> {
-    values.iter().rev().find_map(|value| *value)
-}
-
-fn previous_value(values: &[Option<f64>]) -> Option<f64> {
-    let mut seen_latest = false;
-    for value in values.iter().rev() {
-        if value.is_some() {
-            if seen_latest {
-                return *value;
-            }
-            seen_latest = true;
-        }
-    }
-    None
-}
-
-fn average_last(values: &[f64], period: usize) -> Option<f64> {
-    if period == 0 || values.len() < period {
-        return None;
-    }
-
-    let start = values.len() - period;
-    Some(values[start..].iter().sum::<f64>() / period as f64)
-}
-
-fn filter_financial_statements(
-    financials: &FinancialStatements,
-    filters: &FinancialsFilterArgs,
-) -> FinancialStatements {
-    let includes = |kind: FinancialStatementKind| {
-        filters.statement.is_empty() || filters.statement.contains(&kind)
-    };
-
-    FinancialStatements {
-        instrument: financials.instrument.clone(),
-        balance_sheet: includes(FinancialStatementKind::Balance)
-            .then(|| financials.balance_sheet.clone())
-            .flatten(),
-        cash_flow: includes(FinancialStatementKind::Cashflow)
-            .then(|| financials.cash_flow.clone())
-            .flatten(),
-        income_statement: includes(FinancialStatementKind::Income)
-            .then(|| financials.income_statement.clone())
-            .flatten(),
-    }
-}
-
-fn filter_earnings_report(report: &EarningsReport, filters: &EarningsFilterArgs) -> EarningsReport {
-    let filter_rows = |rows: &[idx_core::api::types::EarningsData]| {
-        rows.iter()
-            .filter(|row| filters.includes_period(&row.period_type))
-            .cloned()
-            .collect()
-    };
-
-    EarningsReport {
-        symbol: report.symbol.clone(),
-        eps_last_year: report.eps_last_year,
-        revenue_last_year: report.revenue_last_year,
-        forecast: if filters.include_forecast() {
-            filter_rows(&report.forecast)
-        } else {
-            Vec::new()
-        },
-        history: if filters.include_history() {
-            filter_rows(&report.history)
-        } else {
-            Vec::new()
-        },
-    }
-}
-
-fn classify_earnings_period(period_type: &str) -> EarningsPeriodKind {
-    let trimmed = period_type.trim();
-    if trimmed.is_empty() {
-        return EarningsPeriodKind::Unknown;
-    }
-
-    let upper = trimmed.to_ascii_uppercase();
-    if upper.starts_with('Q') {
-        return EarningsPeriodKind::Quarterly;
-    }
-    if upper.starts_with("FY") || (upper.len() == 4 && upper.chars().all(|ch| ch.is_ascii_digit()))
-    {
-        return EarningsPeriodKind::Annual;
-    }
-
-    EarningsPeriodKind::Unknown
-}
-
-fn screener_filter_key(filter: &str) -> Result<&'static str, IdxError> {
-    match filter {
-        "top-performers" => Ok("st_list_topperfs"),
-        "worst-performers" => Ok("st_list_poorperfs"),
-        "high-dividend" => Ok("st_list_highdividend"),
-        "low-pe" => Ok("st_list_lowpe"),
-        "52w-high" => Ok("st_list_52wkhi"),
-        "52w-low" => Ok("st_list_52wklow"),
-        "high-volume" => Ok("st_list_topperfs"),
-        "large-cap" => Ok("st_list_topperfs"),
-        _ => Err(IdxError::InvalidInput(format!(
-            "invalid screener filter '{filter}' (expected one of: {})",
-            SCREENER_FILTERS.join(", ")
-        ))),
-    }
-}
-
-fn screener_region_key(region: &str) -> Result<&'static str, IdxError> {
-    match region {
-        "id" => Ok("st_reg_id"),
-        "us" => Ok("st_reg_us"),
-        "sg" => Ok("st_reg_sg"),
-        "hk" => Ok("st_reg_hk"),
-        "jp" => Ok("st_reg_jp"),
-        _ => Err(IdxError::InvalidInput(format!(
-            "invalid screener region '{region}' (expected one of: {})",
-            SCREENER_REGIONS.join(", ")
-        ))),
-    }
-}
-
-fn sort_screener_quotes(quotes: &mut [Quote], filter: &str) {
-    match filter {
-        "top-performers" => {
-            quotes.sort_by(|a, b| {
-                let pa = a.change_pct.unwrap_or(f64::MIN);
-                let pb = b.change_pct.unwrap_or(f64::MIN);
-                pb.partial_cmp(&pa).unwrap_or(Ordering::Equal)
-            });
-        }
-        "worst-performers" => {
-            quotes.sort_by(|a, b| {
-                let pa = a.change_pct.unwrap_or(f64::MAX);
-                let pb = b.change_pct.unwrap_or(f64::MAX);
-                pa.partial_cmp(&pb).unwrap_or(Ordering::Equal)
-            });
-        }
-        "52w-high" => {
-            quotes.sort_by(|a, b| {
-                let pa = a.week52_position.unwrap_or(f64::MIN);
-                let pb = b.week52_position.unwrap_or(f64::MIN);
-                pb.partial_cmp(&pa).unwrap_or(Ordering::Equal)
-            });
-        }
-        "52w-low" => {
-            quotes.sort_by(|a, b| {
-                let pa = a.week52_position.unwrap_or(f64::MAX);
-                let pb = b.week52_position.unwrap_or(f64::MAX);
-                pa.partial_cmp(&pb).unwrap_or(Ordering::Equal)
-            });
-        }
-        "high-volume" => {
-            quotes.sort_by_key(|quote| std::cmp::Reverse(quote.volume));
-        }
-        "large-cap" => {
-            quotes.sort_by_key(|quote| std::cmp::Reverse(quote.market_cap.unwrap_or(0)));
-        }
-        _ => {}
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-
-    use chrono::{Days, NaiveDate};
-
-    use super::{
-        EarningsFilterArgs, EarningsPeriodKind, FinancialStatementKind, FinancialsFilterArgs,
-        build_technical_report, classify_earnings_period, filter_earnings_report,
-        filter_financial_statements,
-    };
-    use idx_core::analysis::signals::Signal;
-    use idx_core::api::types::{
-        EarningsData, EarningsReport, FinancialStatements, InstrumentInfo, Ohlc, StatementSection,
-    };
-    use idx_core::error::IdxError;
-
-    #[test]
-    fn technical_report_uses_latest_values() {
-        let start = NaiveDate::from_ymd_opt(2025, 1, 1).expect("valid date");
-        let history: Vec<Ohlc> = (0..60)
-            .map(|idx| Ohlc {
-                date: start
-                    .checked_add_days(Days::new(idx as u64))
-                    .expect("valid offset"),
-                open: 100 + idx as i64,
-                high: 101 + idx as i64,
-                low: 99 + idx as i64,
-                close: 100 + idx as i64,
-                volume: 1_000 + idx as u64 * 10,
-            })
-            .collect();
-
-        let report = build_technical_report("BBCA.JK", &history).expect("report should build");
-
-        assert_eq!(report.symbol, "BBCA.JK");
-        assert_eq!(report.current_price, 159);
-        assert!(report.sma20.is_some());
-        assert!(report.sma50.is_some());
-        assert_eq!(report.sma200, None);
-        assert!(report.rsi14.is_some());
-        assert!(report.volume.ratio20.is_some());
-        assert_eq!(report.signals.trend, Signal::Neutral);
-    }
-
-    #[test]
-    fn sort_screener_top_performers_descending() {
-        use idx_core::api::types::Quote;
-
-        let mut quotes = vec![
-            Quote {
-                symbol: "A".into(),
-                price: 100,
-                change: Some(1),
-                change_pct: Some(1.0),
-                volume: Some(100),
-                market_cap: None,
-                week52_high: None,
-                week52_low: None,
-                week52_position: None,
-                range_signal: None,
-                prev_close: None,
-                avg_volume: None,
-                as_of: None,
-            },
-            Quote {
-                symbol: "B".into(),
-                price: 200,
-                change: Some(10),
-                change_pct: Some(5.0),
-                volume: Some(200),
-                market_cap: None,
-                week52_high: None,
-                week52_low: None,
-                week52_position: None,
-                range_signal: None,
-                prev_close: None,
-                avg_volume: None,
-                as_of: None,
-            },
-            Quote {
-                symbol: "C".into(),
-                price: 150,
-                change: Some(5),
-                change_pct: Some(3.0),
-                volume: Some(150),
-                market_cap: None,
-                week52_high: None,
-                week52_low: None,
-                week52_position: None,
-                range_signal: None,
-                prev_close: None,
-                avg_volume: None,
-                as_of: None,
-            },
-        ];
-
-        super::sort_screener_quotes(&mut quotes, "top-performers");
-        let pcts: Vec<f64> = quotes.iter().filter_map(|q| q.change_pct).collect();
-        assert_eq!(pcts, vec![5.0, 3.0, 1.0]);
-    }
-
-    #[test]
-    fn sort_screener_worst_performers_ascending() {
-        use idx_core::api::types::Quote;
-
-        let mut quotes = vec![
-            Quote {
-                symbol: "A".into(),
-                price: 100,
-                change: Some(1),
-                change_pct: Some(1.0),
-                volume: Some(100),
-                market_cap: None,
-                week52_high: None,
-                week52_low: None,
-                week52_position: None,
-                range_signal: None,
-                prev_close: None,
-                avg_volume: None,
-                as_of: None,
-            },
-            Quote {
-                symbol: "B".into(),
-                price: 200,
-                change: Some(-10),
-                change_pct: Some(-5.0),
-                volume: Some(200),
-                market_cap: None,
-                week52_high: None,
-                week52_low: None,
-                week52_position: None,
-                range_signal: None,
-                prev_close: None,
-                avg_volume: None,
-                as_of: None,
-            },
-            Quote {
-                symbol: "C".into(),
-                price: 150,
-                change: Some(-3),
-                change_pct: Some(-2.0),
-                volume: Some(150),
-                market_cap: None,
-                week52_high: None,
-                week52_low: None,
-                week52_position: None,
-                range_signal: None,
-                prev_close: None,
-                avg_volume: None,
-                as_of: None,
-            },
-        ];
-
-        super::sort_screener_quotes(&mut quotes, "worst-performers");
-        let pcts: Vec<f64> = quotes.iter().filter_map(|q| q.change_pct).collect();
-        assert_eq!(pcts, vec![-5.0, -2.0, 1.0]);
-    }
-
-    #[test]
-    fn sort_screener_puts_unknown_change_last_both_ways() {
-        let mut quotes = vec![
-            sample_quote("U", None),
-            sample_quote("A", Some(1.0)),
-            sample_quote("B", Some(-5.0)),
-        ];
-        super::sort_screener_quotes(&mut quotes, "worst-performers");
-        assert_eq!(quotes.last().unwrap().symbol, "U");
-        super::sort_screener_quotes(&mut quotes, "top-performers");
-        assert_eq!(quotes.last().unwrap().symbol, "U");
-    }
-
-    fn sample_quote(symbol: &str, change_pct: Option<f64>) -> idx_core::api::types::Quote {
-        idx_core::api::types::Quote {
-            symbol: symbol.into(),
-            price: 100,
-            change: None,
-            change_pct,
-            volume: None,
-            market_cap: None,
-            week52_high: None,
-            week52_low: None,
-            week52_position: None,
-            range_signal: None,
-            prev_close: None,
-            avg_volume: None,
-            as_of: None,
-        }
-    }
-
-    #[test]
-    fn invalid_screener_filter_returns_error() {
-        let err = super::screener_filter_key("bogus").expect_err("invalid filter should fail");
-        assert!(matches!(err, IdxError::InvalidInput(_)));
-        assert!(err.to_string().contains("invalid screener filter"));
-    }
-
-    #[test]
-    fn invalid_screener_region_returns_error() {
-        let err = super::screener_region_key("eu").expect_err("invalid region should fail");
-        assert!(matches!(err, IdxError::InvalidInput(_)));
-        assert!(err.to_string().contains("invalid screener region"));
-    }
-
-    #[test]
-    fn filters_financial_statements_to_requested_sections() {
-        let sample = FinancialStatements {
-            instrument: InstrumentInfo {
-                id: "123".into(),
-                symbol: "BBCA.JK".into(),
-                name: "BCA".into(),
-            },
-            balance_sheet: Some(StatementSection {
-                values: BTreeMap::from([("assets".into(), 1.0)]),
-                currency: "IDR".into(),
-                report_date: "2026-01-01".into(),
-                end_date: "2025-12-31".into(),
-            }),
-            cash_flow: Some(StatementSection {
-                values: BTreeMap::from([("cash".into(), 2.0)]),
-                currency: "IDR".into(),
-                report_date: "2026-01-01".into(),
-                end_date: "2025-12-31".into(),
-            }),
-            income_statement: Some(StatementSection {
-                values: BTreeMap::from([("income".into(), 3.0)]),
-                currency: "IDR".into(),
-                report_date: "2026-01-01".into(),
-                end_date: "2025-12-31".into(),
-            }),
-        };
-
-        let filtered = filter_financial_statements(
-            &sample,
-            &FinancialsFilterArgs {
-                statement: vec![FinancialStatementKind::Cashflow],
-            },
-        );
-
-        assert!(filtered.cash_flow.is_some());
-        assert!(filtered.income_statement.is_none());
-        assert!(filtered.balance_sheet.is_none());
-        assert_eq!(filtered.instrument.symbol, "BBCA.JK");
-    }
-
-    #[test]
-    fn filters_earnings_by_scope_and_period() {
-        let report = EarningsReport {
-            symbol: "BBCA.JK".into(),
-            eps_last_year: 1_200.0,
-            revenue_last_year: 100_000_000_000.0,
-            forecast: vec![
-                EarningsData {
-                    eps_actual: None,
-                    eps_forecast: Some(1_300.0),
-                    eps_surprise: None,
-                    eps_surprise_pct: None,
-                    revenue_actual: None,
-                    revenue_forecast: Some(110_000_000_000.0),
-                    revenue_surprise: None,
-                    earning_release_date: Some("2026-03-15".into()),
-                    period_type: "2026".into(),
-                },
-                EarningsData {
-                    eps_actual: None,
-                    eps_forecast: Some(330.0),
-                    eps_surprise: None,
-                    eps_surprise_pct: None,
-                    revenue_actual: None,
-                    revenue_forecast: Some(28_000_000_000.0),
-                    revenue_surprise: None,
-                    earning_release_date: Some("2026-04-20".into()),
-                    period_type: "Q12026".into(),
-                },
-            ],
-            history: vec![EarningsData {
-                eps_actual: Some(1_250.0),
-                eps_forecast: None,
-                eps_surprise: Some(20.0),
-                eps_surprise_pct: Some(1.6),
-                revenue_actual: Some(105_000_000_000.0),
-                revenue_forecast: None,
-                revenue_surprise: Some(500_000_000.0),
-                earning_release_date: Some("2025-03-15".into()),
-                period_type: "2025".into(),
-            }],
-        };
-
-        let filtered = filter_earnings_report(
-            &report,
-            &EarningsFilterArgs {
-                forecast: true,
-                history: false,
-                annual: true,
-                quarterly: false,
-            },
-        );
-
-        assert_eq!(filtered.symbol, "BBCA.JK");
-        assert!(filtered.history.is_empty());
-        assert_eq!(filtered.forecast.len(), 1);
-        assert_eq!(filtered.forecast[0].period_type, "2026");
-    }
-
-    #[test]
-    fn classifies_earnings_periods() {
-        assert_eq!(classify_earnings_period("2025"), EarningsPeriodKind::Annual);
-        assert_eq!(
-            classify_earnings_period("FY2026"),
-            EarningsPeriodKind::Annual
-        );
-        assert_eq!(
-            classify_earnings_period("Q12026"),
-            EarningsPeriodKind::Quarterly
-        );
-        assert_eq!(classify_earnings_period(""), EarningsPeriodKind::Unknown);
+/// Table mode notes when `auto` history falls back to another provider.
+fn announce_history_fallback(
+    idx: &Idx,
+    source: idx_core::market::HistorySource,
+    config: &IdxConfig,
+) {
+    if source.is_fallback && !config.output.is_json() {
+        runtime::info(format!(
+            "history provider fallback active ({} -> {})",
+            idx.config().provider.as_str(),
+            source.provider.as_str()
+        ));
     }
 }

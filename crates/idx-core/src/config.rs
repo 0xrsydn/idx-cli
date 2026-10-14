@@ -74,7 +74,113 @@ impl HistoryProviderKind {
     }
 }
 
-pub fn parse_env_ttl(name: &str) -> Result<Option<u64>, IdxError> {
+/// Settings for data access, shared by every frontend. Presentation settings
+/// (output format, color) are not part of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoreConfig {
+    pub provider: ProviderKind,
+    pub history_provider: HistoryProviderKind,
+    pub exchange: String,
+    pub quote_ttl: u64,
+    pub fundamental_ttl: u64,
+    /// Cache root; `None` resolves `$XDG_CACHE_HOME/idx` or the platform default.
+    pub cache_dir: Option<PathBuf>,
+    /// Provider diagnostics on stderr.
+    pub verbose: bool,
+}
+
+impl Default for CoreConfig {
+    fn default() -> Self {
+        Self {
+            provider: ProviderKind::Msn,
+            history_provider: HistoryProviderKind::Auto,
+            exchange: "JK".to_string(),
+            quote_ttl: 300,
+            fundamental_ttl: 3600,
+            cache_dir: None,
+            verbose: false,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct FileConfig {
+    general: Option<FileGeneral>,
+    cache: Option<FileCache>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct FileGeneral {
+    provider: Option<ProviderKind>,
+    history_provider: Option<HistoryProviderKind>,
+    exchange: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct FileCache {
+    quote_ttl: Option<u64>,
+    fundamental_ttl: Option<u64>,
+}
+
+impl CoreConfig {
+    /// Defaults, then `config.toml`, then `IDX_PROVIDER`, `IDX_HISTORY_PROVIDER`,
+    /// `IDX_EXCHANGE`, `IDX_CACHE_QUOTE_TTL`, and `IDX_CACHE_FUNDAMENTAL_TTL`.
+    /// This is the only place idx-core reads those settings from the environment.
+    pub fn load() -> Result<Self, IdxError> {
+        let mut cfg = Self::default();
+        let path = config_path()?;
+        if path.exists() {
+            let raw = fs::read_to_string(&path).map_err(|e| IdxError::Io(e.to_string()))?;
+            let parsed: FileConfig =
+                toml::from_str(&raw).map_err(|e| IdxError::ConfigError(e.to_string()))?;
+            if let Some(general) = parsed.general {
+                if let Some(provider) = general.provider {
+                    cfg.provider = provider;
+                }
+                if let Some(history_provider) = general.history_provider {
+                    cfg.history_provider = history_provider;
+                }
+                if let Some(exchange) = general.exchange {
+                    cfg.exchange = exchange;
+                }
+            }
+            if let Some(cache) = parsed.cache {
+                if let Some(v) = cache.quote_ttl {
+                    cfg.quote_ttl = v;
+                }
+                if let Some(v) = cache.fundamental_ttl {
+                    cfg.fundamental_ttl = v;
+                }
+            }
+        }
+
+        if let Ok(provider) = std::env::var("IDX_PROVIDER") {
+            cfg.provider = ProviderKind::parse(&provider)?;
+        }
+        if let Ok(history_provider) = std::env::var("IDX_HISTORY_PROVIDER") {
+            cfg.history_provider = HistoryProviderKind::parse(&history_provider)?;
+        }
+        if let Ok(exchange) = std::env::var("IDX_EXCHANGE") {
+            cfg.exchange = exchange;
+        }
+        if let Some(parsed) = parse_env_ttl("IDX_CACHE_QUOTE_TTL")? {
+            cfg.quote_ttl = parsed;
+        }
+        if let Some(parsed) = parse_env_ttl("IDX_CACHE_FUNDAMENTAL_TTL")? {
+            cfg.fundamental_ttl = parsed;
+        }
+        Ok(cfg)
+    }
+
+    pub fn cache_dir(&self) -> Result<PathBuf, IdxError> {
+        match &self.cache_dir {
+            Some(dir) => Ok(dir.clone()),
+            None => crate::cache::cache_dir(),
+        }
+    }
+}
+
+fn parse_env_ttl(name: &str) -> Result<Option<u64>, IdxError> {
     let Ok(raw) = std::env::var(name) else {
         return Ok(None);
     };
@@ -258,6 +364,15 @@ pub fn set_config_value(key: &str, value: &str) -> Result<(), IdxError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn default_values_are_sane() {
+        let cfg = super::CoreConfig::default();
+        assert_eq!(cfg.provider, super::ProviderKind::Msn);
+        assert_eq!(cfg.history_provider, super::HistoryProviderKind::Auto);
+        assert_eq!(cfg.exchange, "JK");
+        assert_eq!(cfg.quote_ttl, 300);
+    }
+
     #[test]
     fn parses_provider_values() {
         assert_eq!(

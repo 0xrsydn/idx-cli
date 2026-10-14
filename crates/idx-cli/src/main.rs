@@ -11,7 +11,6 @@ use clap_complete::{generate, shells};
 use crate::cli::{Cli, Commands};
 use crate::config::IdxConfig;
 use crate::output::{OutputFormat, OutputSetting, emit_error};
-use idx_core::api::default_provider;
 use idx_core::error::IdxError;
 
 fn main() {
@@ -53,15 +52,7 @@ fn run() -> Result<(), IdxError> {
             }
         }
         Commands::Stocks(stocks) => {
-            let provider = default_provider(config.provider, cli.verbose > 0);
-            if let Err(err) = cli::stocks::handle(
-                stocks,
-                &config,
-                &provider,
-                cli.offline,
-                cli.no_cache,
-                cli.verbose > 0,
-            ) {
+            if let Err(err) = cli::stocks::handle(stocks, &config, cli.offline, cli.no_cache) {
                 emit_error(&err, &config.output);
                 return Err(err);
             }

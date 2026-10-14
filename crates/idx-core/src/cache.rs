@@ -25,6 +25,14 @@ struct CacheEntry<T> {
     data: T,
 }
 
+/// A cache hit with its metadata.
+#[derive(Debug)]
+pub struct Cached<T> {
+    pub data: T,
+    pub fetched_at: DateTime<Utc>,
+    pub expired: bool,
+}
+
 #[derive(Debug)]
 pub struct CacheInfo {
     pub path: PathBuf,
@@ -39,8 +47,7 @@ impl Cache {
         Ok(Self { root: cache_dir()? })
     }
 
-    #[cfg(test)]
-    pub fn with_root(root: PathBuf) -> Self {
+    pub fn at(root: PathBuf) -> Self {
         Self { root }
     }
 
@@ -49,13 +56,7 @@ impl Cache {
         data_type: &str,
         symbol: &str,
     ) -> Result<Option<T>, IdxError> {
-        let Some(entry): Option<CacheEntry<T>> = self.read_entry(data_type, symbol)? else {
-            return Ok(None);
-        };
-        if is_expired(entry.fetched_at, entry.ttl_secs) {
-            return Ok(None);
-        }
-        Ok(Some(entry.data))
+        Ok(self.fresh(data_type, symbol)?.map(|hit| hit.data))
     }
 
     pub fn get_stale<T: DeserializeOwned>(
@@ -63,26 +64,57 @@ impl Cache {
         data_type: &str,
         symbol: &str,
     ) -> Result<Option<T>, IdxError> {
-        Ok(self.read_entry::<T>(data_type, symbol)?.map(|e| e.data))
+        Ok(self.any(data_type, symbol)?.map(|hit| hit.data))
     }
 
-    /// Like [`Cache::get_stale`], but warns when the entry served is past its TTL.
-    /// Used by `--offline`, which otherwise serves arbitrarily old data silently.
     pub fn get_offline<T: DeserializeOwned>(
         &self,
         data_type: &str,
         symbol: &str,
     ) -> Result<Option<T>, IdxError> {
-        let Some(entry) = self.read_entry::<T>(data_type, symbol)? else {
-            return Ok(None);
-        };
-        if is_expired(entry.fetched_at, entry.ttl_secs) {
+        Ok(self.offline(data_type, symbol)?.map(|hit| hit.data))
+    }
+
+    /// An unexpired entry.
+    pub fn fresh<T: DeserializeOwned>(
+        &self,
+        data_type: &str,
+        symbol: &str,
+    ) -> Result<Option<Cached<T>>, IdxError> {
+        Ok(self.any(data_type, symbol)?.filter(|hit| !hit.expired))
+    }
+
+    /// Any entry, expired or not.
+    pub fn any<T: DeserializeOwned>(
+        &self,
+        data_type: &str,
+        symbol: &str,
+    ) -> Result<Option<Cached<T>>, IdxError> {
+        Ok(self
+            .read_entry::<T>(data_type, symbol)?
+            .map(|entry| Cached {
+                expired: is_expired(entry.fetched_at, entry.ttl_secs),
+                fetched_at: entry.fetched_at,
+                data: entry.data,
+            }))
+    }
+
+    /// Any entry, warning on stderr when serving an expired one offline.
+    pub fn offline<T: DeserializeOwned>(
+        &self,
+        data_type: &str,
+        symbol: &str,
+    ) -> Result<Option<Cached<T>>, IdxError> {
+        let hit = self.any::<T>(data_type, symbol)?;
+        if let Some(hit) = &hit
+            && hit.expired
+        {
             runtime::warn(format!(
                 "offline: serving expired cache for {symbol} (fetched {})",
-                entry.fetched_at.to_rfc3339()
+                hit.fetched_at.to_rfc3339()
             ));
         }
-        Ok(Some(entry.data))
+        Ok(hit)
     }
 
     pub fn put<T: Serialize>(
@@ -264,7 +296,7 @@ mod tests {
     #[test]
     fn write_read_expire_and_stale() {
         let root = tmp();
-        let cache = Cache::with_root(root.clone());
+        let cache = Cache::at(root.clone());
 
         cache
             .put("quote", "BBCA.JK", &T { v: 7 }, 300)
@@ -295,7 +327,7 @@ mod tests {
     #[test]
     fn corrupted_cache_entry_returns_none_and_deletes_file() {
         let root = tmp();
-        let cache = Cache::with_root(root.clone());
+        let cache = Cache::at(root.clone());
 
         // Write invalid JSON to a cache file
         let path = root.join("quote/CORRUPT.JK.json");
@@ -319,7 +351,7 @@ mod tests {
     #[test]
     fn corrupted_cache_entry_get_stale_returns_none_and_deletes_file() {
         let root = tmp();
-        let cache = Cache::with_root(root.clone());
+        let cache = Cache::at(root.clone());
 
         // Write invalid JSON to a cache file
         let path = root.join("quote/STALE_CORRUPT.JK.json");

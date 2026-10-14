@@ -4,16 +4,18 @@
 
 The repo is a Cargo workspace with one shared version:
 
-- `crates/idx-core` (library): providers (`api/`), `analysis/`, `cache`, config
-  file handling and provider selection (`config`), `ownership/` (SQLite, parsers,
-  discovery, snapshot sync), `error`, and `runtime` (quiet/info/warn). It owns the
-  shared test fixtures in `tests/fixtures/`.
+- `crates/idx-core` (library): the `Idx` entry point with `market()`,
+  `financial()`, and `analysis()` (cache policy and `Fetched<T>` in `client.rs`),
+  providers (`api/`), `analysis/`, `cache`, `config` (`CoreConfig`),
+  `ownership/` (SQLite, parsers, discovery, snapshot sync), `error`, and
+  `runtime` (quiet/info/warn). It owns the shared test fixtures in
+  `tests/fixtures/`; the fixture-backed mock provider needs the `testing` feature.
 - `crates/idx-cli` (binary `idx`): clap commands (`cli/`), output format and
   color resolution (`config.rs`, `IdxConfig`), and rendering (`output/`). Its
   `tests/` hold the CLI integration and golden output suites.
 
-Some fetch/cache orchestration still lives in `crates/idx-cli/src/cli/` until
-phase 3 of `docs/DESIGN.md` moves it into idx-core.
+Ownership import/sync orchestration still lives in
+`crates/idx-cli/src/cli/ownership.rs` until phase 3c of `docs/DESIGN.md`.
 
 ## Domain Map
 

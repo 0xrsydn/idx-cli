@@ -59,21 +59,25 @@ A single entry point holds configuration, providers, cache, and the DB path.
 Domain methods hang off it.
 
 ```rust
-let idx = Idx::builder()
-    .config(CoreConfig::load()?)   // provider, TTLs, paths; no output settings
-    .build()?;
+let idx = Idx::new(CoreConfig::load()?)?;   // provider, TTLs, cache dir; no output settings
+let policy = CachePolicy::Default;
 
 // market
-let quotes: Fetched<Vec<Quote>> = idx.market().quotes(&["BBCA", "BBRI"], CachePolicy::Default)?;
-let candles: Fetched<Vec<Ohlc>> = idx.market().history("BBCA", Period::M3, Interval::D1, CachePolicy::Default)?;
-let screen: Fetched<Vec<Quote>> = idx.market().screen(ScreenQuery { filter, region, limit })?;
+let quotes: Vec<Fetched<Quote>> = idx.market().quotes(&["BBCA", "BBRI"], policy)?;
+let source = idx.market().history_source(None);   // which provider serves history
+let candles: Fetched<Vec<Ohlc>> =
+    idx.market().history("BBCA", &Period::ThreeMonths, &Interval::Day, source, policy)?;
+let screen: Fetched<Vec<Quote>> = idx.market().screen(&ScreenQuery { filter, region, limit }, policy)?;
 
 // financial
-let report: Fetched<FinancialStatements> = idx.financial().statements("BBCA", StatementFilter::all())?;
-let earnings: Fetched<EarningsReport> = idx.financial().earnings("BBCA", EarningsFilter::default())?;
+let report: Fetched<FinancialStatements> =
+    idx.financial().statements("BBCA", &StatementFilter::all(), policy)?;
+let earnings: Fetched<EarningsReport> =
+    idx.financial().earnings("BBCA", EarningsFilter::default(), policy)?;
 
 // analysis (fetches its own inputs through the same cache)
-let tech: Fetched<TechnicalReport> = idx.analysis().technical("BBCA")?;
+let tech: Fetched<TechnicalReport> = idx.analysis().technical("BBCA", source, policy)?;
+let compared: Comparison = idx.analysis().compare(&["BBCA", "BBRI"], policy)?;
 
 // investor (local DB)
 let holders: TickerOwnership = idx.investor().ticker("BBCA")?;
@@ -86,14 +90,18 @@ Key decisions:
 - **Blocking API.** `ureq` and `rusqlite` are blocking, and so is the CLI.
   Async frontends (MCP, HTTP) call core through `spawn_blocking`. Revisit only
   if an HTTP API needs high concurrency.
-- **`Fetched<T>` envelope** for live data: `{ data, source, fetched_at, stale }`.
-  This replaces today's stderr-only stale-cache warning, which an agent or API
-  client cannot see.
+- **`Fetched<T>` envelope** for live data: `{ data, source, fetched_at, stale }`,
+  so agents and API clients can see freshness. idx-core still emits the
+  stale-cache warnings through `runtime` (which `set_quiet` silences) so CLI
+  stderr stays identical.
 - **`CachePolicy`**: `Default | Offline | Refresh` replaces the `--offline` /
   `--no-cache` flag handling now spread through `cli/stocks.rs`.
-- **Explicit configuration.** Core reads no environment variables. `IDX_*` env
-  parsing, `config.toml` loading, and XDG resolution move to a `CoreConfig::load()`
-  helper that frontends call; tests construct `CoreConfig` directly.
+- **Explicit configuration.** `CoreConfig::load()` is the one place idx-core reads
+  provider, exchange, and TTL settings from `config.toml` and `IDX_*`; other
+  frontends and tests construct `CoreConfig` directly (`cache_dir` overrides the
+  XDG default). Remaining environment hooks: XDG paths for the config file and
+  ownership DB, `IDX_CURL_IMPERSONATE_BIN`, the IDX discovery URL overrides, and
+  the `testing`-only mock variables.
 - **Mock provider behind a `testing` feature.** Done: `MockProvider` and the
   embedded MSN fixtures compile only with idx-core's `testing` feature, which
   idx-cli enables as a dev-dependency.

@@ -5,11 +5,16 @@
 pub mod analysis;
 pub mod api;
 pub mod cache;
+mod client;
 pub mod config;
 pub mod curl_impersonate;
 pub mod error;
+pub mod financial;
+pub mod market;
 #[cfg(feature = "ownership")]
 pub mod ownership;
+
+pub use client::{CachePolicy, Fetched, Idx};
 
 pub mod runtime {
     use std::fmt::Display;

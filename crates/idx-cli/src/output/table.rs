@@ -1,10 +1,10 @@
 use crate::output::style::Paint;
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 
-use crate::output::TechnicalReport;
 use idx_core::analysis::fundamental::{
     FundamentalReport, GrowthReport, RiskReport, ValuationReport,
 };
+use idx_core::analysis::report::TechnicalReport;
 use idx_core::analysis::signals::Signal;
 use idx_core::api::types::{
     CompanyProfile, EarningsData, EarningsReport, FinancialStatements, InsightData, NewsItem, Ohlc,

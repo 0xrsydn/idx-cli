@@ -245,6 +245,18 @@ fn msn_capability_error(subject: &str) -> IdxError {
     IdxError::Unsupported(format!("{subject}: command requires --provider msn"))
 }
 
+/// The provider that serves history for `provider` under `history_mode`.
+pub fn history_source(provider: ProviderKind, history_mode: HistoryProviderKind) -> ProviderKind {
+    match history_mode {
+        HistoryProviderKind::Yahoo => ProviderKind::Yahoo,
+        HistoryProviderKind::Msn => ProviderKind::Msn,
+        HistoryProviderKind::Auto => match provider {
+            ProviderKind::Yahoo => ProviderKind::Yahoo,
+            ProviderKind::Msn => ProviderKind::Yahoo,
+        },
+    }
+}
+
 /// Resolves a history provider based on the selected market data provider and
 /// history provider strategy.
 ///
@@ -255,14 +267,7 @@ pub fn history_provider(
     history_mode: HistoryProviderKind,
     verbose: bool,
 ) -> Result<(ProviderKind, Box<dyn HistoryProvider>), IdxError> {
-    let resolved = match history_mode {
-        HistoryProviderKind::Yahoo => ProviderKind::Yahoo,
-        HistoryProviderKind::Msn => ProviderKind::Msn,
-        HistoryProviderKind::Auto => match provider {
-            ProviderKind::Yahoo => ProviderKind::Yahoo,
-            ProviderKind::Msn => ProviderKind::Yahoo,
-        },
-    };
+    let resolved = history_source(provider, history_mode);
 
     if mock_enabled()
         && let Some(mock) = mock_history(resolved, verbose)
