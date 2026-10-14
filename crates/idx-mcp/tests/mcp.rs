@@ -181,6 +181,31 @@ fn lists_grouped_tools_and_hides_sync_unless_allowed() {
     assert_eq!(client.tool_names(), expected);
 }
 
+/// What agents see (names, descriptions, input schemas) is part of the
+/// contract: changes must show up as a reviewed diff. Regenerate with
+/// `UPDATE_GOLDEN=1`.
+#[test]
+fn tool_definitions_match_golden() {
+    let mut client = Client::start(&["--allow-sync"], false);
+    let mut tools = client.request("tools/list", json!({}))["tools"]
+        .as_array()
+        .unwrap()
+        .clone();
+    tools.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    let rendered = serde_json::to_string_pretty(&tools).unwrap() + "\n";
+
+    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/tools.json");
+    if std::env::var_os("UPDATE_GOLDEN").is_some() {
+        std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
+        std::fs::write(&golden, &rendered).unwrap();
+    }
+    let expected = std::fs::read_to_string(&golden).expect("tests/golden/tools.json");
+    assert!(
+        rendered == expected,
+        "tool definitions changed; review and rerun with UPDATE_GOLDEN=1:\n{rendered}"
+    );
+}
+
 #[test]
 fn live_tools_wrap_data_with_freshness() {
     let mut client = Client::start(&[], false);

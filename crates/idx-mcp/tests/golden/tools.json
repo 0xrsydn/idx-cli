@@ -1,0 +1,333 @@
+[
+  {
+    "description": "Analyze one IDX ticker: technical signals (trend, RSI, MACD, moving averages) and fundamental growth, valuation, and risk ratings. Analyses that fail are listed under `errors`; the call fails only if every analysis fails.",
+    "inputSchema": {
+      "$defs": {
+        "AnalysisKind": {
+          "enum": [
+            "technical",
+            "growth",
+            "valuation",
+            "risk"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "kinds": {
+          "description": "Analyses to run (default: all).",
+          "items": {
+            "$ref": "#/$defs/AnalysisKind"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "symbol": {
+          "description": "IDX ticker, e.g. \"BBCA\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "name": "analyze_stock"
+  },
+  {
+    "description": "Compare fundamental reports (growth, valuation, risk) across IDX tickers. Tickers that fail are listed under `failures`.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "symbols": {
+          "description": "IDX tickers, e.g. [\"BBCA\", \"BBRI\"]; the `.JK` suffix is optional.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "symbols"
+      ],
+      "type": "object"
+    },
+    "name": "compare_stocks"
+  },
+  {
+    "description": "Company data for one IDX ticker: profile, financial statements, earnings, analyst sentiment, insights, and news. Sections that fail are listed under `errors`; the call fails only if every section fails.",
+    "inputSchema": {
+      "$defs": {
+        "CompanySection": {
+          "enum": [
+            "profile",
+            "financials",
+            "earnings",
+            "sentiment",
+            "insights",
+            "news"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "sections": {
+          "description": "Sections to fetch (default: all).",
+          "items": {
+            "$ref": "#/$defs/CompanySection"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "symbol": {
+          "description": "IDX ticker, e.g. \"BBCA\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "name": "get_company"
+  },
+  {
+    "description": "Every IDX holding (above 1%) of one investor, matched by name.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "entity": {
+          "description": "Investor name or part of it, e.g. \"DWIMURIA\"; the closest match is used.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity"
+      ],
+      "type": "object"
+    },
+    "name": "get_investor_holdings"
+  },
+  {
+    "description": "Holder changes (new, exit, increase, decrease) between two KSEI release dates, optionally for one ticker.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "from": {
+          "description": "Earlier release date, YYYY-MM-DD (see ownership_status).",
+          "type": "string"
+        },
+        "limit": {
+          "default": null,
+          "description": "Maximum rows returned (default 200); `total` reports the full count.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "ticker": {
+          "default": null,
+          "description": "Only this ticker's changes.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "description": "Later release date, YYYY-MM-DD.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    "name": "get_ownership_changes"
+  },
+  {
+    "description": "OHLCV price history for one IDX ticker.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "interval": {
+          "default": null,
+          "description": "Candle size (default \"1d\").",
+          "enum": [
+            "1d",
+            "1wk",
+            "1mo"
+          ],
+          "type": "string"
+        },
+        "period": {
+          "default": null,
+          "description": "Lookback window (default \"3mo\").",
+          "enum": [
+            "1d",
+            "5d",
+            "1mo",
+            "3mo",
+            "6mo",
+            "1y",
+            "2y",
+            "5y"
+          ],
+          "type": "string"
+        },
+        "symbol": {
+          "description": "IDX ticker, e.g. \"BBCA\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "name": "get_price_history"
+  },
+  {
+    "description": "Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "symbols": {
+          "description": "IDX tickers, e.g. [\"BBCA\", \"BBRI\"]; the `.JK` suffix is optional.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "symbols"
+      ],
+      "type": "object"
+    },
+    "name": "get_quotes"
+  },
+  {
+    "description": "Shareholders above 1% of an IDX ticker from the latest KSEI release, with concentration metrics (top1, top3, HHI, free float).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "ticker": {
+          "description": "IDX ticker, e.g. \"BBCA\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ticker"
+      ],
+      "type": "object"
+    },
+    "name": "get_shareholders"
+  },
+  {
+    "description": "Ownership database status: whether it has data, and the imported KSEI release dates.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "ownership_status"
+  },
+  {
+    "description": "Download or refresh the KSEI ownership snapshot (several MB) into the local database.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "force": {
+          "default": false,
+          "description": "Re-download even when the local snapshot is current.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "name": "ownership_sync"
+  },
+  {
+    "description": "Run a stock screen (top/worst performers, high dividend, low P/E, 52-week highs/lows, high volume, large cap).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "filter": {
+          "default": null,
+          "description": "Screen to run (default \"top-performers\").",
+          "enum": [
+            "top-performers",
+            "worst-performers",
+            "high-dividend",
+            "low-pe",
+            "52w-high",
+            "52w-low",
+            "high-volume",
+            "large-cap"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "default": null,
+          "description": "Maximum results (default 50).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "region": {
+          "default": null,
+          "description": "Market region (default \"id\").",
+          "enum": [
+            "id",
+            "us",
+            "sg",
+            "hk",
+            "jp"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "screen_stocks"
+  },
+  {
+    "description": "Search investor names in the KSEI ownership database.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "limit": {
+          "default": null,
+          "description": "Maximum results (default 20).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "query": {
+          "description": "Full-text query over investor names.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "search_investors"
+  }
+]
