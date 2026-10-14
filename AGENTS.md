@@ -22,6 +22,7 @@ Docs:
 - `docs/CONVENTIONS.md`: types, naming, testing, and git rules
 - `docs/OWNERSHIP_SYNC.md` / `docs/OWNERSHIP_PUBLISH.md`: snapshot consumer contract / maintainer publishing
 - `docs/SMOKE.md`: Nix checks, test layout, and the live drift check
+- `docs/DESIGN.md`: idx-core / idx-mcp design and parity gates
 - `ROADMAP.md`: open work
 
 ## Rules
@@ -33,6 +34,9 @@ Docs:
 5. Keep ownership queries (`releases`, `ticker`, `changes`, ...) working across
    every ingest path: XLSX, legacy PDF, archive ZIP/TXT, and snapshot sync.
 6. `ownership import --fetch-bing` is intentionally unsupported.
+7. Output parity is a contract: never edit golden files to make a change pass.
+   After changing CLI behavior, run the live check and report its summary;
+   report IDX `403`s explicitly rather than counting them as passes.
 
 ## Verify
 ```bash
