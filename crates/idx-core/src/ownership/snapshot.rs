@@ -144,22 +144,26 @@ pub fn parse_manifest(raw: &str) -> Result<OwnershipSnapshotManifest, IdxError> 
     Ok(manifest)
 }
 
-/// `lock` takes the database's exclusive writer lock; it is held only while
-/// rechecking and installing, never during the downloads.
+/// `lock(exclusive)` takes the database's lock: shared while inspecting the
+/// local database, exclusive while rechecking and installing, and never held
+/// during the downloads.
 pub fn sync_snapshot<L>(
     manifest_source: &str,
     db_path: &Path,
     force: bool,
-    lock: impl FnOnce() -> Result<L, IdxError>,
+    lock: impl Fn(bool) -> Result<L, IdxError>,
 ) -> Result<OwnershipSyncResult, IdxError> {
     // Results report the configured path; files are read and replaced at the
     // resolved one, so a symlinked path updates its target instead of being
     // overwritten with a regular file.
     let configured_db_path = db_path;
-    let resolved_db_path = fs::canonicalize(db_path).unwrap_or_else(|_| db_path.to_path_buf());
+    let resolved_db_path = db::resolve_db_path(db_path)?;
     let db_path = resolved_db_path.as_path();
     let manifest = fetch_manifest(manifest_source)?;
-    let local_state = inspect_local_db(db_path)?;
+    let local_state = {
+        let _shared = lock(false)?;
+        inspect_local_db(db_path)?
+    };
     let decision = build_sync_decision(local_state.as_ref(), &manifest.snapshot, force);
 
     if !decision.should_download {
@@ -211,7 +215,7 @@ pub fn sync_snapshot<L>(
 
     let install_result = (|| -> Result<(), IdxError> {
         validate_snapshot_db(&temp_path, &manifest.snapshot)?;
-        let _lock = lock()?;
+        let _lock = lock(true)?;
         // The decision was made before the download; an import or edit that
         // landed since must not be overwritten without --force.
         if !force && !same_local_state(local_state.as_ref(), inspect_local_db(db_path)?.as_ref()) {

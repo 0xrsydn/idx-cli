@@ -133,6 +133,43 @@ pub fn open_db() -> Result<Connection, IdxError> {
 }
 
 /// Open the ownership database at `db_path`, creating it and migrating the schema.
+/// Where the database file really lives: symlinks are followed by reading
+/// the link, so this works even while the target does not exist (a fresh
+/// install, or mid-replacement during sync). Creates the parent directory.
+pub(crate) fn resolve_db_path(path: &Path) -> Result<PathBuf, IdxError> {
+    let mut current = path.to_path_buf();
+    for _ in 0..16 {
+        let parent = match current.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+            _ => PathBuf::from("."),
+        };
+        fs::create_dir_all(&parent).map_err(|e| IdxError::Io(e.to_string()))?;
+        let parent = fs::canonicalize(&parent).map_err(|e| IdxError::Io(e.to_string()))?;
+        let name = current.file_name().ok_or_else(|| {
+            IdxError::ConfigError(format!(
+                "ownership database path has no file name: {}",
+                path.display()
+            ))
+        })?;
+        let candidate = parent.join(name);
+        match fs::symlink_metadata(&candidate) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                let target = fs::read_link(&candidate).map_err(|e| IdxError::Io(e.to_string()))?;
+                current = if target.is_absolute() {
+                    target
+                } else {
+                    parent.join(target)
+                };
+            }
+            _ => return Ok(candidate),
+        }
+    }
+    Err(IdxError::Io(format!(
+        "too many symlink levels resolving {}",
+        path.display()
+    )))
+}
+
 pub fn open_db_at(db_path: &Path) -> Result<Connection, IdxError> {
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent).map_err(|e| IdxError::DatabaseError(e.to_string()))?;
@@ -1964,5 +2001,38 @@ mod tests {
             )
             .unwrap();
         assert_eq!(buyers, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_db_path_follows_symlinks_even_when_the_target_is_missing() {
+        let root = std::env::temp_dir().join(format!(
+            "idx-resolve-{}-{}",
+            std::process::id(),
+            fastrand::u64(..)
+        ));
+        let real_dir = root.join("real");
+        std::fs::create_dir_all(&real_dir).unwrap();
+        let real_dir = std::fs::canonicalize(&real_dir).unwrap();
+        let link = root.join("link.db");
+        // Dangling: the target does not exist yet (fresh install, mid-swap).
+        std::os::unix::fs::symlink(real_dir.join("ownership.db"), &link).unwrap();
+        assert_eq!(
+            super::resolve_db_path(&link).unwrap(),
+            real_dir.join("ownership.db")
+        );
+        // Relative link, resolved against the link's directory.
+        let relative = root.join("relative.db");
+        std::os::unix::fs::symlink("real/ownership.db", &relative).unwrap();
+        assert_eq!(
+            super::resolve_db_path(&relative).unwrap(),
+            real_dir.join("ownership.db")
+        );
+        // A plain path is returned as-is (canonical parent).
+        assert_eq!(
+            super::resolve_db_path(&real_dir.join("ownership.db")).unwrap(),
+            real_dir.join("ownership.db")
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

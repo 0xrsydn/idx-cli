@@ -52,19 +52,8 @@ impl Investor {
     /// snapshot swap never happens under an open connection. Released when
     /// the returned file is dropped.
     fn lock_file(&self, exclusive: bool) -> Result<fs::File, IdxError> {
-        let db_path = self.db_path()?;
-        let parent = match db_path.parent() {
-            Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
-            _ => PathBuf::from("."),
-        };
-        fs::create_dir_all(&parent).map_err(|e| IdxError::Io(e.to_string()))?;
-        // Resolve symlinks, so every path to one database shares one lock.
-        let real = match fs::canonicalize(&db_path) {
-            Ok(real) => real,
-            Err(_) => fs::canonicalize(&parent)
-                .map_err(|e| IdxError::Io(e.to_string()))?
-                .join(db_path.file_name().unwrap_or_default()),
-        };
+        // Every path to one database (symlinks included) shares one lock.
+        let real = db::resolve_db_path(&self.db_path()?)?;
         let mut lock_name = real.into_os_string();
         lock_name.push(".lock");
         let file = fs::OpenOptions::new()
@@ -86,9 +75,11 @@ impl Investor {
         self.lock_file(true)
     }
 
-    /// A read connection holding the shared lock for its lifetime.
+    /// A read connection holding the shared lock for its lifetime. Where no
+    /// lock file can be created (a read-only filesystem), nothing can replace
+    /// the database either, so reads go ahead unlocked.
     fn connect(&self) -> Result<ReadConnection, IdxError> {
-        let lock = self.lock_file(false)?;
+        let lock = self.lock_file(false).ok();
         Ok(ReadConnection {
             conn: self.open_db()?,
             _lock: lock,
@@ -268,7 +259,9 @@ impl Investor {
     ) -> Result<OwnershipSyncResult, IdxError> {
         let manifest_source = snapshot::resolve_manifest_source(manifest)?;
         let db_path = self.db_path()?;
-        snapshot::sync_snapshot(&manifest_source, &db_path, force, || self.write_lock())
+        snapshot::sync_snapshot(&manifest_source, &db_path, force, |exclusive| {
+            self.lock_file(exclusive)
+        })
     }
 
     /// Imports one report. A release already imported (same SHA-256) is
@@ -467,8 +460,9 @@ pub struct OwnershipStatus {
 }
 
 struct ReadConnection {
+    // Dropped (closed) before the lock it is declared ahead of.
     conn: Connection,
-    _lock: fs::File,
+    _lock: Option<fs::File>,
 }
 
 impl std::ops::Deref for ReadConnection {

@@ -127,7 +127,10 @@ fn parse_shared_strings(xml: &str) -> Result<Vec<String>, IdxError> {
                 b"rPh" => in_phonetic = true,
                 _ => {}
             },
-            Ok(Event::Empty(e)) if e.local_name().as_ref() == b"si" => strings.push(String::new()),
+            Ok(Event::Empty(e)) if e.local_name().as_ref() == b"si" => {
+                check_shared_string_count(strings.len())?;
+                strings.push(String::new())
+            }
             Ok(Event::Text(text)) if in_text && !in_phonetic => {
                 if let Some(value) = current.as_mut() {
                     let unescaped = text
@@ -137,7 +140,10 @@ fn parse_shared_strings(xml: &str) -> Result<Vec<String>, IdxError> {
                 }
             }
             Ok(Event::End(e)) => match e.local_name().as_ref() {
-                b"si" => strings.push(current.take().unwrap_or_default()),
+                b"si" => {
+                    check_shared_string_count(strings.len())?;
+                    strings.push(current.take().unwrap_or_default())
+                }
                 b"t" => in_text = false,
                 b"rPh" => in_phonetic = false,
                 _ => {}
@@ -182,6 +188,18 @@ fn text_cap_error() -> IdxError {
         "worksheet",
         format!("cell text exceeds {MAX_CELL_TEXT_BYTES} bytes"),
     )
+}
+
+const MAX_SHARED_STRINGS: usize = 2_000_000;
+
+fn check_shared_string_count(count: usize) -> Result<(), IdxError> {
+    if count >= MAX_SHARED_STRINGS {
+        return Err(xml_error(
+            "shared strings",
+            format!("more than {MAX_SHARED_STRINGS} entries"),
+        ));
+    }
+    Ok(())
 }
 
 fn check_row_count(rows: usize) -> Result<(), IdxError> {
