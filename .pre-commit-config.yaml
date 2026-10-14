@@ -1,8 +1,11 @@
 repos:
   - repo: builtin
     hooks:
+      # Golden files pin exact CLI output, including trailing spaces.
       - id: trailing-whitespace
+        exclude: ^tests/golden/.*\.golden$
       - id: end-of-file-fixer
+        exclude: ^tests/golden/.*\.golden$
       - id: check-merge-conflict
 
   - repo: local

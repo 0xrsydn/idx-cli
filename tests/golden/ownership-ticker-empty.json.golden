@@ -1,0 +1,8 @@
+exit: 1
+--- stdout
+--- stderr
+{
+  "code": "SYMBOLNOTFOUND",
+  "error": true,
+  "message": "symbol not found: BBCA"
+}

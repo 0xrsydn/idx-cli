@@ -1,0 +1,109 @@
+exit: 0
+--- stdout
+[
+  {
+    "ticker_code": "AADI",
+    "entity_name": "KSEI AGGREGATE LOCAL ID",
+    "change_type": "decreased",
+    "old_bps": 2400,
+    "new_bps": 2334,
+    "delta_bps": -66
+  },
+  {
+    "ticker_code": "AADI",
+    "entity_name": "KSEI AGGREGATE LOCAL IS",
+    "change_type": "increased",
+    "old_bps": 75,
+    "new_bps": 129,
+    "delta_bps": 54
+  },
+  {
+    "ticker_code": "AADI",
+    "entity_name": "KSEI AGGREGATE LOCAL MF",
+    "change_type": "increased",
+    "old_bps": 117,
+    "new_bps": 152,
+    "delta_bps": 35
+  },
+  {
+    "ticker_code": "AADI",
+    "entity_name": "KSEI AGGREGATE FOREIGN MF",
+    "change_type": "increased",
+    "old_bps": 307,
+    "new_bps": 337,
+    "delta_bps": 30
+  },
+  {
+    "ticker_code": "AADI",
+    "entity_name": "KSEI AGGREGATE FOREIGN OT",
+    "change_type": "decreased",
+    "old_bps": 91,
+    "new_bps": 64,
+    "delta_bps": -27
+  },
+  {
+    "ticker_code": "AADI",
+    "entity_name": "KSEI AGGREGATE FOREIGN PF",
+    "change_type": "decreased",
+    "old_bps": 76,
+    "new_bps": 56,
+    "delta_bps": -20
+  },
+  {
+    "ticker_code": "AADI",
+    "entity_name": "KSEI AGGREGATE FOREIGN CP",
+    "change_type": "increased",
+    "old_bps": 72,
+    "new_bps": 86,
+    "delta_bps": 14
+  },
+  {
+    "ticker_code": "AADI",
+    "entity_name": "KSEI AGGREGATE LOCAL CP",
+    "change_type": "decreased",
+    "old_bps": 6481,
+    "new_bps": 6467,
+    "delta_bps": -14
+  },
+  {
+    "ticker_code": "AADI",
+    "entity_name": "KSEI AGGREGATE LOCAL SC",
+    "change_type": "decreased",
+    "old_bps": 36,
+    "new_bps": 29,
+    "delta_bps": -7
+  },
+  {
+    "ticker_code": "AADI",
+    "entity_name": "KSEI AGGREGATE FOREIGN IB",
+    "change_type": "decreased",
+    "old_bps": 267,
+    "new_bps": 263,
+    "delta_bps": -4
+  },
+  {
+    "ticker_code": "AADI",
+    "entity_name": "KSEI AGGREGATE FOREIGN SC",
+    "change_type": "increased",
+    "old_bps": 51,
+    "new_bps": 55,
+    "delta_bps": 4
+  },
+  {
+    "ticker_code": "AADI",
+    "entity_name": "KSEI AGGREGATE LOCAL PF",
+    "change_type": "increased",
+    "old_bps": 17,
+    "new_bps": 20,
+    "delta_bps": 3
+  },
+  {
+    "ticker_code": "AADI",
+    "entity_name": "KSEI AGGREGATE FOREIGN ID",
+    "change_type": "decreased",
+    "old_bps": 3,
+    "new_bps": 2,
+    "delta_bps": -1
+  }
+]
+--- stderr

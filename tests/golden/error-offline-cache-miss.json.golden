@@ -1,0 +1,8 @@
+exit: 1
+--- stdout
+--- stderr
+{
+  "code": "CACHEMISS",
+  "error": true,
+  "message": "cache miss: msn-quote/BBCA.JK"
+}

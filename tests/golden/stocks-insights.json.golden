@@ -1,0 +1,16 @@
+exit: 0
+--- stdout
+{
+  "id": "bn91jc",
+  "symbol": "BBCA.JK",
+  "summary": "Mixed analyst signals for Bank Central Asia Tbk PT: 1 positive, 1 negative, 1 neutral.",
+  "highlights": [
+    "P/E ratio: Earnings data unavailable, can't compare P/E ratio with peers",
+    "Analyst price target: Analysts forecast more than 20% upside for 12-month price target"
+  ],
+  "risks": [
+    "Quarterly Revenue YoY Growth: Revenue grew worse than peers"
+  ],
+  "last_updated": "2026-03-26T04:14:57.9197955Z"
+}
+--- stderr

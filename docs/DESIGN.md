@@ -162,7 +162,8 @@ is another 20-30% smaller than pretty JSON.
 - stdout carries only data; diagnostics and warnings go to stderr. Already true.
 - Errors in `json`/`jsonl` mode are one JSON object on stderr with stdout empty.
   Already true.
-- No ANSI color when stdout is not a terminal.
+- No ANSI color when stdout is not a terminal. Today some table headers emit
+  bold codes even when piped.
 - Commands that take symbols accept `-` to read them from stdin, one per line or
   whitespace-separated:
   `idx stocks screen --filter low-pe | jq -r '.[].symbol' | idx stocks compare -`
@@ -264,14 +265,16 @@ Before any refactor code lands, capture the current CLI as golden files:
   fixture-built ownership DB
 - the documented error cases (invalid input, unsupported provider, offline
   without cache, empty ownership DB)
-- stored as `tests/golden/<case>.{stdout,stderr,exit}` and compared byte for
-  byte by one data-driven test in `tests/golden.rs`
+- cases listed in `tests/golden/cases.toml`; each result stored as
+  `tests/golden/<case>.<format>.golden` (exit code, stdout, stderr) and
+  compared byte for byte by one data-driven test in `tests/golden.rs`
 
 Regenerating goldens (`UPDATE_GOLDEN=1`) is only allowed for an intentional,
 reviewed output change, and the diff must be in the same commit with the reason
-in the message. Phases 1-3 must not change any golden file. Phase 0 changes only
-what it documents: default format resolution, JSON whitespace when piped, and
-exit codes; JSON content and table bytes stay identical.
+in the message. Phases 2-4 must not change any golden file. Phase 1 changes only
+what it documents: default format resolution, JSON whitespace when piped, ANSI
+color when piped (table output emits bold headers into pipes today), and exit
+codes; JSON content and table text stay identical.
 
 `tests/cli.rs` stays the behavioral suite and must keep passing unchanged.
 

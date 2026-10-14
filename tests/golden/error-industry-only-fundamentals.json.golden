@@ -1,0 +1,8 @@
+exit: 1
+--- stdout
+--- stderr
+{
+  "code": "PARSEERROR",
+  "error": true,
+  "message": "parse error: unsupported: company fundamentals unavailable from MSN; industry fallback is disabled"
+}

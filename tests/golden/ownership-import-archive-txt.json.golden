@@ -1,0 +1,11 @@
+exit: 0
+--- stdout
+{
+  "action": "imported",
+  "inserted_rows": 18,
+  "ticker_count": 1,
+  "as_of_date": "2026-02-27",
+  "sha256": "7b8da1d820f67062410c48988bb6c70fec2088c24961d481d1c0fce8b9372547",
+  "source_url": null
+}
+--- stderr

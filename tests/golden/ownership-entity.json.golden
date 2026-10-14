@@ -1,0 +1,26 @@
+exit: 0
+--- stdout
+{
+  "entity": {
+    "id": 17,
+    "canonical_name": "ANTHONI SALIM",
+    "entity_type": null,
+    "country": null
+  },
+  "ticker_count": 1,
+  "holdings": [
+    {
+      "ticker": {
+        "id": 4,
+        "code": "BBCA",
+        "name": "BANK CENTRAL ASIA Tbk",
+        "sector": null
+      },
+      "source": "ksei",
+      "shares": 1416306835,
+      "percentage_bps": 115,
+      "report_date": "2026-08-31"
+    }
+  ]
+}
+--- stderr

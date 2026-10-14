@@ -1,0 +1,33 @@
+exit: 0
+--- stdout
+Stock data and analysis
+
+Usage: idx stocks [OPTIONS] <COMMAND>
+
+Commands:
+  quote        Get real-time stock quotes
+  history      Get historical OHLC data
+  technical    Run technical analysis on a stock
+  growth       Run growth analysis on a stock
+  valuation    Run valuation analysis on a stock
+  risk         Run risk analysis on a stock
+  fundamental  Run full fundamental analysis on a stock
+  profile      Get company profile
+  financials   Get financial statements
+  earnings     Get earnings report
+  sentiment    Get crowd sentiment
+  insights     Get AI insights
+  news         Get stock news
+  screen       MSN screener
+  compare      Compare fundamentals across stocks
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+  -o, --output <OUTPUT>  Output format [possible values: table, json]
+      --no-color         Disable colored output
+  -q, --quiet            Suppress non-essential output
+  -v, --verbose...       Increase verbosity (-v, -vv)
+      --offline          Run without network requests
+      --no-cache         Bypass local cache
+  -h, --help             Print help
+--- stderr

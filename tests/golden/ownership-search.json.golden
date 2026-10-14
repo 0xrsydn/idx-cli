@@ -1,0 +1,11 @@
+exit: 0
+--- stdout
+[
+  {
+    "id": 17,
+    "canonical_name": "ANTHONI SALIM",
+    "entity_type": null,
+    "country": null
+  }
+]
+--- stderr

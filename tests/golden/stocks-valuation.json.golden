@@ -1,0 +1,19 @@
+exit: 0
+--- stdout
+{
+  "pe_trailing": 25.4,
+  "pe_forward": null,
+  "pb": 4.6,
+  "roe": 0.198,
+  "roe_pct": 19.8,
+  "net_margin": 0.324,
+  "net_margin_pct": 32.4,
+  "ev_ebitda": null,
+  "pe_signal": "premium",
+  "pb_signal": "expensive",
+  "roe_signal": "strong",
+  "margin_signal": "excellent",
+  "ev_ebitda_signal": "no data",
+  "overall_signal": "expensive"
+}
+--- stderr

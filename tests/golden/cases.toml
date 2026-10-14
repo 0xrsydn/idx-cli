@@ -1,0 +1,327 @@
+# Golden output cases for tests/golden.rs.
+#
+# Each case runs once per entry in `formats` (default: table and json) with
+# `-o <format>` prepended; `formats = []` runs the args as given. Every run uses
+# the mock provider (IDX_USE_MOCK_PROVIDER=1) and an isolated home directory.
+# `ownership = true` seeds the fixture DB; `before` runs setup commands first.
+#
+# `idx version` is excluded on purpose: its output changes with every release.
+
+# --- help and shell completions ---------------------------------------------
+
+[[case]]
+name = "help-root"
+args = ["--help"]
+formats = []
+
+[[case]]
+name = "help-stocks"
+args = ["stocks", "--help"]
+formats = []
+
+[[case]]
+name = "help-ownership"
+args = ["ownership", "--help"]
+formats = []
+
+[[case]]
+name = "help-config"
+args = ["config", "--help"]
+formats = []
+
+[[case]]
+name = "help-cache"
+args = ["cache", "--help"]
+formats = []
+
+[[case]]
+name = "completions-bash"
+args = ["completions", "bash"]
+formats = []
+
+# --- config and cache ---------------------------------------------------------
+
+[[case]]
+name = "config-path"
+args = ["config", "path"]
+formats = []
+
+[[case]]
+name = "config-init"
+args = ["config", "init"]
+formats = []
+
+[[case]]
+name = "config-get"
+args = ["config", "get", "general.provider"]
+formats = []
+before = [["config", "init"]]
+
+[[case]]
+name = "config-set"
+args = ["config", "set", "general.provider", "yahoo"]
+formats = []
+
+[[case]]
+name = "cache-info-empty"
+args = ["cache", "info"]
+
+[[case]]
+name = "cache-clear"
+args = ["cache", "clear"]
+
+# --- stocks: MSN (default provider) --------------------------------------------
+
+[[case]]
+name = "stocks-quote"
+args = ["stocks", "quote", "BBCA"]
+
+[[case]]
+name = "stocks-quote-multi"
+args = ["stocks", "quote", "BBCA,BBRI"]
+
+[[case]]
+name = "stocks-history"
+args = ["stocks", "history", "BBCA"]
+
+[[case]]
+name = "stocks-history-msn"
+args = ["stocks", "history", "BBCA", "--history-provider", "msn"]
+
+[[case]]
+name = "stocks-technical"
+args = ["stocks", "technical", "BBCA"]
+
+[[case]]
+name = "stocks-growth"
+args = ["stocks", "growth", "BBCA"]
+
+[[case]]
+name = "stocks-valuation"
+args = ["stocks", "valuation", "BBCA"]
+
+[[case]]
+name = "stocks-valuation-nonfinite"
+args = ["stocks", "valuation", "BBCA"]
+env = { IDX_MOCK_MSN_KEYRATIOS_FIXTURE = "tests/fixtures/msn_keyratios_infinity.json" }
+
+[[case]]
+name = "stocks-risk"
+args = ["stocks", "risk", "BBCA"]
+
+[[case]]
+name = "stocks-fundamental"
+args = ["stocks", "fundamental", "BBCA"]
+
+[[case]]
+name = "stocks-compare"
+args = ["stocks", "compare", "BBCA", "BBRI"]
+
+[[case]]
+name = "stocks-profile"
+args = ["stocks", "profile", "BBCA"]
+
+[[case]]
+name = "stocks-financials"
+args = ["stocks", "financials", "BBCA"]
+
+[[case]]
+name = "stocks-financials-income"
+args = ["stocks", "financials", "BBCA", "--statement", "income"]
+
+[[case]]
+name = "stocks-earnings"
+args = ["stocks", "earnings", "BBCA"]
+
+[[case]]
+name = "stocks-earnings-history-quarterly"
+args = ["stocks", "earnings", "BBCA", "--history", "--quarterly"]
+
+[[case]]
+name = "stocks-earnings-forecast-annual"
+args = ["stocks", "earnings", "BBCA", "--forecast", "--annual"]
+
+[[case]]
+name = "stocks-sentiment"
+args = ["stocks", "sentiment", "BBCA"]
+
+[[case]]
+name = "stocks-insights"
+args = ["stocks", "insights", "BBCA"]
+
+[[case]]
+name = "stocks-news"
+args = ["stocks", "news", "BBCA", "--limit", "5"]
+
+[[case]]
+name = "stocks-screen"
+args = ["stocks", "screen"]
+
+[[case]]
+name = "stocks-screen-worst"
+args = ["stocks", "screen", "--filter", "worst-performers", "--limit", "5"]
+
+[[case]]
+name = "stocks-screen-high-volume"
+args = ["stocks", "screen", "--filter", "high-volume"]
+
+[[case]]
+name = "stocks-screen-large-cap"
+args = ["stocks", "screen", "--filter", "large-cap"]
+
+[[case]]
+name = "stocks-quote-offline-warm"
+args = ["--offline", "stocks", "quote", "BBCA"]
+before = [["stocks", "quote", "BBCA"]]
+
+# --- stocks: Yahoo provider -----------------------------------------------------
+
+[[case]]
+name = "yahoo-quote"
+args = ["stocks", "quote", "BBCA"]
+env = { IDX_PROVIDER = "yahoo" }
+
+[[case]]
+name = "yahoo-history"
+args = ["stocks", "history", "BBCA"]
+env = { IDX_PROVIDER = "yahoo" }
+
+[[case]]
+name = "yahoo-fundamental"
+args = ["stocks", "fundamental", "BBCA"]
+env = { IDX_PROVIDER = "yahoo" }
+
+# --- errors ---------------------------------------------------------------------
+
+[[case]]
+name = "error-usage-missing-symbol"
+args = ["stocks", "quote"]
+
+[[case]]
+name = "error-invalid-provider"
+args = ["stocks", "quote", "BBCA"]
+env = { IDX_PROVIDER = "bogus" }
+
+[[case]]
+name = "error-yahoo-profile-unsupported"
+args = ["stocks", "profile", "BBCA"]
+env = { IDX_PROVIDER = "yahoo" }
+
+[[case]]
+name = "error-industry-only-fundamentals"
+args = ["stocks", "valuation", "BBCA"]
+env = { IDX_MOCK_MSN_KEYRATIOS_FIXTURE = "tests/fixtures/msn_keyratios_industry_only.json" }
+
+[[case]]
+name = "error-screen-region"
+args = ["stocks", "screen", "--region", "eu"]
+
+[[case]]
+name = "error-offline-no-cache-flags"
+args = ["--offline", "--no-cache", "stocks", "quote", "BBCA"]
+
+[[case]]
+name = "error-offline-cache-miss"
+args = ["--offline", "stocks", "quote", "BBCA"]
+
+[[case]]
+name = "error-provider-failure"
+args = ["stocks", "quote", "BBCA"]
+env = { IDX_MOCK_ERROR = "1" }
+
+[[case]]
+name = "error-compare-total-failure"
+args = ["stocks", "compare", "BBCA", "BBRI"]
+env = { IDX_MOCK_ERROR = "1" }
+
+[[case]]
+name = "error-fetch-bing-unsupported"
+args = ["ownership", "import", "--fetch-bing", "BBCA"]
+
+# --- ownership --------------------------------------------------------------------
+
+[[case]]
+name = "ownership-releases-empty"
+args = ["ownership", "releases"]
+
+[[case]]
+name = "ownership-ticker-empty"
+args = ["ownership", "ticker", "BBCA"]
+
+[[case]]
+name = "ownership-import-xlsx"
+args = ["ownership", "import", "--file", "tests/fixtures/ksei_above1_20260831_excerpt.xlsx"]
+
+[[case]]
+name = "ownership-import-archive-txt"
+args = ["ownership", "import", "--file", "tests/fixtures/ksei_balancepos_20260227_excerpt.txt"]
+
+[[case]]
+name = "ownership-releases"
+args = ["ownership", "releases"]
+ownership = true
+
+[[case]]
+name = "ownership-ticker"
+args = ["ownership", "ticker", "BBCA"]
+ownership = true
+
+[[case]]
+name = "ownership-ticker-ksei"
+args = ["ownership", "ticker", "BBCA", "--source", "ksei"]
+ownership = true
+
+[[case]]
+name = "ownership-entity"
+args = ["ownership", "entity", "ANTHONI SALIM"]
+ownership = true
+
+[[case]]
+name = "ownership-search"
+args = ["ownership", "search", "salim"]
+ownership = true
+
+[[case]]
+name = "ownership-cross-holders"
+args = ["ownership", "cross-holders", "--min-tickers", "1"]
+ownership = true
+
+[[case]]
+name = "ownership-concentration"
+args = ["ownership", "concentration"]
+ownership = true
+
+[[case]]
+name = "ownership-flow"
+args = ["ownership", "flow", "BBCA"]
+ownership = true
+
+[[case]]
+name = "ownership-changes"
+args = ["ownership", "changes", "--from", "2026-01-30", "--to", "2026-02-27"]
+ownership = true
+
+[[case]]
+name = "ownership-graph"
+args = ["ownership", "graph", "BBCA"]
+ownership = true
+
+[[case]]
+name = "ownership-graph-dot"
+args = ["ownership", "graph", "BBCA", "--format", "dot"]
+ownership = true
+
+[[case]]
+name = "ownership-resolve-unresolved"
+args = ["ownership", "resolve", "unresolved"]
+ownership = true
+
+[[case]]
+name = "ownership-resolve-map"
+args = ["ownership", "resolve", "map", "SALIM ANTHONI", "ANTHONI SALIM"]
+ownership = true
+
+[[case]]
+name = "ownership-resolve-merge"
+args = ["ownership", "resolve", "merge", "1", "2"]
+ownership = true

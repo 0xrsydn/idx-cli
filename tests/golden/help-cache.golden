@@ -1,0 +1,20 @@
+exit: 0
+--- stdout
+Manage local cache
+
+Usage: idx cache [OPTIONS] <COMMAND>
+
+Commands:
+  info   Show cache usage information
+  clear  Clear all cached files
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+  -o, --output <OUTPUT>  Output format [possible values: table, json]
+      --no-color         Disable colored output
+  -q, --quiet            Suppress non-essential output
+  -v, --verbose...       Increase verbosity (-v, -vv)
+      --offline          Run without network requests
+      --no-cache         Bypass local cache
+  -h, --help             Print help
+--- stderr

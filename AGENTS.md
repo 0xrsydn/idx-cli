@@ -13,7 +13,7 @@ src/
 ├── ownership/  xlsx + pdf parsers, archive (ZIP/TXT), remote discovery,
 │               snapshot sync, db (SQLite/FTS5), entities, search, graph
 └── output/     table.rs, json.rs
-tests/cli.rs    CLI integration tests; fixtures in tests/fixtures/
+tests/          cli.rs (behavior), golden.rs + golden/ (output parity), fixtures/
 scripts/        smoke, installer, and ownership snapshot publisher
 ```
 
@@ -42,5 +42,5 @@ Docs:
 ```bash
 nix flake check -L                       # canonical gate (fmt, clippy, tests, package)
 nix develop --command cargo test <name>  # focused loop
-scripts/live-smoke.sh                    # opt-in live provider drift check
+scripts/live-smoke.sh --compare <old>    # live drift check, A/B against an older build
 ```

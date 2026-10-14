@@ -1,0 +1,58 @@
+exit: 0
+--- stdout
+{
+  "nodes": [
+    {
+      "id": "entity:14",
+      "label": "DWIMURIA INVESTAMA ANDALAN",
+      "node_type": "entity"
+    },
+    {
+      "id": "entity:15",
+      "label": "CATURGUWIRATNA SUMAPALA",
+      "node_type": "entity"
+    },
+    {
+      "id": "entity:16",
+      "label": "TRICIPTA MANDHALA GUMILANG",
+      "node_type": "entity"
+    },
+    {
+      "id": "entity:17",
+      "label": "ANTHONI SALIM",
+      "node_type": "entity"
+    },
+    {
+      "id": "ticker:BBCA",
+      "label": "BBCA",
+      "node_type": "ticker"
+    }
+  ],
+  "edges": [
+    {
+      "from": "entity:17",
+      "to": "ticker:BBCA",
+      "percentage_bps": 115,
+      "source": "ksei"
+    },
+    {
+      "from": "entity:15",
+      "to": "ticker:BBCA",
+      "percentage_bps": 102,
+      "source": "ksei"
+    },
+    {
+      "from": "entity:14",
+      "to": "ticker:BBCA",
+      "percentage_bps": 5494,
+      "source": "ksei"
+    },
+    {
+      "from": "entity:16",
+      "to": "ticker:BBCA",
+      "percentage_bps": 107,
+      "source": "ksei"
+    }
+  ]
+}
+--- stderr

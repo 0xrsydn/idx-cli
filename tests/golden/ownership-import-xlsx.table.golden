@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+Imported 17 rows for 4 tickers (as of 2026-08-31).
+--- stderr

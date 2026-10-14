@@ -1,0 +1,41 @@
+exit: 0
+--- stdout
+{
+  "symbol": "BBCA.JK",
+  "growth": {
+    "revenue_growth": 0.118,
+    "earnings_growth": 0.121,
+    "revenue_growth_pct": 11.8,
+    "earnings_growth_pct": 12.1,
+    "revenue_signal": "moderate",
+    "earnings_signal": "moderate",
+    "overall_signal": "growing"
+  },
+  "valuation": {
+    "pe_trailing": 25.4,
+    "pe_forward": 23.1,
+    "pb": 4.6,
+    "roe": 0.202,
+    "roe_pct": 20.2,
+    "net_margin": 0.385,
+    "net_margin_pct": 38.5,
+    "ev_ebitda": 21.28,
+    "pe_signal": "premium",
+    "pb_signal": "expensive",
+    "roe_signal": "excellent",
+    "margin_signal": "excellent",
+    "ev_ebitda_signal": "expensive",
+    "overall_signal": "expensive"
+  },
+  "risk": {
+    "debt_to_equity": 18.5,
+    "current_ratio": 1.21,
+    "roa": 0.038,
+    "roa_pct": 3.8,
+    "de_signal": "conservative",
+    "current_ratio_signal": "tight",
+    "overall_signal": "moderate risk"
+  },
+  "overall_signal": "mixed"
+}
+--- stderr

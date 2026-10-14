@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+No unresolved or low-confidence aliases found.
+--- stderr

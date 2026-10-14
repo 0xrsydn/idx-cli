@@ -1,0 +1,4 @@
+exit: 1
+--- stdout
+--- stderr
+Error: config error: invalid provider 'bogus' (expected yahoo or msn)
