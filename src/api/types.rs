@@ -144,7 +144,7 @@ pub struct InstrumentInfo {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatementSection {
-    pub values: std::collections::HashMap<String, f64>,
+    pub values: std::collections::BTreeMap<String, f64>,
     pub currency: String,
     pub report_date: String,
     pub end_date: String,

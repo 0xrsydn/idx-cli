@@ -727,7 +727,7 @@ fn parse_statement_section(section: &RawStatementSection) -> StatementSection {
         "underlyingInstrument",
         "id",
     ];
-    let mut values = std::collections::HashMap::new();
+    let mut values = std::collections::BTreeMap::new();
 
     for (k, v) in &section.data {
         if skip_keys.contains(&k.as_str()) {

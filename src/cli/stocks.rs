@@ -1006,7 +1006,7 @@ fn sort_screener_quotes(quotes: &mut [Quote], filter: &str) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     use chrono::{Days, NaiveDate};
 
@@ -1217,19 +1217,19 @@ mod tests {
                 name: "BCA".into(),
             },
             balance_sheet: Some(StatementSection {
-                values: HashMap::from([("assets".into(), 1.0)]),
+                values: BTreeMap::from([("assets".into(), 1.0)]),
                 currency: "IDR".into(),
                 report_date: "2026-01-01".into(),
                 end_date: "2025-12-31".into(),
             }),
             cash_flow: Some(StatementSection {
-                values: HashMap::from([("cash".into(), 2.0)]),
+                values: BTreeMap::from([("cash".into(), 2.0)]),
                 currency: "IDR".into(),
                 report_date: "2026-01-01".into(),
                 end_date: "2025-12-31".into(),
             }),
             income_statement: Some(StatementSection {
-                values: HashMap::from([("income".into(), 3.0)]),
+                values: BTreeMap::from([("income".into(), 3.0)]),
                 currency: "IDR".into(),
                 report_date: "2026-01-01".into(),
                 end_date: "2025-12-31".into(),
