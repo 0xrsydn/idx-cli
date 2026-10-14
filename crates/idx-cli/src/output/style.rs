@@ -33,6 +33,8 @@ pub trait Paint: Display + Sized {
     fn yellow(self) -> String {
         paint(self, |v| OwoColorize::yellow(v).to_string())
     }
+    // Only ownership output uses blue.
+    #[cfg_attr(not(feature = "ownership"), allow(dead_code))]
     fn blue(self) -> String {
         paint(self, |v| OwoColorize::blue(v).to_string())
     }

@@ -1,22 +1,20 @@
-use std::collections::HashSet;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use crate::output::style::Paint;
-use chrono::Utc;
 use clap::{Args, Subcommand};
 use comfy_table::{Cell, ContentArrangement, Table, presets::UTF8_FULL};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 use crate::config::IdxConfig;
 use crate::output::json;
+use crate::output::style::Paint;
 use crate::output::table::format_idr;
 use idx_core::error::IdxError;
-use idx_core::ownership::types::{
-    ChangeType, FlowSignal, HolderRow, KseiHolding, OwnershipRelease, OwnershipSource,
+use idx_core::investor::{
+    ConcentrationRank, HolderSource, ImportSource, Investor, parse_report_family,
 };
-use idx_core::ownership::{archive, db, entities, graph, parser, remote, search, snapshot, xlsx};
+use idx_core::ownership::graph;
+use idx_core::ownership::snapshot;
+use idx_core::ownership::types::{ChangeType, FlowSignal, HolderRow, OwnershipSource};
 
 #[derive(Debug, Args)]
 #[command(
@@ -196,27 +194,27 @@ pub enum ResolveCommand {
 }
 
 pub fn handle(cmd: &OwnershipCommand, config: &IdxConfig) -> Result<(), IdxError> {
+    let investor = Investor::new(&config.core);
+    let inv = &investor;
     match cmd {
-        OwnershipCommand::Discover(args) => handle_discover(args, config),
-        OwnershipCommand::Import(args) => handle_import(args, config),
-        OwnershipCommand::Sync(args) => handle_sync(args, config),
-        OwnershipCommand::Ticker(args) => handle_ticker(args, config),
-        OwnershipCommand::Entity(args) => handle_entity(args, config),
-        OwnershipCommand::Search(args) => handle_search(args, config),
-        OwnershipCommand::CrossHolders(args) => handle_cross_holders(args, config),
-        OwnershipCommand::Concentration(args) => handle_concentration(args, config),
-        OwnershipCommand::Flow(args) => handle_flow(args, config),
-        OwnershipCommand::Changes(args) => handle_changes(args, config),
-        OwnershipCommand::Graph(args) => handle_graph(args, config),
-        OwnershipCommand::Resolve(args) => handle_resolve(args, config),
-        OwnershipCommand::Releases => handle_releases(config),
+        OwnershipCommand::Discover(args) => handle_discover(inv, args, config),
+        OwnershipCommand::Import(args) => handle_import(inv, args, config),
+        OwnershipCommand::Sync(args) => handle_sync(inv, args, config),
+        OwnershipCommand::Ticker(args) => handle_ticker(inv, args, config),
+        OwnershipCommand::Entity(args) => handle_entity(inv, args, config),
+        OwnershipCommand::Search(args) => handle_search(inv, args, config),
+        OwnershipCommand::CrossHolders(args) => handle_cross_holders(inv, args, config),
+        OwnershipCommand::Concentration(args) => handle_concentration(inv, args, config),
+        OwnershipCommand::Flow(args) => handle_flow(inv, args, config),
+        OwnershipCommand::Changes(args) => handle_changes(inv, args, config),
+        OwnershipCommand::Graph(args) => handle_graph(inv, args, config),
+        OwnershipCommand::Resolve(args) => handle_resolve(inv, args, config),
+        OwnershipCommand::Releases => handle_releases(inv, config),
     }
 }
 
-fn handle_sync(args: &SyncArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let manifest_source = snapshot::resolve_manifest_source(args.manifest.as_deref())?;
-    let db_path = db::db_path()?;
-    let result = snapshot::sync_snapshot(&manifest_source, &db_path, args.force)?;
+fn handle_sync(investor: &Investor, args: &SyncArgs, config: &IdxConfig) -> Result<(), IdxError> {
+    let result = investor.sync(args.manifest.as_deref(), args.force)?;
 
     if config.output.is_json() {
         return json::print_json(&result);
@@ -258,15 +256,19 @@ fn handle_sync(args: &SyncArgs, config: &IdxConfig) -> Result<(), IdxError> {
     Ok(())
 }
 
-fn handle_discover(args: &DiscoverArgs, config: &IdxConfig) -> Result<(), IdxError> {
+fn handle_discover(
+    investor: &Investor,
+    args: &DiscoverArgs,
+    config: &IdxConfig,
+) -> Result<(), IdxError> {
     if args.limit == 0 {
         return Err(IdxError::ParseError(
             "--limit must be greater than 0".to_string(),
         ));
     }
 
-    let family = parse_discovery_family(&args.family)?;
-    let reports = remote::discover_idx_ownership_reports(family, args.limit)?;
+    let family = parse_report_family(&args.family)?;
+    let reports = investor.discover(family, args.limit)?;
 
     if config.output.is_json() {
         return json::print_json(&reports);
@@ -300,41 +302,13 @@ fn handle_discover(args: &DiscoverArgs, config: &IdxConfig) -> Result<(), IdxErr
     Ok(())
 }
 
-fn handle_ticker(args: &TickerArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db()?;
-    let symbol = args.symbol.trim().to_uppercase();
-    let source = args.source.trim().to_lowercase();
-    if !["all", "ksei", "bing"].contains(&source.as_str()) {
-        return Err(IdxError::ParseError(
-            "invalid --source, expected: all|ksei|bing".to_string(),
-        ));
-    }
-
-    let mut data = db::query_ticker_holdings(&conn, &symbol)?;
-    if data.holders.is_empty() {
-        return Err(IdxError::ParseError(format!(
-            "no ownership data found for symbol {symbol}"
-        )));
-    }
-
-    if source != "all" {
-        data.holders.retain(|h| match source.as_str() {
-            "ksei" => matches!(h.source, OwnershipSource::Ksei),
-            "bing" => matches!(h.source, OwnershipSource::Bing),
-            _ => true,
-        });
-        for (i, row) in data.holders.iter_mut().enumerate() {
-            row.rank = i + 1;
-        }
-        let percentages: Vec<i64> = data.holders.iter().map(|h| h.percentage_bps).collect();
-        data.concentration = db::compute_concentration(&percentages);
-    }
-
-    if data.holders.is_empty() {
-        return Err(IdxError::ParseError(format!(
-            "no {source} ownership data found for symbol {symbol}"
-        )));
-    }
+fn handle_ticker(
+    investor: &Investor,
+    args: &TickerArgs,
+    config: &IdxConfig,
+) -> Result<(), IdxError> {
+    let source: HolderSource = args.source.parse()?;
+    let data = investor.ticker(&args.symbol, source)?;
 
     if config.output.is_json() {
         return json::print_json(&data);
@@ -392,25 +366,22 @@ fn handle_ticker(args: &TickerArgs, config: &IdxConfig) -> Result<(), IdxError> 
     Ok(())
 }
 
-fn handle_entity(args: &EntityArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db()?;
-    let q = format!("%{}%", args.name.trim());
-
-    let entity = conn
-        .query_row(
-            "SELECT id, canonical_name FROM entities WHERE canonical_name LIKE ?1 COLLATE NOCASE ORDER BY LENGTH(canonical_name) ASC LIMIT 1",
-            rusqlite::params![q],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
-        )
-        .map_err(|_| IdxError::ParseError(format!("entity not found: {}", args.name)))?;
-
-    let data = db::query_entity_holdings(&conn, entity.0)?;
+fn handle_entity(
+    investor: &Investor,
+    args: &EntityArgs,
+    config: &IdxConfig,
+) -> Result<(), IdxError> {
+    let data = investor.entity(&args.name)?;
 
     if config.output.is_json() {
         return json::print_json(&data);
     }
 
-    println!("{} {}", "Entity:".bold(), entity.1.bold());
+    println!(
+        "{} {}",
+        "Entity:".bold(),
+        data.entity.canonical_name.as_str().bold()
+    );
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
@@ -435,9 +406,12 @@ fn handle_entity(args: &EntityArgs, config: &IdxConfig) -> Result<(), IdxError> 
     Ok(())
 }
 
-fn handle_search(args: &SearchArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db()?;
-    let entities = search::fts_search(&conn, &args.query, args.limit)?;
+fn handle_search(
+    investor: &Investor,
+    args: &SearchArgs,
+    config: &IdxConfig,
+) -> Result<(), IdxError> {
+    let entities = investor.search(&args.query, args.limit)?;
 
     if config.output.is_json() {
         return json::print_json(&entities);
@@ -470,9 +444,12 @@ fn handle_search(args: &SearchArgs, config: &IdxConfig) -> Result<(), IdxError> 
     Ok(())
 }
 
-fn handle_cross_holders(args: &CrossHolderArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db()?;
-    let rows = db::query_cross_holders(&conn, args.min_tickers, args.top)?;
+fn handle_cross_holders(
+    investor: &Investor,
+    args: &CrossHolderArgs,
+    config: &IdxConfig,
+) -> Result<(), IdxError> {
+    let rows = investor.cross_holders(args.min_tickers, args.top)?;
 
     if config.output.is_json() {
         return json::print_json(&rows);
@@ -497,16 +474,13 @@ fn handle_cross_holders(args: &CrossHolderArgs, config: &IdxConfig) -> Result<()
     Ok(())
 }
 
-fn handle_concentration(args: &ConcentrationArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db()?;
-    let by = args.by.trim().to_lowercase();
-    if !["top1", "top3", "hhi"].contains(&by.as_str()) {
-        return Err(IdxError::ParseError(
-            "invalid --by, expected: top1|top3|hhi".to_string(),
-        ));
-    }
-
-    let rows = db::query_concentration(&conn, &by, args.top)?;
+fn handle_concentration(
+    investor: &Investor,
+    args: &ConcentrationArgs,
+    config: &IdxConfig,
+) -> Result<(), IdxError> {
+    let by: ConcentrationRank = args.by.parse()?;
+    let rows = investor.concentration(by, args.top)?;
 
     if config.output.is_json() {
         return json::print_json(&rows);
@@ -542,13 +516,9 @@ fn handle_concentration(args: &ConcentrationArgs, config: &IdxConfig) -> Result<
     Ok(())
 }
 
-fn handle_flow(args: &FlowArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db()?;
+fn handle_flow(investor: &Investor, args: &FlowArgs, config: &IdxConfig) -> Result<(), IdxError> {
     let symbol = args.symbol.trim().to_uppercase();
-    let ticker_id = db::get_ticker_id(&conn, &symbol)?
-        .ok_or_else(|| IdxError::SymbolNotFound(symbol.clone()))?;
-
-    let flow = db::query_bing_flow(&conn, ticker_id)?;
+    let flow = investor.flow(&symbol)?;
     let Some(flow) = flow else {
         if config.output.is_json() {
             return json::print_json(
@@ -596,9 +566,8 @@ fn print_flow_section(title: &str, rows: &[HolderRow]) {
     println!("{table}");
 }
 
-fn handle_graph(args: &GraphArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db()?;
-    let (nodes, edges) = graph::query_ownership_graph(&conn, &args.root, args.depth)?;
+fn handle_graph(investor: &Investor, args: &GraphArgs, config: &IdxConfig) -> Result<(), IdxError> {
+    let (nodes, edges) = investor.graph(&args.root, args.depth)?;
 
     if config.output.is_json() {
         #[derive(Serialize)]
@@ -627,9 +596,12 @@ fn handle_graph(args: &GraphArgs, config: &IdxConfig) -> Result<(), IdxError> {
     }
 }
 
-fn handle_changes(args: &ChangesArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db()?;
-    let changes = db::query_changes(&conn, &args.from, &args.to)?;
+fn handle_changes(
+    investor: &Investor,
+    args: &ChangesArgs,
+    config: &IdxConfig,
+) -> Result<(), IdxError> {
+    let changes = investor.changes(&args.from, &args.to)?;
 
     if config.output.is_json() {
         return json::print_json(&changes);
@@ -673,12 +645,14 @@ fn handle_changes(args: &ChangesArgs, config: &IdxConfig) -> Result<(), IdxError
     Ok(())
 }
 
-fn handle_resolve(args: &ResolveArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db()?;
-
+fn handle_resolve(
+    investor: &Investor,
+    args: &ResolveArgs,
+    config: &IdxConfig,
+) -> Result<(), IdxError> {
     match &args.command {
         ResolveCommand::Unresolved { limit } => {
-            let rows = db::list_unresolved(&conn, *limit)?;
+            let rows = investor.unresolved(*limit)?;
 
             if config.output.is_json() {
                 return json::print_json(&rows);
@@ -718,7 +692,7 @@ fn handle_resolve(args: &ResolveArgs, config: &IdxConfig) -> Result<(), IdxError
             Ok(())
         }
         ResolveCommand::Map { alias, entity } => {
-            db::manual_map(&conn, alias, entity)?;
+            investor.map_alias(alias, entity)?;
             if config.output.is_json() {
                 return json::print_json(&serde_json::json!({
                     "action": "mapped",
@@ -730,29 +704,10 @@ fn handle_resolve(args: &ResolveArgs, config: &IdxConfig) -> Result<(), IdxError
             Ok(())
         }
         ResolveCommand::Merge { keep, merge } => {
-            let alias_updates: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM entity_aliases WHERE entity_id = ?1",
-                    rusqlite::params![merge],
-                    |row| row.get(0),
-                )
-                .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
-            let ksei_updates: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM ksei_holdings WHERE entity_id = ?1",
-                    rusqlite::params![merge],
-                    |row| row.get(0),
-                )
-                .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
-            let bing_updates: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM bing_holdings WHERE entity_id = ?1",
-                    rusqlite::params![merge],
-                    |row| row.get(0),
-                )
-                .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
-
-            db::merge_entities(&conn, *keep, *merge)?;
+            let merged = investor.merge_entities(*keep, *merge)?;
+            let alias_updates = merged.alias_updates;
+            let ksei_updates = merged.ksei_holdings_updates;
+            let bing_updates = merged.bing_holdings_updates;
 
             if config.output.is_json() {
                 return json::print_json(&serde_json::json!({
@@ -773,7 +728,11 @@ fn handle_resolve(args: &ResolveArgs, config: &IdxConfig) -> Result<(), IdxError
     }
 }
 
-fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> {
+fn handle_import(
+    investor: &Investor,
+    args: &ImportArgs,
+    config: &IdxConfig,
+) -> Result<(), IdxError> {
     if args.file.is_none() && args.url.is_none() && args.fetch_bing.is_none() {
         return Err(IdxError::ParseError(
             "provide one of: --file, --url, or --fetch-bing".to_string(),
@@ -797,124 +756,34 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
         ));
     }
 
-    let Some(import_input) = resolve_import_input(args)? else {
-        return Ok(());
+    let source = match (&args.file, &args.url) {
+        (Some(path), _) => ImportSource::File(path.clone()),
+        (None, Some(url)) => ImportSource::Url(url.clone()),
+        // An empty --fetch-bing list has nothing to import.
+        (None, None) => return Ok(()),
     };
-
-    let conn = db::open_db()?;
-
-    let sha256 = sha256_file(&import_input.import_path)?;
-    if !args.force && db::release_exists(&conn, &sha256)? {
-        let result = OwnershipImportResult {
-            action: "skipped_existing",
-            inserted_rows: 0,
-            ticker_count: 0,
-            as_of_date: None,
-            sha256,
-            source_url: import_input.source_url,
-        };
-
-        if config.output.is_json() {
-            return json::print_json(&result);
-        }
-
-        println!(
-            "Release already imported (sha256: {}). Use --force to re-import.",
-            result.sha256
-        );
-        return Ok(());
-    }
-
-    let drafts = match import_input.format {
-        ImportInputFormat::Pdf => {
-            let raw_rows = parser::parse_ksei_pdf(&import_input.import_path)?;
-            if raw_rows.is_empty() {
-                return Err(IdxError::ParseError(
-                    "no KSEI rows parsed from PDF".to_string(),
-                ));
-            }
-
-            let mut drafts = Vec::with_capacity(raw_rows.len());
-            for raw in &raw_rows {
-                drafts.push(entities::normalize_ksei_row(raw)?);
-            }
-            drafts
-        }
-        ImportInputFormat::Archive => archive::parse_balancepos_file(&import_input.import_path)?,
-        ImportInputFormat::Xlsx => xlsx::parse_above1_xlsx_file(&import_input.import_path)?,
-    };
-
-    let mut holdings = Vec::with_capacity(drafts.len());
-    let mut ticker_ids = HashSet::new();
-
-    for draft in drafts {
-        let ticker_id = db::upsert_ticker(&conn, &draft.ticker_code, draft.issuer_name.as_deref())?;
-        let entity_id =
-            entities::resolve_entity(&conn, &draft.raw_investor_name, OwnershipSource::Ksei)?;
-
-        ticker_ids.insert(ticker_id);
-        holdings.push(KseiHolding {
-            id: 0,
-            ticker_id,
-            entity_id: Some(entity_id),
-            raw_investor_name: draft.raw_investor_name,
-            investor_type: draft.investor_type,
-            locality: draft.locality,
-            nationality: draft.nationality,
-            domicile: draft.domicile,
-            holdings_scripless: draft.holdings_scripless,
-            holdings_scrip: draft.holdings_scrip,
-            total_shares: draft.total_shares,
-            percentage_bps: draft.percentage_bps,
-            report_date: draft.report_date,
-            release_sha256: sha256.clone(),
-        });
-    }
-
-    let as_of_date = holdings
-        .iter()
-        .map(|h| h.report_date)
-        .max()
-        .ok_or_else(|| {
-            IdxError::ParseError("missing report_date in parsed holdings".to_string())
-        })?;
-
-    let release = OwnershipRelease {
-        id: 0,
-        source_url: import_input.source_url,
-        sha256,
-        as_of_date,
-        row_count: holdings.len(),
-        imported_at: Utc::now().timestamp(),
-    };
-    let inserted_rows = db::write_ksei_release(&conn, &release, &holdings, args.force)?;
-
-    let result = OwnershipImportResult {
-        action: if args.force { "reimported" } else { "imported" },
-        inserted_rows,
-        ticker_count: ticker_ids.len(),
-        as_of_date: Some(as_of_date.format("%Y-%m-%d").to_string()),
-        sha256: release.sha256.clone(),
-        source_url: release.source_url.clone(),
-    };
+    let result = investor.import(&source, args.force)?;
 
     if config.output.is_json() {
         return json::print_json(&result);
     }
 
-    println!(
-        "Imported {} rows for {} tickers (as of {}).",
-        result.inserted_rows,
-        result.ticker_count,
-        as_of_date.format("%Y-%m-%d")
-    );
+    match result.as_of_date.as_deref() {
+        None => println!(
+            "Release already imported (sha256: {}). Use --force to re-import.",
+            result.sha256
+        ),
+        Some(as_of_date) => println!(
+            "Imported {} rows for {} tickers (as of {}).",
+            result.inserted_rows, result.ticker_count, as_of_date
+        ),
+    }
 
     Ok(())
 }
 
-fn handle_releases(config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db()?;
-    let releases = db::query_releases(&conn)?;
+fn handle_releases(investor: &Investor, config: &IdxConfig) -> Result<(), IdxError> {
+    let releases = investor.releases()?;
 
     if config.output.is_json() {
         return json::print_json(&releases);
@@ -943,238 +812,6 @@ fn handle_releases(config: &IdxConfig) -> Result<(), IdxError> {
 
     println!("{table}");
     Ok(())
-}
-
-fn parse_discovery_family(raw: &str) -> Result<Option<remote::OwnershipReportFamily>, IdxError> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "all" => Ok(None),
-        "above1" | "above-1" | "above_1" => {
-            Ok(Some(remote::OwnershipReportFamily::AboveOnePercent))
-        }
-        "above5" | "above-5" | "above_5" => {
-            Ok(Some(remote::OwnershipReportFamily::AboveFivePercent))
-        }
-        "investor-type" | "investor_type" | "investortype" => {
-            Ok(Some(remote::OwnershipReportFamily::InvestorTypeBreakdown))
-        }
-        _ => Err(IdxError::ParseError(
-            "invalid --family, expected: all|above1|above5|investor-type".to_string(),
-        )),
-    }
-}
-
-struct ResolvedImportInput {
-    import_path: PathBuf,
-    source_url: Option<String>,
-    format: ImportInputFormat,
-}
-
-#[derive(Debug, Serialize)]
-struct OwnershipImportResult {
-    action: &'static str,
-    inserted_rows: usize,
-    ticker_count: usize,
-    as_of_date: Option<String>,
-    sha256: String,
-    source_url: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ImportInputFormat {
-    Pdf,
-    Archive,
-    Xlsx,
-}
-
-fn resolve_import_input(args: &ImportArgs) -> Result<Option<ResolvedImportInput>, IdxError> {
-    if let Some(path) = &args.file {
-        if !path.exists() {
-            return Err(IdxError::Io(format!(
-                "input ownership file not found: {}",
-                path.display()
-            )));
-        }
-
-        return Ok(Some(ResolvedImportInput {
-            import_path: path.clone(),
-            source_url: None,
-            format: detect_local_import_format(path)?,
-        }));
-    }
-
-    if let Some(url) = &args.url {
-        let trimmed = url.trim();
-        let format = validate_import_url(trimmed)?;
-        let target = cache_download_path(trimmed, format)?;
-        match format {
-            ImportInputFormat::Xlsx => download_xlsx(trimmed, &target)?,
-            _ => download_pdf(trimmed, &target)?,
-        }
-        return Ok(Some(ResolvedImportInput {
-            import_path: target,
-            source_url: Some(trimmed.to_string()),
-            format,
-        }));
-    }
-
-    Ok(None)
-}
-
-fn detect_local_import_format(path: &Path) -> Result<ImportInputFormat, IdxError> {
-    match path
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(|value| value.trim().to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("pdf") => Ok(ImportInputFormat::Pdf),
-        Some("xlsx") if xlsx::supports_xlsx_file(path) => Ok(ImportInputFormat::Xlsx),
-        Some("zip") | Some("txt") if archive::supports_local_archive_file(path) => {
-            Ok(ImportInputFormat::Archive)
-        }
-        _ => Err(IdxError::InvalidInput(format!(
-            "unsupported local ownership file {}; expected a .xlsx, .pdf, .zip, or .txt input",
-            path.display()
-        ))),
-    }
-}
-
-fn cache_download_path(url: &str, format: ImportInputFormat) -> Result<PathBuf, IdxError> {
-    let extension = match format {
-        ImportInputFormat::Xlsx => ".xlsx",
-        _ => ".pdf",
-    };
-    let raw_dir = idx_core::cache::cache_dir()?.join("ownership").join("raw");
-    fs::create_dir_all(&raw_dir).map_err(|e| IdxError::Io(e.to_string()))?;
-
-    let mut file_name = url
-        .rsplit('/')
-        .next()
-        .unwrap_or("ksei-ownership.pdf")
-        .split('?')
-        .next()
-        .unwrap_or("ksei-ownership.pdf")
-        .to_string();
-
-    if file_name.is_empty() || file_name == "/" {
-        file_name = format!("ksei-{}{extension}", Utc::now().timestamp());
-    }
-    if !file_name.to_ascii_lowercase().ends_with(extension) {
-        file_name.push_str(extension);
-    }
-
-    Ok(raw_dir.join(file_name))
-}
-
-fn validate_import_url(url: &str) -> Result<ImportInputFormat, IdxError> {
-    let trimmed = url.trim();
-    if trimmed.is_empty() {
-        return Err(IdxError::InvalidInput(
-            "ownership import --url accepts direct XLSX or PDF URLs only".to_string(),
-        ));
-    }
-
-    let normalized = trimmed.to_ascii_lowercase();
-    let normalized = normalized
-        .split(['?', '#'])
-        .next()
-        .unwrap_or(normalized.as_str());
-    if normalized.ends_with(".pdf") {
-        return Ok(ImportInputFormat::Pdf);
-    }
-    if normalized.ends_with(".xlsx") {
-        return Ok(ImportInputFormat::Xlsx);
-    }
-
-    Err(IdxError::InvalidInput(
-        "ownership import --url accepts direct XLSX or PDF URLs only; run `idx ownership discover` first to find the current supported file".to_string(),
-    ))
-}
-
-fn download_pdf(url: &str, target: &Path) -> Result<(), IdxError> {
-    if is_idx_url(url) {
-        return remote::download_idx_pdf(url, target);
-    }
-
-    let response = ureq::get(url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        )
-        .header("Accept", "application/pdf,application/octet-stream,*/*;q=0.8")
-        .header("Accept-Language", "en-US,en;q=0.9")
-        .header("Referer", "https://www.idx.co.id/")
-        .call()
-        .map_err(|e| IdxError::Http(format!("failed to download PDF: {e}")))?;
-
-    let bytes = response
-        .into_body()
-        .with_config()
-        .limit(REMOTE_REPORT_LIMIT_BYTES)
-        .read_to_vec()
-        .map_err(|e| IdxError::Http(format!("failed reading PDF body: {e}")))?;
-    remote::validate_pdf_payload(&bytes)?;
-
-    fs::write(target, &bytes).map_err(|e| {
-        IdxError::Io(format!(
-            "failed writing cached PDF {}: {e}",
-            target.display()
-        ))
-    })?;
-
-    Ok(())
-}
-
-/// Above ureq's 10 MiB default: the monthly holder-register PDF can grow past it.
-const REMOTE_REPORT_LIMIT_BYTES: u64 = 256 * 1024 * 1024;
-
-fn download_xlsx(url: &str, target: &Path) -> Result<(), IdxError> {
-    if is_idx_url(url) {
-        return remote::download_idx_xlsx(url, target);
-    }
-
-    let response = ureq::get(url)
-        .header(
-            "Accept",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream,*/*;q=0.8",
-        )
-        .call()
-        .map_err(|e| IdxError::Http(format!("failed to download XLSX: {e}")))?;
-    let bytes = response
-        .into_body()
-        .with_config()
-        .limit(REMOTE_REPORT_LIMIT_BYTES)
-        .read_to_vec()
-        .map_err(|e| IdxError::Http(format!("failed reading XLSX body: {e}")))?;
-    remote::validate_xlsx_payload(&bytes)?;
-
-    fs::write(target, &bytes).map_err(|e| {
-        IdxError::Io(format!(
-            "failed writing cached XLSX {}: {e}",
-            target.display()
-        ))
-    })
-}
-
-fn is_idx_url(url: &str) -> bool {
-    let normalized = url.trim().to_ascii_lowercase();
-    normalized.starts_with("https://www.idx.co.id/")
-        || normalized.starts_with("http://www.idx.co.id/")
-        || normalized.starts_with("https://idx.co.id/")
-        || normalized.starts_with("http://idx.co.id/")
-}
-
-fn sha256_file(path: &Path) -> Result<String, IdxError> {
-    let bytes = fs::read(path).map_err(|e| {
-        IdxError::Io(format!(
-            "failed to read file for sha256 {}: {e}",
-            path.display()
-        ))
-    })?;
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    let digest = hasher.finalize();
-    Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 fn format_bps(bps: i64) -> String {

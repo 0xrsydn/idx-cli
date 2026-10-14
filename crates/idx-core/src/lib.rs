@@ -10,6 +10,8 @@ pub mod config;
 pub mod curl_impersonate;
 pub mod error;
 pub mod financial;
+#[cfg(feature = "ownership")]
+pub mod investor;
 pub mod market;
 #[cfg(feature = "ownership")]
 pub mod ownership;

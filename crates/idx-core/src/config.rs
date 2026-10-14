@@ -85,6 +85,9 @@ pub struct CoreConfig {
     pub fundamental_ttl: u64,
     /// Cache root; `None` resolves `$XDG_CACHE_HOME/idx` or the platform default.
     pub cache_dir: Option<PathBuf>,
+    /// Ownership database; `None` uses `ownership.db_path` from `config.toml`,
+    /// else `$XDG_DATA_HOME/idx/ownership.db`.
+    pub ownership_db: Option<PathBuf>,
     /// Provider diagnostics on stderr.
     pub verbose: bool,
 }
@@ -98,6 +101,7 @@ impl Default for CoreConfig {
             quote_ttl: 300,
             fundamental_ttl: 3600,
             cache_dir: None,
+            ownership_db: None,
             verbose: false,
         }
     }

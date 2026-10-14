@@ -94,6 +94,11 @@ impl Idx {
         crate::analysis::Analysis { idx: self }
     }
 
+    #[cfg(feature = "ownership")]
+    pub fn investor(&self) -> crate::investor::Investor {
+        crate::investor::Investor::new(&self.config)
+    }
+
     pub(crate) fn resolve(&self, symbol: &str) -> Result<String, IdxError> {
         crate::api::resolve_symbol(symbol, &self.config.exchange)
     }

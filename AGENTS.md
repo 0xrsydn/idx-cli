@@ -6,6 +6,8 @@
 ## Navigation
 ```text
 crates/idx-core/            library: all data access and analysis
+├── src/client.rs           Idx entry point, CachePolicy, Fetched<T>
+├── src/{market,financial,investor}.rs   domain APIs over providers and the DB
 ├── src/api/                providers: msn/ (default), yahoo/ (history/OHLCV)
 ├── src/analysis/           technical, fundamental, signals
 ├── src/ownership/          xlsx + pdf parsers, archive (ZIP/TXT), remote discovery,

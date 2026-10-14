@@ -726,7 +726,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "toml",
- "ureq",
  "zip",
 ]
 

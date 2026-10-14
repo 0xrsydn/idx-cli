@@ -1,6 +1,6 @@
 # System Design: idx-core and its frontends
 
-**Status:** Accepted 2026-10-14. Implementation on `refactor/idx-core`; phases 0-2 done.
+**Status:** Accepted 2026-10-14. Implementation on `refactor/idx-core`; phases 0-3 done.
 
 ## Goal
 
@@ -119,8 +119,8 @@ Key decisions:
 | ownership command orchestration (`cli/ownership.rs`) | `investor` |
 | `IdxConfig.output`, `no_color` | stay in `idx-cli` |
 
-After the move, `cli/stocks.rs` and `cli/ownership.rs` should be argument
-parsing plus a call into core plus rendering.
+Done in phase 3: `cli/stocks.rs` and `cli/ownership.rs` are argument parsing,
+one idx-core call, and rendering.
 
 ## Error Model
 

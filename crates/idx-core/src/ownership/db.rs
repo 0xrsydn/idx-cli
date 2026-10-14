@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::NaiveDate;
 use directories::ProjectDirs;
@@ -129,13 +129,16 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), IdxError> {
 
 /// Open ownership database connection and run idempotent schema migration.
 pub fn open_db() -> Result<Connection, IdxError> {
-    let db_path = db_path()?;
+    open_db_at(&db_path()?)
+}
 
+/// Open the ownership database at `db_path`, creating it and migrating the schema.
+pub fn open_db_at(db_path: &Path) -> Result<Connection, IdxError> {
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent).map_err(|e| IdxError::DatabaseError(e.to_string()))?;
     }
 
-    let conn = Connection::open(&db_path).map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+    let conn = Connection::open(db_path).map_err(|e| IdxError::DatabaseError(e.to_string()))?;
     ensure_schema(&conn)?;
 
     Ok(conn)

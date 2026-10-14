@@ -18,8 +18,7 @@ path = "src/main.rs"
 
 [features]
 default = ["ownership"]
-# rusqlite/sha2/ureq back ownership import code that phase 3 moves into idx-core.
-ownership = ["idx-core/ownership", "dep:rusqlite", "dep:sha2", "dep:ureq"]
+ownership = ["idx-core/ownership"]
 
 [dependencies]
 idx-core = { workspace = true, features = ["clap"] }
@@ -31,9 +30,6 @@ comfy-table = "7"
 owo-colors = "4"
 toml.workspace = true
 chrono.workspace = true
-rusqlite = { workspace = true, optional = true }
-sha2 = { workspace = true, optional = true }
-ureq = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Tests drive the binary with the mock provider; release builds exclude it.
