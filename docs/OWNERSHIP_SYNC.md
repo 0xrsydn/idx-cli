@@ -4,8 +4,7 @@
 
 The command is intentionally manifest-driven so the repo can publish snapshots in GitHub releases, object storage, or a local filesystem path without changing the CLI.
 
-The recommended GitHub publish layout and maintainer workflow are documented in
-`docs/OWNERSHIP_PUBLISH.md`.
+Publishing snapshots is a maintainer task; see `docs/OWNERSHIP_PUBLISH.md`.
 
 ## Consumer Inputs
 
@@ -55,7 +54,8 @@ Current schema version: `1`
 ```
 
 Semantics:
-- `source` is optional provenance metadata describing the IDX/KSEI PDF used to build the snapshot.
+- `source` is optional provenance metadata describing the IDX/KSEI report used to build the snapshot.
+  `source.pdf_url` is a legacy field name: since June 2026 it holds the XLSX URL.
 - `download_url` points to the SQLite artifact itself. The filename is an
   implementation detail: published assets are immutable and content-addressed
   (`ownership-snapshot-YYYY-MM-DD-<sha256>.sqlite`), so consumers must always
@@ -76,20 +76,3 @@ Without `--force`, sync behaves conservatively:
 - local DB diverges at the same latest date: no-op and require `--force`
 
 Replacement is staged through a temp file and validated before the local DB is swapped in.
-
-## Publisher Workflow
-
-Use `scripts/build-ownership-snapshot.sh` to copy a vetted ownership DB into a publishable artifact plus manifest:
-
-```bash
-scripts/build-ownership-snapshot.sh \
-  --db /path/to/ownership.db \
-  --output-dir dist/ownership-snapshot \
-  --base-url https://example.com/idx/ownership
-```
-
-If `--base-url` is omitted, the generated manifest uses the local artifact path as `download_url`, which is useful for local testing.
-
-For the maintainer flow that discovers the latest supported IDX/KSEI source
-first and then builds GitHub-release-ready assets, use
-`scripts/build-latest-ownership-snapshot.sh`.

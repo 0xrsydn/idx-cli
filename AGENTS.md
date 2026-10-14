@@ -1,102 +1,42 @@
 # AGENTS.md
 
-## Project
-`idx-cli` is a Rust CLI for Indonesian stock market analysis and ownership workflows.
+`idx-cli` is a Rust CLI (binary `idx`) for Indonesian stock market analysis
+(`stocks`) and KSEI shareholder ownership (`ownership`).
 
-The repo currently has two main product areas:
-- `stocks`: live market data and analysis
-- `ownership`: import/sync once, then query locally from SQLite
-
-## Stack
-- Rust stable
-- `clap` 4 for CLI
-- `ureq` 3 for HTTP
-- `comfy-table` and `owo-colors` for output
-- `rusqlite` + bundled SQLite/FTS5 for ownership
-- TOML config in `~/.config/idx/config.toml`
-- file cache in `~/.cache/idx/`
-
-## Source Map
+## Navigation
 ```text
 src/
-├── main.rs
-├── cli/
-│   ├── stocks.rs
-│   ├── ownership.rs
-│   ├── config.rs
-│   └── cache.rs
-├── api/
-│   ├── mod.rs
-│   ├── types.rs
-│   ├── yahoo/
-│   └── msn/
-├── analysis/
-├── ownership/
-│   ├── archive.rs
-│   ├── db.rs
-│   ├── entities.rs
-│   ├── parser.rs
-│   ├── remote.rs
-│   ├── snapshot.rs
-│   └── types.rs
-├── output/
-├── cache.rs
-├── config.rs
-└── error.rs
+├── main.rs, config.rs, cache.rs, error.rs, curl_impersonate.rs
+├── cli/        clap commands: stocks, ownership, config, cache
+├── api/        providers: msn/ (default), yahoo/ (history/OHLCV)
+├── analysis/   technical, fundamental, signals
+├── ownership/  xlsx + pdf parsers, archive (ZIP/TXT), remote discovery,
+│               snapshot sync, db (SQLite/FTS5), entities, search, graph
+└── output/     table.rs, json.rs
+tests/cli.rs    CLI integration tests; fixtures in tests/fixtures/
+scripts/        smoke, installer, and ownership snapshot publisher
 ```
 
-## Provider Model
-- `MSN` is the primary/default provider for quotes, fundamentals, profile, earnings, financials, sentiment, insights, news, and screener data.
-- `Yahoo` is the fallback provider for history/OHLCV because MSN history for IDX is still not supported.
-- Current config knobs:
-  - `IDX_PROVIDER=msn|yahoo`
-  - `IDX_HISTORY_PROVIDER=auto|yahoo|msn`
+Docs:
+- `docs/ARCHITECTURE.md`: providers, ownership ingest/discovery, error and output contract
+- `docs/CONVENTIONS.md`: types, naming, testing, and git rules
+- `docs/OWNERSHIP_SYNC.md` / `docs/OWNERSHIP_PUBLISH.md`: snapshot consumer contract / maintainer publishing
+- `docs/SMOKE.md`: smoke runner and Nix check coverage
+- `ROADMAP.md`: open work
 
-## Ownership Model
-Ownership is local-first after bootstrap.
+## Rules
+1. Keep data access provider-driven; no ad hoc fetches in `cli/`.
+2. Keep parse/normalize functions pure.
+3. Tests use fixtures and `IDX_USE_MOCK_PROVIDER=1`; never hit the live network.
+4. Output contract: tables on stdout, one JSON document with `-o json`, errors
+   on stderr (JSON-shaped in JSON mode), stdout empty on failure.
+5. Keep ownership queries (`releases`, `ticker`, `changes`, ...) working across
+   every ingest path: XLSX, legacy PDF, archive ZIP/TXT, and snapshot sync.
+6. `ownership import --fetch-bing` is intentionally unsupported.
 
-Preferred bootstrap/update path:
-1. `idx ownership sync`
-2. if no snapshot manifest is available: `idx ownership discover` then `idx ownership import --url <xlsx-or-pdf-url>`
-3. local `--file` imports remain available for manual/fallback use
-
-Ownership input paths:
-- primary remote source: IDX `above1` holder register — monthly XLSX on the Data Kepemilikan Saham page (since the 2026-05-29 report), legacy PDF announcements before that; `ownership discover` checks both
-- maintained snapshot path: `ownership sync`
-- local file imports: IDX above-1% `.xlsx` (current format since June 2026), legacy `.pdf`, plus local archive `.zip` / `.txt`
-
-Important scope note:
-- archive ZIP/TXT ingest is a fallback/backstop path, not the primary product ingest surface
-- `ownership import --fetch-bing` is still intentionally unsupported
-
-## Working Principles
-1. Keep data access provider-driven where possible; avoid adding new ad hoc fetch paths at the CLI layer.
-2. Prefer pure parse/normalize transforms over hidden state.
-3. Use fixtures in tests; do not hit live network in automated tests.
-4. Preserve the output contract: table to stdout, JSON with `--output json`, errors to stderr.
-5. Treat ownership schema/query compatibility as important: `releases`, `ticker`, and `changes` should keep working across ingest paths.
-
-## Verification
-Core verification:
+## Verify
 ```bash
-nix develop
-cargo build
-cargo clippy -- -D warnings
-cargo test
+nix flake check -L                       # canonical gate (fmt, clippy, tests, package, smoke)
+nix develop --command cargo test <name>  # focused loop
+scripts/live-smoke.sh --mode full        # opt-in live providers
 ```
-
-Smoke tooling:
-```bash
-scripts/live-smoke.sh
-scripts/live-smoke.sh --mode mock
-scripts/live-smoke.sh --mode full
-```
-
-## Read First
-Start with these repo docs before making changes:
-- `FEATURE_SPEC.md` — active implementation backlog and remaining core gaps
-- `TODO.md` — execution tracker and smoke notes
-- `docs/ARCHITECTURE.md` — provider and ownership flow
-- `docs/OWNERSHIP_SYNC.md` — snapshot sync contract
-- `docs/SMOKE.md` — reusable smoke commands
-- `docs/CONVENTIONS.md` — repo conventions

@@ -34,6 +34,13 @@
 - **MSN Finance** — default provider. Rich data: quotes, fundamentals, profile, earnings, financials, sentiment, insights, news, screener, and explicit price-only chart history for supported IDX windows.
 - **Yahoo Finance** — default/auto history source. Reliable OHLCV data via `/v8/finance/chart/`.
 
+### MSN Endpoints
+- `https://assets.msn.com/service/`: quotes, charts, equities, earnings,
+  sentiment, screener
+- `https://api.msn.com/msn/v0/pages/finance/`: key ratios, insights, news feed
+
+The public API key embedded in MSN Money lives in `src/api/msn/client.rs`.
+
 ### Hybrid History Strategy
 When `history_provider = auto` (default):
 1. Use Yahoo for history because it provides full OHLCV candles.
@@ -73,7 +80,7 @@ Factory functions:
 
 Unlike the `stocks` module (live-fetch), ownership is **import-then-query**:
 
-1. `idx ownership import` — ETL pipeline: fetch PDF/API → parse → normalize → load SQLite
+1. `idx ownership import` — ETL pipeline: fetch XLSX/PDF → parse → normalize → load SQLite
 2. `idx ownership sync` — install a maintained SQLite snapshot via manifest + checksum validation
 3. All query commands read from local `~/.local/share/idx/ownership.db`
 4. Fully offline after import/sync
@@ -81,7 +88,9 @@ Unlike the `stocks` module (live-fetch), ownership is **import-then-query**:
 ### Data Sources
 - **KSEI** — official ≥1% shareholder registry, published monthly by IDX. Through May 2026 it was a PDF announcement; from the 2026-05-29 report onward it is an XLSX workbook on the IDX "Data Kepemilikan Saham" page
 - **KSEI archive** — monthly ZIP/TXT balance-position matrix, used as a local fallback/backstop import path
-- **Bing Finance** — global institutional ownership (REST API, quarterly)
+- **Bing Finance** — global institutional ownership. The schema, `--source bing`
+  queries, and `src/api/msn/bing.rs` exist, but `ownership import --fetch-bing`
+  is intentionally unsupported, so no ingest path populates Bing rows today
 
 ### Discovery
 `idx ownership discover` merges two IDX sources:
@@ -123,7 +132,7 @@ CLI args → resolve symbol → provider.quote/history/fundamentals → render t
 
 ### Import-Query (ownership module)
 ```
-Import: PDF/API → parse → normalize → resolve entities → SQLite INSERT
+Import: XLSX/PDF/archive → parse → normalize → resolve entities → SQLite INSERT
 Query:  CLI args → SQLite SELECT → render table/json (no network)
 ```
 

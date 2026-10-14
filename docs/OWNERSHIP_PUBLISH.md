@@ -1,170 +1,148 @@
 # Ownership Snapshot Publishing
 
-This document covers the maintainer workflow for producing and publishing the
-ownership snapshot artifacts consumed by `idx ownership sync`.
+Maintainer workflow for producing and publishing the snapshot that
+`idx ownership sync` consumes. The consumer contract (manifest schema and
+replacement rules) is in `docs/OWNERSHIP_SYNC.md`.
 
-## Goals
+## Release Layout
 
-- Build the snapshot from the currently discoverable supported IDX/KSEI source,
-  not from an ad hoc local DB.
-- Keep the published manifest URL stable for end users.
-- Record source provenance in the manifest so the published SQLite artifact can
-  be traced back to the live IDX announcement and PDF URL used to build it.
-
-## Recommended GitHub Releases Layout
-
-Use a dedicated stable release tag for snapshot assets:
+Snapshot assets live on a dedicated GitHub release, separate from versioned app
+releases:
 
 - tag: `ownership-snapshot-current`
-- manifest asset: `ownership-snapshot-manifest.json`
-- SQLite asset: `ownership-snapshot-YYYY-MM-DD-<sha256>.sqlite` (immutable, content-addressed)
-
-Recommended public manifest URL:
+- manifest: `ownership-snapshot-manifest.json` (stable URL, the commit point)
+- SQLite: `ownership-snapshot-YYYY-MM-DD-<sha256>.sqlite` (immutable, content-addressed)
 
 ```text
 https://github.com/0xrsydn/idx-cli/releases/download/ownership-snapshot-current/ownership-snapshot-manifest.json
 ```
 
-Avoid `.../releases/latest/download/...` if normal app releases and snapshot
-publishes share the same repository. The repo's "latest" release can drift away
-from the ownership snapshot release.
+Never use `.../releases/latest/download/...`: the repo's latest release is an
+app release, not the snapshot.
 
-## Manual Maintainer Flow
+## Running the Publisher
 
-Run the publisher helper inside `nix develop` so `mutool` and the
-`curl-impersonate` helper are available:
+Packaged (recommended for hosts; no checkout or cargo build needed):
 
 ```bash
-nix develop --command cargo build
+nix build github:0xrsydn/idx-cli#ownership-publisher
+./result/bin/idx-ownership-publish --output-dir /var/lib/idx/ownership-snapshot/current --history 2
+./result/bin/idx-ownership-freshness --max-age-days 40
+```
+
+From a checkout:
+
+```bash
 nix develop --command scripts/publish-ownership-snapshot.sh \
+  --build \
   --idx-bin ./target/debug/idx \
   --output-dir dist/ownership-snapshot \
   --repo 0xrsydn/idx-cli \
   --release-tag ownership-snapshot-current
 ```
 
-The helper performs these steps:
+`idx-ownership-publish` wraps `scripts/publish-ownership-snapshot.sh` with a
+pinned `idx` (including curl-impersonate and mupdf) plus jq, gh, sqlite, and
+curl. It needs `GH_TOKEN` with permission to upload release assets; the freshness
+check needs no token.
+
+## What It Does
 
 1. `idx -o json ownership discover --family above1 --limit 50` (newest supported
    report first; XLSX from the Data Kepemilikan Saham page since June 2026)
-2. verifies the discovered report is the current supported import path
-3. imports that report (plus `--history <n>` earlier months, oldest first) into
-   an isolated temp ownership DB
-4. checks that the imported release metadata is non-empty and tied to the same
-   source URL
-5. runs `scripts/build-ownership-snapshot.sh` to emit the SQLite artifact and
-   base manifest
-6. enriches the manifest with `source` provenance metadata
-
-The resulting manifest records:
-
-- `source.family`
-- `source.listing_page_url`
-- `source.query_url`
-- `source.pdf_url`
-- `source.title`
-- `source.publish_date`
-- `source.original_filename`
-
-That metadata is additive. Existing sync clients can still parse the manifest.
+2. verifies the discovered report is the supported import path
+3. imports it plus `--history <n>` earlier months, oldest first, into an
+   isolated temp DB
+4. checks the imported release metadata is non-empty and tied to the source URL
+5. builds the SQLite artifact and manifest (`scripts/build-latest-ownership-snapshot.sh`,
+   which calls `scripts/build-ownership-snapshot.sh`) and records `source`
+   provenance in the manifest
+6. uploads using the protocol below
 
 ## Publication Protocol
 
-The manifest is the commit point that `idx ownership sync` follows. The
-publisher therefore never uploads the manifest and the SQLite asset in one
-non-atomic call. It uses this order:
+The manifest is the commit point, so uploads are ordered:
 
-1. Build the snapshot and stage the manifest plus one content-addressed SQLite
-   file.
-2. Upload the SQLite asset first. The name includes the artifact's SHA-256, so
-   the same content always has the same name and a retry is idempotent.
-3. Read the release assets back and confirm the SQLite asset exists with the
-   expected SHA-256 and size. Use GitHub's `sha256:` digest metadata when it is
-   present; for legacy assets without a digest, download the asset through `gh`
-   and hash it. Fail before touching the manifest if verification fails.
-4. Upload the manifest last and verify that its `snapshot.sqlite_sha256`
-   matches the staged manifest.
+1. Upload the content-addressed SQLite asset. Same content means same name, so
+   retries are idempotent.
+2. Read the release assets back and verify the full SHA-256 and size (GitHub's
+   `sha256:` digest when present, otherwise download and hash). Fail before
+   touching the manifest if this does not match.
+3. Upload the manifest last and verify its `snapshot.sqlite_sha256`.
 
-Consequences:
+A partial upload exits non-zero and is repaired by the next run; previously
+published manifests stay valid because old SQLite assets are retained. GitHub
+does not replace the manifest transactionally, so a failed replacement can leave
+it unavailable until a retry succeeds.
 
-- A partial upload (manifest uploaded, SQLite missing) can no longer happen.
-- If either upload fails, the job exits non-zero and the next run retries.
-  Previously downloaded manifests remain valid because the old SQLite asset is retained.
-- GitHub does not replace the manifest transactionally. A failed replacement
-  can leave the manifest unavailable until a retry succeeds.
-- The publisher treats a published manifest as current only when `download_url`
-  names this repo and release tag and the referenced asset matches the manifest
-  SHA-256 and size. A missing or corrupt asset, a mismatched URL, or any GitHub
-  authentication/network error means "publish", never "up to date".
+The publisher treats the published snapshot as current only when the manifest's
+`download_url` names this repo and tag and the referenced asset matches its
+SHA-256 and size. A missing or corrupt asset, a mismatched URL, an unreadable
+manifest, or any GitHub auth/network error means "publish", never "up to date".
+`--force` uploads regardless.
+
+## Run Result
+
+The publisher is idempotent and prints exactly one final line:
+
+| Last line | Exit | Meaning |
+| --- | --- | --- |
+| `RESULT: published <as-of>` | 0 | a newer snapshot, or larger history, was uploaded |
+| `RESULT: up-to-date <as-of>` | 0 | nothing to upload |
+| `RESULT: FAILED stage=<stage> (exit N)` | N | failed in `arguments`, `build`, `preflight`, `discover`, `build-snapshot`, `stage-output`, `upload`, or `publish` |
+
+`idx-ownership-freshness` is the independent alarm: it exits 1 when the published
+`latest_as_of_date` is older than `--max-age-days` (default 40). The source lands
+2-3 days after month end, so 40 days only trips when publishing has stopped.
 
 ## History Coverage
 
-`--history <n>` requests the latest report plus up to `<n>` earlier monthly
-XLSX reports. The publisher compares the request with the months the source
-actually exposes:
+`--history <n>` (maximum 1000) requests the latest report plus up to `n` earlier
+monthly XLSX reports:
 
 - desired releases = `1 + min(--history, available earlier XLSX months)`
-- a published snapshot with the same as-of date and at least the desired number
-  of releases is a no-op
-- a published snapshot with the same as-of date but fewer releases is
-  republished to add history
-- when the source has fewer historical months than requested, the publisher
-  accepts the smaller coverage and does not rebuild on every run
+- same as-of date with at least the desired release count: no-op
+- same as-of date with fewer releases: republish to add history
+- a request larger than the source's history is accepted once, not rebuilt forever
 
-## Upload Step
+Each extra month adds about 2.4 MB, and history is what lets
+`idx ownership changes` work straight from a synced snapshot.
 
-Prefer the publisher helper, which implements the protocol above:
+## Snapshot Size Limit
 
-```bash
-scripts/publish-ownership-snapshot.sh \
-  --idx-bin ./target/debug/idx \
-  --output-dir dist/ownership-snapshot \
-  --repo 0xrsydn/idx-cli \
-  --release-tag ownership-snapshot-current
-```
+idx clients up to v0.2.3 cap the snapshot download at **10 MiB** (10,485,760
+bytes) and accept only uncompressed SQLite. A larger snapshot breaks
+`idx ownership sync` for every existing install (this happened on 2026-09-25
+with `--history 5`).
 
-If you upload by hand, upload these files to the `ownership-snapshot-current`
-GitHub release in this order:
+| `--history` | months | size (2026-08-31) |
+| --- | --- | --- |
+| 2 | 3 | 8,171,520 |
+| 3 | 4 | 10,510,336 (too large) |
+| 5 | 6 | 15,290,368 (too large) |
 
-1. `dist/ownership-snapshot/ownership-snapshot-YYYY-MM-DD-<sha256>.sqlite`
-2. `dist/ownership-snapshot/ownership-snapshot-manifest.json`
+The builder refuses snapshots above `--max-snapshot-bytes` (default 10485760),
+ending with `RESULT: FAILED stage=build-snapshot` and leaving the published
+snapshot unchanged. Newer clients accept up to the manifest's `size_bytes` (at
+most 1 GiB); raise both limits only once pre-v0.2.4 clients are rare.
 
-Never upload the manifest before its SQLite asset is present. Only after this
-manual flow is reliable should the repo automate it in GitHub Actions.
+## Automation
 
-## GitHub Actions Workflow
+IDX has returned `403` to GitHub-hosted runners, so unattended publishing runs
+on a self-hosted machine that IDX accepts:
 
-The repo now includes a manual workflow at
-`.github/workflows/publish-ownership-snapshot.yml`.
+- `contrib/systemd/idx-ownership-snapshot-publish.service` and `.timer` run the
+  packaged publisher daily at 06:00 UTC with `GH_TOKEN` from
+  `/etc/idx-ownership-snapshot.env`. Wire `OnFailure=` to a notification.
+- On NixOS, add this repo as a flake input and use
+  `inputs.idx-cli.packages.${system}.ownership-publisher`; `nix flake update idx-cli`
+  picks up fixes.
 
-Current behavior:
+`.github/workflows/publish-ownership-snapshot.yml` is a manual
+(`workflow_dispatch`) fallback that runs the same packaged publisher with inputs
+passed as environment variables.
 
-- trigger: `workflow_dispatch` only
-- builds the packaged publisher with `nix build .#ownership-publisher`
-- runs `idx-ownership-publish` from that package, which performs discovery,
-  import, snapshot build, and the full upload protocol in one pass
-- uploads any locally produced artifacts as a workflow artifact copy with
-  `if-no-files-found: ignore`, so a legitimate up-to-date run still succeeds
-- does not run a separate release-create or asset-upload step
-
-This is intentionally manual-first. Add a schedule only after a few successful
-publish runs confirm the live source remains stable enough.
-
-The workflow passes its inputs to the shell through environment variables and
-routes publication through the same fixed publisher used by self-hosted hosts,
-so it cannot drift from the CLI protocol.
-
-## Self-Hosted Automation
-
-GitHub-hosted Actions are still not sufficient for this job on their own. Live
-verification has shown IDX returning `403` to GitHub-hosted runners during
-discovery/import.
-
-The recommended unattended path is therefore:
-
-- keep the public artifacts on GitHub Releases
-- run the publish job from a self-hosted machine that IDX accepts
-- use a `systemd` oneshot service plus `systemd.timer` on that machine
-
-See `docs/OWNERSHIP_SELF_HOSTED.md` for the reusable helper script, sample
-systemd units, and the recommended split between this repo and `clan-private`.
+Observed XLSX upload times (HTTP Last-Modified) were the 2nd-3rd of each month
+around 02:00-04:00 UTC; a daily idempotent run makes the exact day irrelevant.
+If the monthly source has not appeared yet, the run should fail loudly and retry
+later rather than publish stale data.

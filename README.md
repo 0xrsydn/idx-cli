@@ -145,9 +145,9 @@ Precedence order:
 - [docs/NPM_DISTRIBUTION.md](docs/NPM_DISTRIBUTION.md): npm package and release flow
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): providers, ownership ingest, and discovery
 - [docs/OWNERSHIP_SYNC.md](docs/OWNERSHIP_SYNC.md): snapshot manifest and sync rules
-- [docs/OWNERSHIP_PUBLISH.md](docs/OWNERSHIP_PUBLISH.md) and
-  [docs/OWNERSHIP_SELF_HOSTED.md](docs/OWNERSHIP_SELF_HOSTED.md): maintainer snapshot publishing
+- [docs/OWNERSHIP_PUBLISH.md](docs/OWNERSHIP_PUBLISH.md): maintainer snapshot publishing
 - [docs/SMOKE.md](docs/SMOKE.md): smoke tests against live providers
+- [ROADMAP.md](ROADMAP.md): planned work
 
 ## Development
 

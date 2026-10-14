@@ -105,8 +105,6 @@ responses honor the requested batch size so the complete-fetch path is exercised
 Mocks do not verify current upstream availability, authentication, or response
 drift. Live provider checks remain a separate, opt-in operation.
 
-
-
 ## Modes
 
 - `live` runs the default real-network baseline: `general`, `live-table`, and `ownership`
@@ -128,12 +126,10 @@ drift. Live provider checks remain a separate, opt-in operation.
 
 ## Notes
 
-- The runner forces `IDX_OUTPUT=table` as its default environment so table cases stay stable; JSON checks use `-o json` explicitly.
-- Cache-group warm cases clear the smoke cache before they run so each warm/offline/stale sequence starts clean and stale-cache assertions are not masked by earlier groups.
-- Use `--bin <path> --no-build` when you want to validate an installed binary instead of the workspace `target/debug/idx` build.
-- Use `scripts/audit-msn-fundamentals.sh` for a full CLI valuation sweep across the IDX MSN symbol map. It is intentionally separate from the reusable smoke runner because it is a heavier provider-health audit, not a stable baseline check.
-- Ownership commands that need imported data are intentionally not part of the baseline runner yet. The current baseline only covers `ownership releases` and the known unsupported `ownership import --fetch-bing`.
-- `ownership sync` is still primarily covered by fixture-backed CLI tests rather than the reusable smoke runner.
-- The new `ownership-import` group is intentionally opt-in for explicit `--group ownership-import` runs or `--mode full`; it discovers live URLs first, imports the supported `above1` attachment into the temp DB, then asserts the current `above5` and `investor-type` URLs fail with explicit unsupported-schema UX.
-- The new `live-nonfinite` group is intentionally opt-in only. As of `2026-04-13`, the known real repro tickers are `BUMI`, `ADRO`, and `AIMS`.
-- When a case fails, inspect its `.stdout`, `.stderr`, and (for JSON cases) `.validation` files in `tmp/live-smoke/.../logs/` before updating `TODO.md` or `FEATURE_SPEC.md`.
+- The runner forces `IDX_OUTPUT=table` so table cases stay stable; JSON checks pass `-o json` explicitly.
+- Cache-group warm cases clear the smoke cache first so warm/offline/stale sequences start clean.
+- Use `--bin <path> --no-build` to validate an installed binary instead of `target/debug/idx`.
+- `ownership-import` and `live-nonfinite` are opt-in (explicit `--group` or `--mode full`). Known non-finite repro tickers as of `2026-04-13`: `BUMI`, `ADRO`, `AIMS`.
+- The baseline `ownership` group needs no imported data; `ownership sync` is covered by fixture-backed CLI tests instead.
+- `scripts/audit-msn-fundamentals.sh` is a heavier provider-health sweep over the IDX MSN symbol map, not a baseline check.
+- When a case fails, inspect its `.stdout`, `.stderr`, and `.validation` files under `tmp/live-smoke/.../logs/`.

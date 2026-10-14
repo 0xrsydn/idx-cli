@@ -126,7 +126,6 @@ let conn = Connection::open(path)
 - **Coverage over counts:** replacing redundant unit assertions with stronger integration scenarios must retain meaningful error, boundary, and data-integrity coverage.
 
 ## Git / VCS
-- **jj (Jujutsu)** as local workflow, colocated with git
 - Push via `nix develop --command git push` (for prek hooks)
-- Branch naming: `feat/<name>`, `fix/<name>`
+- Branch naming: `feat/<name>`, `fix/<name>`, `docs/<name>`
 - Commit messages: conventional commits (`feat:`, `fix:`, `refactor:`, `docs:`)

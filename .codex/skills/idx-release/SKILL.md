@@ -16,7 +16,7 @@ ownership snapshot artifacts as a separate release track.
 Read these files before mutating release state:
 
 - `Cargo.toml` for the package version
-- `TODO.md` for the latest smoke findings and release-readiness notes
+- `ROADMAP.md` for known limits that may belong in release notes
 - `README.md` if install or publish notes may need updates
 - `docs/OWNERSHIP_SYNC.md` and `docs/OWNERSHIP_PUBLISH.md` only when checking
   ownership-sync behavior or keeping snapshot and app releases separated
@@ -59,13 +59,11 @@ curl -fsSL https://crates.io/api/v1/crates/idx-cli
 
 For a real release or release-hygiene fix, verify the repo state first.
 
-Run the standard checks inside `nix develop`:
+Run the canonical gate (fmt, clippy, tests, release build, `cargo package`
+verification, and mock smoke):
 
 ```bash
-nix develop --command cargo build
-nix develop --command cargo clippy -- -D warnings
-nix develop --command cargo test
-nix develop --command cargo package --locked
+nix flake check -L
 ```
 
 Run targeted smoke when the release changes user-facing CLI behavior. For
