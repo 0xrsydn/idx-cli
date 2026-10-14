@@ -15,7 +15,7 @@ use rmcp::model::{CallToolResult, Implementation, ServerCapabilities, ServerConf
 use rmcp::{ErrorData, ServerHandler, tool, tool_handler, tool_router};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::Semaphore;
 
 use crate::params::{
     AnalysisKind, AnalyzeParams, ChangesParams, CompanyParams, CompanySection, EntityParams,
@@ -36,9 +36,6 @@ const MAX_CHANGES_LIMIT: usize = 2000;
 
 /// Tool calls running at once; the rest wait their turn.
 static CALL_SLOTS: Semaphore = Semaphore::const_new(4);
-/// `ownership_sync` replaces the database file: it runs alone, while
-/// ownership reads may run together.
-static OWNERSHIP: RwLock<()> = RwLock::const_new(());
 
 const INSTRUCTIONS: &str = "Indonesian stock market (IDX) data. Market and financial \
 tools fetch live data (cached on disk) and wrap it as {data, source, fetched_at, stale}; \
@@ -92,7 +89,6 @@ impl IdxServer {
         } else {
             "run `idx ownership sync`, or restart idx-mcp with --allow-sync"
         };
-        let _read = OWNERSHIP.read().await;
         blocking(move || {
             if !investor.status()?.populated {
                 return Err(IdxError::NoMarketData(format!(
@@ -323,7 +319,6 @@ KSEI release dates."
     )]
     async fn ownership_status(&self) -> ToolResult {
         let investor = Investor::new(&self.config);
-        let _read = OWNERSHIP.read().await;
         blocking(move || investor.status()).await
     }
 
@@ -334,7 +329,7 @@ the local database."
     async fn ownership_sync(&self, params: Parameters<SyncParams>) -> ToolResult {
         let SyncParams { force } = params.0;
         let investor = Investor::new(&self.config);
-        let _write = OWNERSHIP.write().await;
+        // idx-core's database lock keeps the swap away from open readers.
         blocking(move || investor.sync(None, force)).await
     }
 }

@@ -172,8 +172,27 @@ fn row_number(element: &BytesStart<'_>, fallback: usize) -> Result<usize, IdxErr
     Ok(fallback)
 }
 
-/// Total text across all cells of one worksheet; real registers hold a few MB.
+/// Bounds on one worksheet. Real above-1% registers hold about 7,000 rows
+/// and a few MB of text.
 const MAX_CELL_TEXT_BYTES: usize = 256 * 1024 * 1024;
+const MAX_SHEET_ROWS: usize = 1_000_000;
+
+fn text_cap_error() -> IdxError {
+    xml_error(
+        "worksheet",
+        format!("cell text exceeds {MAX_CELL_TEXT_BYTES} bytes"),
+    )
+}
+
+fn check_row_count(rows: usize) -> Result<(), IdxError> {
+    if rows >= MAX_SHEET_ROWS {
+        return Err(xml_error(
+            "worksheet",
+            format!("more than {MAX_SHEET_ROWS} rows"),
+        ));
+    }
+    Ok(())
+}
 
 fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow>, IdxError> {
     let mut reader = Reader::from_str(xml);
@@ -188,6 +207,7 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
         match reader.read_event() {
             Ok(Event::Start(e)) => match e.local_name().as_ref() {
                 b"row" => {
+                    check_row_count(rows.len())?;
                     row = Some(SheetRow {
                         number: row_number(&e, rows.len() + 1)?,
                         cells: HashMap::new(),
@@ -200,10 +220,13 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
                 b"v" | b"t" if cell.is_some() => in_value = true,
                 _ => {}
             },
-            Ok(Event::Empty(e)) if e.local_name().as_ref() == b"row" => rows.push(SheetRow {
-                number: row_number(&e, rows.len() + 1)?,
-                cells: HashMap::new(),
-            }),
+            Ok(Event::Empty(e)) if e.local_name().as_ref() == b"row" => {
+                check_row_count(rows.len())?;
+                rows.push(SheetRow {
+                    number: row_number(&e, rows.len() + 1)?,
+                    cells: HashMap::new(),
+                })
+            }
             Ok(Event::Text(text)) if in_value => {
                 let unescaped = text.unescape().map_err(|e| xml_error("worksheet", e))?;
                 value.push_str(&unescaped);
@@ -219,12 +242,18 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
                                 let index = value.trim().parse::<usize>().map_err(|e| {
                                     xml_error("worksheet", format!("bad shared string index: {e}"))
                                 })?;
-                                shared_strings.get(index).cloned().ok_or_else(|| {
+                                let shared = shared_strings.get(index).ok_or_else(|| {
                                     xml_error(
                                         "worksheet",
                                         format!("shared string {index} out of range"),
                                     )
-                                })?
+                                })?;
+                                // Check before copying: one large string may be
+                                // referenced from many cells.
+                                if cell_text_bytes + shared.len() > MAX_CELL_TEXT_BYTES {
+                                    return Err(text_cap_error());
+                                }
+                                shared.clone()
                             }
                             // Excel stores the share code TRUE (TRINITI DINAMIK)
                             // as a boolean cell holding 1.
@@ -235,14 +264,9 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
                             },
                             _ => value.clone(),
                         };
-                        // Shared strings are bounded per entry, but one large
-                        // string referenced from many cells is copied each time.
                         cell_text_bytes += text.len();
                         if cell_text_bytes > MAX_CELL_TEXT_BYTES {
-                            return Err(xml_error(
-                                "worksheet",
-                                format!("cell text exceeds {MAX_CELL_TEXT_BYTES} bytes"),
-                            ));
+                            return Err(text_cap_error());
                         }
                         current_row.cells.insert(column, text);
                     }

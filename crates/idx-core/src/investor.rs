@@ -47,17 +47,25 @@ impl Investor {
         }
     }
 
-    /// Cross-process lock held for every write (sync, import, entity edits),
-    /// so a sync cannot replace the database under a concurrent import, or the
-    /// other way around. Released when the returned file is dropped.
-    fn write_lock(&self) -> Result<fs::File, IdxError> {
+    /// Cross-process lock beside the database. Writers (sync install, import,
+    /// entity edits) hold it exclusively; readers hold it shared, so a
+    /// snapshot swap never happens under an open connection. Released when
+    /// the returned file is dropped.
+    fn lock_file(&self, exclusive: bool) -> Result<fs::File, IdxError> {
         let db_path = self.db_path()?;
-        if let Some(parent) = db_path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            fs::create_dir_all(parent).map_err(|e| IdxError::Io(e.to_string()))?;
-        }
-        let mut lock_name = db_path.as_os_str().to_os_string();
+        let parent = match db_path.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+            _ => PathBuf::from("."),
+        };
+        fs::create_dir_all(&parent).map_err(|e| IdxError::Io(e.to_string()))?;
+        // Resolve symlinks, so every path to one database shares one lock.
+        let real = match fs::canonicalize(&db_path) {
+            Ok(real) => real,
+            Err(_) => fs::canonicalize(&parent)
+                .map_err(|e| IdxError::Io(e.to_string()))?
+                .join(db_path.file_name().unwrap_or_default()),
+        };
+        let mut lock_name = real.into_os_string();
         lock_name.push(".lock");
         let file = fs::OpenOptions::new()
             .create(true)
@@ -65,23 +73,41 @@ impl Investor {
             .write(true)
             .open(PathBuf::from(lock_name))
             .map_err(|e| IdxError::Io(format!("failed to open ownership lock: {e}")))?;
-        file.lock()
-            .map_err(|e| IdxError::Io(format!("failed to lock ownership database: {e}")))?;
+        if exclusive {
+            file.lock()
+        } else {
+            file.lock_shared()
+        }
+        .map_err(|e| IdxError::Io(format!("failed to lock ownership database: {e}")))?;
         Ok(file)
     }
 
-    fn connect(&self) -> Result<Connection, IdxError> {
+    fn write_lock(&self) -> Result<fs::File, IdxError> {
+        self.lock_file(true)
+    }
+
+    /// A read connection holding the shared lock for its lifetime.
+    fn connect(&self) -> Result<ReadConnection, IdxError> {
+        let lock = self.lock_file(false)?;
+        Ok(ReadConnection {
+            conn: self.open_db()?,
+            _lock: lock,
+        })
+    }
+
+    /// For writers, which already hold the exclusive lock.
+    fn open_db(&self) -> Result<Connection, IdxError> {
         db::open_db_at(&self.db_path()?)
     }
 
     pub fn releases(&self) -> Result<Vec<OwnershipRelease>, IdxError> {
-        db::query_releases(&self.connect()?)
+        db::query_releases(&*self.connect()?)
     }
 
     /// Whether the database has data, and which releases it holds.
     pub fn status(&self) -> Result<OwnershipStatus, IdxError> {
         let db_path = self.db_path()?;
-        let releases = db::query_releases(&db::open_db_at(&db_path)?)?;
+        let releases = db::query_releases(&*self.connect()?)?;
         Ok(OwnershipStatus {
             db_path: db_path.display().to_string(),
             populated: !releases.is_empty(),
@@ -139,7 +165,7 @@ impl Investor {
     }
 
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Entity>, IdxError> {
-        search::fts_search(&self.connect()?, query, limit)
+        search::fts_search(&*self.connect()?, query, limit)
     }
 
     pub fn cross_holders(
@@ -147,7 +173,7 @@ impl Investor {
         min_tickers: usize,
         top: usize,
     ) -> Result<Vec<CrossHolderRow>, IdxError> {
-        db::query_cross_holders(&self.connect()?, min_tickers, top)
+        db::query_cross_holders(&*self.connect()?, min_tickers, top)
     }
 
     pub fn concentration(
@@ -155,7 +181,7 @@ impl Investor {
         by: ConcentrationRank,
         top: usize,
     ) -> Result<Vec<(String, ConcentrationMetrics)>, IdxError> {
-        db::query_concentration(&self.connect()?, by.as_str(), top)
+        db::query_concentration(&*self.connect()?, by.as_str(), top)
     }
 
     /// Institutional (Bing) flow; `None` when no flow data exists.
@@ -174,7 +200,7 @@ impl Investor {
         to: &str,
         ticker: Option<&str>,
     ) -> Result<Vec<ChangeRow>, IdxError> {
-        let mut rows = db::query_changes(&self.connect()?, from, to)?;
+        let mut rows = db::query_changes(&*self.connect()?, from, to)?;
         if let Some(ticker) = ticker {
             let ticker = ticker.trim().to_uppercase();
             rows.retain(|row| row.ticker_code == ticker);
@@ -187,22 +213,22 @@ impl Investor {
         root: &str,
         depth: usize,
     ) -> Result<(Vec<GraphNode>, Vec<GraphEdge>), IdxError> {
-        graph::query_ownership_graph(&self.connect()?, root, depth)
+        graph::query_ownership_graph(&*self.connect()?, root, depth)
     }
 
     pub fn unresolved(&self, limit: usize) -> Result<Vec<UnresolvedRow>, IdxError> {
-        db::list_unresolved(&self.connect()?, limit)
+        db::list_unresolved(&*self.connect()?, limit)
     }
 
     pub fn map_alias(&self, alias: &str, entity: &str) -> Result<(), IdxError> {
         let _lock = self.write_lock()?;
-        db::manual_map(&self.connect()?, alias, entity)
+        db::manual_map(&self.open_db()?, alias, entity)
     }
 
     /// Merges entity `merge` into `keep`, reporting how many rows moved.
     pub fn merge_entities(&self, keep: i64, merge: i64) -> Result<MergeResult, IdxError> {
         let _lock = self.write_lock()?;
-        let conn = self.connect()?;
+        let conn = self.open_db()?;
         let count = |table: &str| -> Result<i64, IdxError> {
             conn.query_row(
                 &format!("SELECT COUNT(*) FROM {table} WHERE entity_id = ?1"),
@@ -242,8 +268,7 @@ impl Investor {
     ) -> Result<OwnershipSyncResult, IdxError> {
         let manifest_source = snapshot::resolve_manifest_source(manifest)?;
         let db_path = self.db_path()?;
-        let _lock = self.write_lock()?;
-        snapshot::sync_snapshot(&manifest_source, &db_path, force)
+        snapshot::sync_snapshot(&manifest_source, &db_path, force, || self.write_lock())
     }
 
     /// Imports one report. A release already imported (same SHA-256) is
@@ -253,7 +278,7 @@ impl Investor {
         // only around the database writes.
         let input = self.resolve_import_input(source)?;
         let _lock = self.write_lock()?;
-        let conn = self.connect()?;
+        let conn = self.open_db()?;
 
         let sha256 = sha256_file(&input.path)?;
         if !force && db::release_exists(&conn, &sha256)? {
@@ -439,6 +464,19 @@ pub struct OwnershipStatus {
     pub populated: bool,
     pub latest_as_of_date: Option<NaiveDate>,
     pub releases: Vec<OwnershipRelease>,
+}
+
+struct ReadConnection {
+    conn: Connection,
+    _lock: fs::File,
+}
+
+impl std::ops::Deref for ReadConnection {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        &self.conn
+    }
 }
 
 /// Holder sources for `Investor::ticker`.

@@ -144,11 +144,20 @@ pub fn parse_manifest(raw: &str) -> Result<OwnershipSnapshotManifest, IdxError> 
     Ok(manifest)
 }
 
-pub fn sync_snapshot(
+/// `lock` takes the database's exclusive writer lock; it is held only while
+/// rechecking and installing, never during the downloads.
+pub fn sync_snapshot<L>(
     manifest_source: &str,
     db_path: &Path,
     force: bool,
+    lock: impl FnOnce() -> Result<L, IdxError>,
 ) -> Result<OwnershipSyncResult, IdxError> {
+    // Results report the configured path; files are read and replaced at the
+    // resolved one, so a symlinked path updates its target instead of being
+    // overwritten with a regular file.
+    let configured_db_path = db_path;
+    let resolved_db_path = fs::canonicalize(db_path).unwrap_or_else(|_| db_path.to_path_buf());
+    let db_path = resolved_db_path.as_path();
     let manifest = fetch_manifest(manifest_source)?;
     let local_state = inspect_local_db(db_path)?;
     let decision = build_sync_decision(local_state.as_ref(), &manifest.snapshot, force);
@@ -157,7 +166,7 @@ pub fn sync_snapshot(
         return Ok(OwnershipSyncResult {
             action: decision.action,
             manifest: manifest_source.to_string(),
-            db_path: db_path.display().to_string(),
+            db_path: configured_db_path.display().to_string(),
             snapshot_version: manifest.snapshot.version.clone(),
             latest_as_of_date: manifest.snapshot.latest_as_of_date,
             release_count: manifest.snapshot.release_count,
@@ -202,6 +211,7 @@ pub fn sync_snapshot(
 
     let install_result = (|| -> Result<(), IdxError> {
         validate_snapshot_db(&temp_path, &manifest.snapshot)?;
+        let _lock = lock()?;
         // The decision was made before the download; an import or edit that
         // landed since must not be overwritten without --force.
         if !force && !same_local_state(local_state.as_ref(), inspect_local_db(db_path)?.as_ref()) {
@@ -215,13 +225,14 @@ pub fn sync_snapshot(
 
     if install_result.is_err() {
         let _ = fs::remove_file(&temp_path);
+        let _ = remove_sqlite_sidecars(&temp_path);
     }
     install_result?;
 
     Ok(OwnershipSyncResult {
         action: decision.action,
         manifest: manifest_source.to_string(),
-        db_path: db_path.display().to_string(),
+        db_path: configured_db_path.display().to_string(),
         snapshot_version: manifest.snapshot.version.clone(),
         latest_as_of_date: manifest.snapshot.latest_as_of_date,
         release_count: manifest.snapshot.release_count,
@@ -639,6 +650,8 @@ fn build_temp_path(db_path: &Path) -> PathBuf {
 }
 
 fn install_snapshot_file(temp_path: &Path, db_path: &Path) -> Result<(), IdxError> {
+    // Validation opened the temp database; its sidecars are named after it.
+    remove_sqlite_sidecars(temp_path)?;
     if let Some(parent) = db_path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -748,7 +761,8 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 fn read_text(source: &str, context: &str) -> Result<String, IdxError> {
     if is_http_source(source) {
-        let response = ureq::get(source)
+        let response = http_agent()
+            .get(source)
             .header("User-Agent", USER_AGENT)
             .header("Accept", "application/json,text/plain;q=0.9,*/*;q=0.8")
             .call()
@@ -764,9 +778,20 @@ fn read_text(source: &str, context: &str) -> Result<String, IdxError> {
         .map_err(|e| IdxError::Io(format!("failed to read {context} {}: {e}", path.display())))
 }
 
+/// Downloads give up rather than hang: a stalled connection must not keep
+/// sync (and anything waiting on it) blocked forever.
+fn http_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_connect(Some(std::time::Duration::from_secs(15)))
+        .timeout_global(Some(std::time::Duration::from_secs(600)))
+        .build()
+        .into()
+}
+
 fn read_bytes(source: &str, context: &str, limit_bytes: u64) -> Result<Vec<u8>, IdxError> {
     if is_http_source(source) {
-        let response = ureq::get(source)
+        let response = http_agent()
+            .get(source)
             .header("User-Agent", USER_AGENT)
             .header(
                 "Accept",
