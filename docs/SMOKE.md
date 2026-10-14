@@ -26,7 +26,7 @@ user-visible output changed. Regenerate with
 and commit the golden diff with the reason.
 
 `crates/idx-mcp/tests/mcp.rs` drives `idx-mcp` over stdio JSON-RPC with the
-mock provider. `tests/golden/tools.json` there pins what agents see (tool
+mock provider. `crates/idx-mcp/tests/golden/tools.json` pins what agents see (tool
 names, descriptions, input schemas); regenerate it the same way after an
 intended change.
 
@@ -91,7 +91,8 @@ tests/agents/agent-smoke.sh --live --case shareholders --keep          # real da
 - Each agent gets an isolated config that registers only the local server;
   your own agent settings and MCP servers are not loaded or changed. Logins
   are copied from the agent's home (Codex `auth.json`, pi and Hermes auth
-  files) into a temp dir that is deleted afterwards unless `--keep`.
+  files) into a temp dir that is deleted afterwards; `--keep` keeps the run
+  output but still deletes the copied credentials.
 - Tools are auto-approved for the run (Claude `dontAsk` with
   `mcp__idx__*`, Codex `default_tools_approval_mode="approve"`); Claude and pi
   also get no built-in tools, so they can only answer through MCP.

@@ -59,6 +59,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ "$runs" =~ ^[1-9][0-9]*$ ]] || { echo "--runs must be a positive integer" >&2; exit 2; }
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+    echo "agent-smoke: bash 4.4+ is required (run it inside nix develop)" >&2
+    exit 2
+fi
 for tool in jq cargo timeout; do
     command -v "$tool" >/dev/null || { echo "agent-smoke: $tool is required" >&2; exit 2; }
 done
@@ -77,7 +81,9 @@ done
 work="$(mktemp -d "${TMPDIR:-/tmp}/idx-agent-smoke.XXXXXX")"
 cleanup() {
     if [[ "$keep" == 1 ]]; then
-        echo "agent-smoke: kept $work"
+        # Never leave copied agent credentials behind.
+        rm -f -- "$work/codex/auth.json" "$work/pi/auth.json" "$work/hermes/auth.json" "$work/hermes/.env"
+        echo "agent-smoke: kept $work (copied credentials removed)"
     elif [[ "$work" == */idx-agent-smoke.* ]]; then
         rm -rf -- "$work"
     fi
@@ -187,7 +193,8 @@ setup_hermes() {
     copy_if_present "$src/auth.json" "$work/hermes"
     copy_if_present "$src/.env" "$work/hermes"
     {
-        [[ -f "$src/config.yaml" ]] && sed -n '/^model:/,/^[a-z_]*:/p' "$src/config.yaml" | sed '$d'
+        # The top-level `model:` block, up to the next top-level key.
+        [[ -f "$src/config.yaml" ]] && awk '/^[^[:space:]#]/ { in_model = /^model:/ } in_model' "$src/config.yaml"
         printf 'mcp_servers:\n  idx:\n    command: %s\n    enabled: true\n' "$launcher"
     } > "$work/hermes/config.yaml"
 }
@@ -242,11 +249,13 @@ check_run() {
               elif ($want.args // {}) as $args | ($matches | any(.args | contains($args))) | not
               then "\($want.name) called without \($want.args | tojson): \($matches | map(.args) | tojson)"
               else empty end
-          end'
+          end' || echo "could not parse the agent's tool calls (see $out.raw)"
     if [[ "$live" == 0 ]]; then
         local pattern
         while IFS= read -r pattern; do
-            grep -qP -- "$pattern" "$out.answer" || echo "answer does not match /$pattern/"
+            # jq regexes (Oniguruma) support (?i) on every platform, unlike grep -P.
+            jq -Rse --arg re "$pattern" 'test($re)' "$out.answer" >/dev/null \
+                || echo "answer does not match /$pattern/"
         done < <(jq -r '.expect_text[]?' <<< "$case_json")
     fi
 }
@@ -275,7 +284,9 @@ for agent in "${agents[@]}"; do
             : > "$out.calls"; : > "$out.answer"
             started=$SECONDS
             if timeout "$timeout_secs" bash -c "set -eo pipefail; $(declare -f "run_$agent"); $(declare -p work launcher exec_prefix); run_$agent \"\$1\" \"\$2\"" _ "$prompt" "$out" 2> "$out.stderr"; then
-                failures="$(check_run "$case_json" "$out")"
+                # Malformed agent output fails this run, not the whole matrix.
+                failures="$(check_run "$case_json" "$out")" \
+                    || failures="${failures:+$failures$'\n'}could not check the agent output (see $out.raw)"
             else
                 failures="agent exited with status $? (see $out.stderr)"
             fi
