@@ -144,14 +144,15 @@ pub fn parse_manifest(raw: &str) -> Result<OwnershipSnapshotManifest, IdxError> 
     Ok(manifest)
 }
 
-/// `lock(exclusive)` takes the database's lock: shared while inspecting the
-/// local database, exclusive while rechecking and installing, and never held
-/// during the downloads.
+/// `lock(resolved_db_path, exclusive)` takes the database's lock: shared
+/// while inspecting the local database, exclusive while rechecking and
+/// installing, and never held during the downloads. The path is resolved
+/// once, so the lock and the replaced file are always the same database.
 pub fn sync_snapshot<L>(
     manifest_source: &str,
     db_path: &Path,
     force: bool,
-    lock: impl Fn(bool) -> Result<L, IdxError>,
+    lock: impl Fn(&Path, bool) -> Result<L, IdxError>,
 ) -> Result<OwnershipSyncResult, IdxError> {
     // Results report the configured path; files are read and replaced at the
     // resolved one, so a symlinked path updates its target instead of being
@@ -161,7 +162,7 @@ pub fn sync_snapshot<L>(
     let db_path = resolved_db_path.as_path();
     let manifest = fetch_manifest(manifest_source)?;
     let local_state = {
-        let _shared = lock(false)?;
+        let _shared = lock(db_path, false)?;
         inspect_local_db(db_path)?
     };
     let decision = build_sync_decision(local_state.as_ref(), &manifest.snapshot, force);
@@ -215,7 +216,7 @@ pub fn sync_snapshot<L>(
 
     let install_result = (|| -> Result<(), IdxError> {
         validate_snapshot_db(&temp_path, &manifest.snapshot)?;
-        let _lock = lock(true)?;
+        let _lock = lock(db_path, true)?;
         // The decision was made before the download; an import or edit that
         // landed since must not be overwritten without --force.
         if !force && !same_local_state(local_state.as_ref(), inspect_local_db(db_path)?.as_ref()) {

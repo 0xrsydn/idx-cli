@@ -54,32 +54,23 @@ impl Investor {
     fn lock_file(&self, exclusive: bool) -> Result<fs::File, IdxError> {
         // Every path to one database (symlinks included) shares one lock.
         let real = db::resolve_db_path(&self.db_path()?)?;
-        let mut lock_name = real.into_os_string();
-        lock_name.push(".lock");
-        let file = fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(PathBuf::from(lock_name))
-            .map_err(|e| IdxError::Io(format!("failed to open ownership lock: {e}")))?;
-        if exclusive {
-            file.lock()
-        } else {
-            file.lock_shared()
-        }
-        .map_err(|e| IdxError::Io(format!("failed to lock ownership database: {e}")))?;
-        Ok(file)
+        lock_at(&real, exclusive)
     }
 
     fn write_lock(&self) -> Result<fs::File, IdxError> {
         self.lock_file(true)
     }
 
-    /// A read connection holding the shared lock for its lifetime. Where no
-    /// lock file can be created (a read-only filesystem), nothing can replace
-    /// the database either, so reads go ahead unlocked.
+    /// A read connection holding the shared lock for its lifetime.
     fn connect(&self) -> Result<ReadConnection, IdxError> {
-        let lock = self.lock_file(false).ok();
+        let real = db::resolve_db_path(&self.db_path()?)?;
+        let lock = match lock_at(&real, false) {
+            Ok(lock) => Some(lock),
+            // No lock file and none can be created (a read-only filesystem):
+            // no writer can lock it to replace the database either.
+            Err(_) if unlockable(&real) => None,
+            Err(err) => return Err(err),
+        };
         Ok(ReadConnection {
             conn: self.open_db()?,
             _lock: lock,
@@ -258,10 +249,7 @@ impl Investor {
         force: bool,
     ) -> Result<OwnershipSyncResult, IdxError> {
         let manifest_source = snapshot::resolve_manifest_source(manifest)?;
-        let db_path = self.db_path()?;
-        snapshot::sync_snapshot(&manifest_source, &db_path, force, |exclusive| {
-            self.lock_file(exclusive)
-        })
+        snapshot::sync_snapshot(&manifest_source, &self.db_path()?, force, lock_at)
     }
 
     /// Imports one report. A release already imported (same SHA-256) is
@@ -457,6 +445,47 @@ pub struct OwnershipStatus {
     pub populated: bool,
     pub latest_as_of_date: Option<NaiveDate>,
     pub releases: Vec<OwnershipRelease>,
+}
+
+fn lock_path(db_path: &Path) -> PathBuf {
+    let mut name = db_path.as_os_str().to_os_string();
+    name.push(".lock");
+    PathBuf::from(name)
+}
+
+/// Locks `<db>.lock` beside the resolved database path. A shared lock does
+/// not need write access, so readers fall back to opening an existing lock
+/// file read-only (e.g. one created by another user).
+fn lock_at(db_path: &Path, exclusive: bool) -> Result<fs::File, IdxError> {
+    let path = lock_path(db_path);
+    let opened = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path);
+    let file = match opened {
+        Ok(file) => file,
+        Err(_) if !exclusive && path.exists() => fs::File::open(&path)
+            .map_err(|e| IdxError::Io(format!("failed to open ownership lock: {e}")))?,
+        Err(e) => return Err(IdxError::Io(format!("failed to open ownership lock: {e}"))),
+    };
+    if exclusive {
+        file.lock()
+    } else {
+        file.lock_shared()
+    }
+    .map_err(|e| IdxError::Io(format!("failed to lock ownership database: {e}")))?;
+    Ok(file)
+}
+
+/// True when the lock file is absent and cannot be created.
+fn unlockable(db_path: &Path) -> bool {
+    let path = lock_path(db_path);
+    !path.exists()
+        && matches!(
+            fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path),
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem)
+        )
 }
 
 struct ReadConnection {
