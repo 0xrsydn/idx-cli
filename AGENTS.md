@@ -31,7 +31,8 @@ Docs:
 ## Rules
 1. Keep data access provider-driven; no ad hoc fetches in `cli/`.
 2. Keep parse/normalize functions pure.
-3. Tests use fixtures and `IDX_USE_MOCK_PROVIDER=1`; never hit the live network.
+3. Tests use fixtures and `IDX_USE_MOCK_PROVIDER=1` (needs idx-core's `testing`
+   feature, on under `cargo test`); never hit the live network.
 4. Output contract: tables on stdout, one JSON document with `-o json`, errors
    on stderr (JSON-shaped in JSON mode), stdout empty on failure.
 5. Keep ownership queries (`releases`, `ticker`, `changes`, ...) working across

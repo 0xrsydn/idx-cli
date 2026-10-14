@@ -11,6 +11,7 @@ use client::YahooClient;
 use map::{parse_fundamentals, parse_quote};
 use parse::parse_history_with_verbose;
 
+#[cfg(feature = "testing")]
 pub(crate) use parse::{
     parse_fundamentals_from_str, parse_history_from_str_with_verbose, parse_quote_from_str,
 };

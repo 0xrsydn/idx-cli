@@ -10,7 +10,7 @@ offline with pinned tools:
 | `fmt`, `clippy` | formatting and lints (`--all-targets`) |
 | `test` | unit/module tests, `tests/cli.rs` CLI integration tests, and `tests/golden.rs` output parity |
 | `default`, `package` | release build and `cargo package` verification |
-| `packaged-cli` | the wrapped Nix binary starts, emits JSON, and generates completions |
+| `packaged-cli` | the wrapped Nix release binary emits JSON, generates completions, and returns a JSON `CACHEMISS` error with exit 3 offline |
 | `ownership-publisher`, `publisher-test` | packaged publisher entry point and its regression scenarios |
 | `install-script-sh`, `install-script-dash`, `shellcheck` | installer regressions and shell lint |
 

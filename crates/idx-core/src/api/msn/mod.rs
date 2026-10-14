@@ -23,6 +23,7 @@ use map::{
     parse_news, parse_profile, parse_quote, parse_screener_results, parse_sentiment,
 };
 
+#[cfg(feature = "testing")]
 pub(crate) use parse::{parse_fundamentals_from_str, parse_history_from_str, parse_quote_from_str};
 
 pub struct MsnProvider {

@@ -94,8 +94,9 @@ Key decisions:
 - **Explicit configuration.** Core reads no environment variables. `IDX_*` env
   parsing, `config.toml` loading, and XDG resolution move to a `CoreConfig::load()`
   helper that frontends call; tests construct `CoreConfig` directly.
-- **Mock provider behind a `testing` feature.** Today `MockProvider` ships in the
-  release binary and reads fixtures relative to the working directory.
+- **Mock provider behind a `testing` feature.** Done: `MockProvider` and the
+  embedded MSN fixtures compile only with idx-core's `testing` feature, which
+  idx-cli enables as a dev-dependency.
 - **Typed inputs.** Screener filters, regions, statement and earnings filters
   become enums with `FromStr`, so validation is identical across frontends.
 

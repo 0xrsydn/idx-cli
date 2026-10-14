@@ -34,6 +34,17 @@ impl MsnClient {
         Self { agent }
     }
 
+    #[cfg(not(feature = "testing"))]
+    fn mock_error() -> Option<IdxError> {
+        None
+    }
+
+    #[cfg(not(feature = "testing"))]
+    fn mock_body(_endpoint: &str) -> Option<&'static str> {
+        None
+    }
+
+    #[cfg(feature = "testing")]
     fn mock_error() -> Option<IdxError> {
         if std::env::var("IDX_USE_MOCK_PROVIDER").is_ok() && std::env::var("IDX_MOCK_ERROR").is_ok()
         {
@@ -43,6 +54,7 @@ impl MsnClient {
         }
     }
 
+    #[cfg(feature = "testing")]
     fn mock_body(endpoint: &str) -> Option<&'static str> {
         if std::env::var("IDX_USE_MOCK_PROVIDER").is_err() {
             return None;
@@ -271,6 +283,7 @@ impl MsnClient {
         url: &str,
         request: &ScreenerRequest,
     ) -> Result<RawScreenerResponse, IdxError> {
+        #[cfg(feature = "testing")]
         if std::env::var("IDX_USE_MOCK_PROVIDER").is_ok() {
             if let Some(err) = Self::mock_error() {
                 return Err(err);

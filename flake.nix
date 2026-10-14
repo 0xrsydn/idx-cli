@@ -217,14 +217,17 @@
           packaged-cli = pkgs.runCommand "idx-packaged-cli"
             { nativeBuildInputs = with pkgs; [ bash jq ]; }
             ''
-              # The mock provider reads fixtures relative to the working dir.
-              mkdir -p tests
-              cp -r ${./crates/idx-core/tests/fixtures} tests/fixtures
-              export HOME="$TMPDIR"
+              export HOME="$TMPDIR" XDG_CACHE_HOME="$TMPDIR/cache" XDG_CONFIG_HOME="$TMPDIR/config"
               ${idxPackage}/bin/idx -o json version | jq -e '.version | type == "string"'
               ${idxPackage}/bin/idx completions bash | bash -n
-              IDX_USE_MOCK_PROVIDER=1 ${idxPackage}/bin/idx -o json stocks quote BBCA \
-                | jq -e '.[0].price | type == "number"'
+              # Release builds have no mock provider; an offline cache miss
+              # exercises the JSON error contract and exit-code classes.
+              set +e
+              ${idxPackage}/bin/idx --offline -o json stocks quote BBCA 2>err.json
+              status=$?
+              set -e
+              test "$status" -eq 3
+              jq -e '.code == "CACHEMISS"' err.json
               touch "$out"
             '';
           install-script-sh = installerCheck "sh";

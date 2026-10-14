@@ -1,9 +1,16 @@
-use crate::api::types::{Fundamentals, Ohlc, Quote};
+use crate::api::types::Ohlc;
+#[cfg(any(test, feature = "testing"))]
+use crate::api::types::{Fundamentals, Quote};
 use crate::error::IdxError;
 
-use super::map::{parse_fundamentals, parse_history, parse_quote};
-use super::raw_types::{ChartResponse, QuoteSummaryResponse};
+use super::map::parse_history;
+#[cfg(any(test, feature = "testing"))]
+use super::map::{parse_fundamentals, parse_quote};
+use super::raw_types::ChartResponse;
+#[cfg(any(test, feature = "testing"))]
+use super::raw_types::QuoteSummaryResponse;
 
+#[cfg(any(test, feature = "testing"))]
 pub(crate) fn parse_quote_from_str(symbol: &str, raw: &str) -> Result<Quote, IdxError> {
     let chart: ChartResponse =
         serde_json::from_str(raw).map_err(|e| IdxError::ParseError(e.to_string()))?;
@@ -15,6 +22,7 @@ pub(crate) fn parse_history_from_str(symbol: &str, raw: &str) -> Result<Vec<Ohlc
     parse_history_from_str_with_verbose(symbol, raw, false)
 }
 
+#[cfg(any(test, feature = "testing"))]
 pub(crate) fn parse_history_from_str_with_verbose(
     symbol: &str,
     raw: &str,
@@ -25,6 +33,7 @@ pub(crate) fn parse_history_from_str_with_verbose(
     parse_history_with_verbose(symbol, &chart, verbose)
 }
 
+#[cfg(any(test, feature = "testing"))]
 pub(crate) fn parse_fundamentals_from_str(
     symbol: &str,
     raw: &str,

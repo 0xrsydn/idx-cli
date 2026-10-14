@@ -17,6 +17,8 @@ default = ["ownership"]
 ownership = ["dep:rusqlite", "dep:quick-xml", "dep:sha2", "dep:zip"]
 # Derives clap::ValueEnum on enums frontends expose as CLI arguments.
 clap = ["dep:clap"]
+# Fixture-backed mock provider (IDX_USE_MOCK_PROVIDER) for tests only.
+testing = []
 
 [dependencies]
 clap = { workspace = true, optional = true }

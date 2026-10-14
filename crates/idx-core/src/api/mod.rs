@@ -1,3 +1,5 @@
+#[cfg(feature = "testing")]
+pub mod mock;
 pub mod msn;
 pub mod types;
 pub mod yahoo;
@@ -171,11 +173,36 @@ pub fn resolve_symbol(symbol: &str, exchange: &str) -> Result<String, IdxError> 
 }
 
 pub fn default_provider(provider: ProviderKind, verbose: bool) -> SelectedProvider {
-    build_selected_provider(
-        provider,
-        verbose,
-        std::env::var("IDX_USE_MOCK_PROVIDER").is_ok(),
-    )
+    build_selected_provider(provider, verbose, mock_enabled())
+}
+
+fn mock_enabled() -> bool {
+    #[cfg(feature = "testing")]
+    return mock::enabled();
+    #[cfg(not(feature = "testing"))]
+    false
+}
+
+#[cfg(feature = "testing")]
+fn mock_market(provider: ProviderKind) -> Option<Box<dyn MarketDataProvider>> {
+    Some(Box::new(mock::MockProvider::from_fixtures(provider)))
+}
+
+#[cfg(not(feature = "testing"))]
+fn mock_market(_provider: ProviderKind) -> Option<Box<dyn MarketDataProvider>> {
+    None
+}
+
+#[cfg(feature = "testing")]
+fn mock_history(provider: ProviderKind, verbose: bool) -> Option<Box<dyn HistoryProvider>> {
+    Some(Box::new(
+        mock::MockProvider::from_fixtures_with_history_verbose(provider, verbose),
+    ))
+}
+
+#[cfg(not(feature = "testing"))]
+fn mock_history(_provider: ProviderKind, _verbose: bool) -> Option<Box<dyn HistoryProvider>> {
+    None
 }
 
 fn build_selected_provider(
@@ -183,10 +210,15 @@ fn build_selected_provider(
     verbose: bool,
     use_mock: bool,
 ) -> SelectedProvider {
-    match (provider, use_mock) {
-        (ProviderKind::Yahoo, true) => SelectedProvider {
+    let mock = if use_mock {
+        mock_market(provider)
+    } else {
+        None
+    };
+    match provider {
+        ProviderKind::Yahoo => SelectedProvider {
             kind: ProviderKind::Yahoo,
-            market: Box::new(MockProvider::from_fixtures(ProviderKind::Yahoo)),
+            market: mock.unwrap_or_else(|| Box::new(yahoo::YahooProvider::new(verbose))),
             profile: None,
             financials: None,
             earnings: None,
@@ -195,31 +227,9 @@ fn build_selected_provider(
             news: None,
             screener: None,
         },
-        (ProviderKind::Yahoo, false) => SelectedProvider {
-            kind: ProviderKind::Yahoo,
-            market: Box::new(yahoo::YahooProvider::new(verbose)),
-            profile: None,
-            financials: None,
-            earnings: None,
-            sentiment: None,
-            insights: None,
-            news: None,
-            screener: None,
-        },
-        (ProviderKind::Msn, true) => SelectedProvider {
+        ProviderKind::Msn => SelectedProvider {
             kind: ProviderKind::Msn,
-            market: Box::new(MockProvider::from_fixtures(ProviderKind::Msn)),
-            profile: Some(Box::new(msn::MsnProvider::new(verbose))),
-            financials: Some(Box::new(msn::MsnProvider::new(verbose))),
-            earnings: Some(Box::new(msn::MsnProvider::new(verbose))),
-            sentiment: Some(Box::new(msn::MsnProvider::new(verbose))),
-            insights: Some(Box::new(msn::MsnProvider::new(verbose))),
-            news: Some(Box::new(msn::MsnProvider::new(verbose))),
-            screener: Some(Box::new(msn::MsnProvider::new(verbose))),
-        },
-        (ProviderKind::Msn, false) => SelectedProvider {
-            kind: ProviderKind::Msn,
-            market: Box::new(msn::MsnProvider::new(verbose)),
+            market: mock.unwrap_or_else(|| Box::new(msn::MsnProvider::new(verbose))),
             profile: Some(Box::new(msn::MsnProvider::new(verbose))),
             financials: Some(Box::new(msn::MsnProvider::new(verbose))),
             earnings: Some(Box::new(msn::MsnProvider::new(verbose))),
@@ -254,126 +264,15 @@ pub fn history_provider(
         },
     };
 
-    if std::env::var("IDX_USE_MOCK_PROVIDER").is_ok() {
-        return Ok((
-            resolved,
-            Box::new(MockProvider::from_fixtures_with_history_verbose(
-                resolved, verbose,
-            )),
-        ));
+    if mock_enabled()
+        && let Some(mock) = mock_history(resolved, verbose)
+    {
+        return Ok((resolved, mock));
     }
 
     match resolved {
         ProviderKind::Yahoo => Ok((resolved, Box::new(yahoo::YahooProvider::new(verbose)))),
         ProviderKind::Msn => Ok((resolved, Box::new(msn::MsnProvider::new(verbose)))),
-    }
-}
-
-pub struct MockProvider {
-    quote: Result<Quote, IdxError>,
-    fundamentals: Result<Fundamentals, IdxError>,
-    history: Result<Vec<Bar>, IdxError>,
-}
-
-impl MockProvider {
-    pub fn from_fixtures(provider: ProviderKind) -> Self {
-        Self::from_fixtures_with_history_verbose(provider, false)
-    }
-
-    pub fn from_fixtures_with_history_verbose(
-        provider: ProviderKind,
-        history_verbose: bool,
-    ) -> Self {
-        if std::env::var("IDX_MOCK_ERROR").is_ok() {
-            return Self::with_error(IdxError::ProviderUnavailable);
-        }
-
-        match provider {
-            ProviderKind::Yahoo => Self::from_yahoo_fixtures(history_verbose),
-            ProviderKind::Msn => Self::from_msn_fixtures(),
-        }
-    }
-
-    fn from_yahoo_fixtures(history_verbose: bool) -> Self {
-        let quote_raw = std::fs::read_to_string("tests/fixtures/chart_bbca_1d.json")
-            .unwrap_or_else(|_| "{}".to_string());
-        let history_path = std::env::var("IDX_MOCK_YAHOO_HISTORY_FIXTURE")
-            .unwrap_or_else(|_| "tests/fixtures/chart_bbca_3mo.json".to_string());
-        let history_raw =
-            std::fs::read_to_string(&history_path).unwrap_or_else(|_| "{}".to_string());
-        let fundamentals_raw = std::fs::read_to_string("tests/fixtures/quotesummary_bbca.json")
-            .unwrap_or_else(|_| "{}".to_string());
-
-        let quote = yahoo::parse_quote_from_str("BBCA.JK", &quote_raw)
-            .map_err(|e| IdxError::ParseError(e.to_string()));
-        let fundamentals = yahoo::parse_fundamentals_from_str("BBCA.JK", &fundamentals_raw)
-            .map_err(|e| IdxError::ParseError(e.to_string()));
-        let history =
-            yahoo::parse_history_from_str_with_verbose("BBCA.JK", &history_raw, history_verbose)
-                .map_err(|e| IdxError::ParseError(e.to_string()));
-
-        Self {
-            quote,
-            fundamentals,
-            history,
-        }
-    }
-
-    fn from_msn_fixtures() -> Self {
-        let quote_raw = std::fs::read_to_string("tests/fixtures/msn_quote_bbca.json")
-            .unwrap_or_else(|_| "[]".to_string());
-        let fundamentals_path = std::env::var("IDX_MOCK_MSN_KEYRATIOS_FIXTURE")
-            .unwrap_or_else(|_| "tests/fixtures/msn_keyratios_bbca.json".to_string());
-        let fundamentals_raw =
-            std::fs::read_to_string(&fundamentals_path).unwrap_or_else(|_| "[]".to_string());
-
-        let quote = msn::parse_quote_from_str("BBCA.JK", &quote_raw)
-            .map_err(|e| IdxError::ParseError(e.to_string()));
-        let fundamentals = msn::parse_fundamentals_from_str(&fundamentals_raw, Some(&quote_raw))
-            .map_err(|e| IdxError::ParseError(e.to_string()));
-        let history_raw = std::fs::read_to_string("tests/fixtures/msn_chart_bbca_3m.json")
-            .unwrap_or_else(|_| "[]".to_string());
-        let history = msn::parse_history_from_str("BBCA.JK", &history_raw)
-            .map_err(|e| IdxError::ParseError(e.to_string()));
-
-        Self {
-            quote,
-            fundamentals,
-            history,
-        }
-    }
-
-    pub fn with_error(err: IdxError) -> Self {
-        Self {
-            quote: Err(err.clone()),
-            fundamentals: Err(err.clone()),
-            history: Err(err),
-        }
-    }
-}
-
-impl QuoteProvider for MockProvider {
-    fn quote(&self, symbol: &str) -> Result<Quote, IdxError> {
-        let mut q = self.quote.clone()?;
-        q.symbol = symbol.to_string();
-        Ok(q)
-    }
-}
-
-impl FundamentalsProvider for MockProvider {
-    fn fundamentals(&self, _symbol: &str) -> Result<Fundamentals, IdxError> {
-        self.fundamentals.clone()
-    }
-}
-
-impl HistoryProvider for MockProvider {
-    fn history(
-        &self,
-        _symbol: &str,
-        _period: &Period,
-        _interval: &Interval,
-    ) -> Result<Vec<Bar>, IdxError> {
-        self.history.clone()
     }
 }
 
@@ -410,6 +309,7 @@ mod tests {
         assert!(provider.screener_provider("screen").is_ok());
     }
 
+    #[cfg(feature = "testing")]
     #[test]
     fn selected_provider_exposes_expected_capabilities_for_mock_msn() {
         let provider = build_selected_provider(ProviderKind::Msn, false, true);
@@ -438,6 +338,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "testing")]
     #[test]
     fn selected_provider_rejects_msn_only_capabilities_for_mock_yahoo() {
         let provider = build_selected_provider(ProviderKind::Yahoo, false, true);
