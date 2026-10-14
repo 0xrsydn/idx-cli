@@ -171,7 +171,8 @@ earnings, analyst sentiment, insights, and news. Sections that fail are listed u
     )]
     async fn get_company(&self, params: Parameters<CompanyParams>) -> ToolResult {
         let CompanyParams { symbol, sections } = params.0;
-        let sections = sections.unwrap_or_else(|| CompanySection::ALL.to_vec());
+        let mut sections = sections.unwrap_or_else(|| CompanySection::ALL.to_vec());
+        dedup_in_order(&mut sections);
         if let Some(err) = empty_input("sections", &sections) {
             return err;
         }
@@ -214,7 +215,8 @@ are listed under `errors`; the call fails only if every analysis fails."
     )]
     async fn analyze_stock(&self, params: Parameters<AnalyzeParams>) -> ToolResult {
         let AnalyzeParams { symbol, kinds } = params.0;
-        let kinds = kinds.unwrap_or_else(|| AnalysisKind::ALL.to_vec());
+        let mut kinds = kinds.unwrap_or_else(|| AnalysisKind::ALL.to_vec());
+        dedup_in_order(&mut kinds);
         if let Some(err) = empty_input("kinds", &kinds) {
             return err;
         }
@@ -306,14 +308,10 @@ release dates, optionally for one ticker."
             limit,
         } = params.0;
         self.local(move |investor| {
+            let limit = bounded_limit("limit", limit, CHANGES_LIMIT, MAX_CHANGES_LIMIT)?;
             let mut changes = investor.changes(&from, &to, ticker.as_deref())?;
             let total = changes.len();
-            changes.truncate(bounded_limit(
-                "limit",
-                limit,
-                CHANGES_LIMIT,
-                MAX_CHANGES_LIMIT,
-            )?);
+            changes.truncate(limit);
             Ok(json!({ "from": from, "to": to, "total": total, "changes": changes }))
         })
         .await
@@ -447,6 +445,18 @@ fn checked_symbols(symbols: Vec<String>) -> Result<Vec<String>, ToolResult> {
         )));
     }
     Ok(symbols)
+}
+
+/// Each section or analysis runs once, however often it is requested.
+fn dedup_in_order<T: PartialEq + Copy>(values: &mut Vec<T>) {
+    let mut seen = Vec::with_capacity(values.len());
+    values.retain(|value| {
+        let new = !seen.contains(value);
+        if new {
+            seen.push(*value);
+        }
+        new
+    });
 }
 
 fn bounded_limit(

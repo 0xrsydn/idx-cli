@@ -47,6 +47,29 @@ impl Investor {
         }
     }
 
+    /// Cross-process lock held for every write (sync, import, entity edits),
+    /// so a sync cannot replace the database under a concurrent import, or the
+    /// other way around. Released when the returned file is dropped.
+    fn write_lock(&self) -> Result<fs::File, IdxError> {
+        let db_path = self.db_path()?;
+        if let Some(parent) = db_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent).map_err(|e| IdxError::Io(e.to_string()))?;
+        }
+        let mut lock_name = db_path.as_os_str().to_os_string();
+        lock_name.push(".lock");
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(PathBuf::from(lock_name))
+            .map_err(|e| IdxError::Io(format!("failed to open ownership lock: {e}")))?;
+        file.lock()
+            .map_err(|e| IdxError::Io(format!("failed to lock ownership database: {e}")))?;
+        Ok(file)
+    }
+
     fn connect(&self) -> Result<Connection, IdxError> {
         db::open_db_at(&self.db_path()?)
     }
@@ -172,11 +195,13 @@ impl Investor {
     }
 
     pub fn map_alias(&self, alias: &str, entity: &str) -> Result<(), IdxError> {
+        let _lock = self.write_lock()?;
         db::manual_map(&self.connect()?, alias, entity)
     }
 
     /// Merges entity `merge` into `keep`, reporting how many rows moved.
     pub fn merge_entities(&self, keep: i64, merge: i64) -> Result<MergeResult, IdxError> {
+        let _lock = self.write_lock()?;
         let conn = self.connect()?;
         let count = |table: &str| -> Result<i64, IdxError> {
             conn.query_row(
@@ -217,13 +242,17 @@ impl Investor {
     ) -> Result<OwnershipSyncResult, IdxError> {
         let manifest_source = snapshot::resolve_manifest_source(manifest)?;
         let db_path = self.db_path()?;
+        let _lock = self.write_lock()?;
         snapshot::sync_snapshot(&manifest_source, &db_path, force)
     }
 
     /// Imports one report. A release already imported (same SHA-256) is
     /// skipped unless `force`, which replaces it.
     pub fn import(&self, source: &ImportSource, force: bool) -> Result<ImportResult, IdxError> {
+        // Validate and download first (unchanged error order), then lock
+        // only around the database writes.
         let input = self.resolve_import_input(source)?;
+        let _lock = self.write_lock()?;
         let conn = self.connect()?;
 
         let sha256 = sha256_file(&input.path)?;

@@ -1196,7 +1196,10 @@ pub fn compute_concentration(percentages_bps: &[i64]) -> ConcentrationMetrics {
     let top1_bps = values.first().copied().unwrap_or(0);
     let top3_bps: i64 = values.iter().take(3).sum();
     let total_bps: i64 = values.iter().sum();
-    let hhi: i64 = values.iter().map(|p| (p * p) / 10000).sum();
+    let hhi: i64 = values
+        .iter()
+        .map(|p| p.saturating_mul(*p) / 10000)
+        .fold(0, i64::saturating_add);
 
     ConcentrationMetrics {
         top1_bps,

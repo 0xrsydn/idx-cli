@@ -233,7 +233,8 @@ impl Cache {
                 runtime::warn(format!(
                     "corrupted cache entry for {data_type}/{symbol}, treating as miss: {e}"
                 ));
-                let _ = fs::remove_file(&path);
+                // Not deleted: a concurrent writer may have just replaced it
+                // with a valid entry. The next put overwrites it atomically.
                 return Ok(None);
             }
         };
@@ -244,7 +245,6 @@ impl Cache {
                 entry.schema_version,
                 CURRENT_SCHEMA_VERSION
             ));
-            let _ = fs::remove_file(&path);
             return Ok(None);
         }
         Ok(Some(entry))
@@ -352,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn corrupted_cache_entry_returns_none_and_deletes_file() {
+    fn corrupted_cache_entry_is_a_miss_until_replaced() {
         let root = tmp();
         let cache = Cache::at(root.clone());
 
@@ -371,12 +371,16 @@ mod tests {
             .expect("get should not error");
         assert_eq!(result, None, "corrupted entry should be treated as miss");
 
-        // The corrupted file should be deleted
-        assert!(!path.exists(), "corrupted file should be deleted");
+        // Left for the next put to replace (deleting could race a writer).
+        cache
+            .put("quote", "CORRUPT.JK", &T { v: 7 }, 3600)
+            .expect("put");
+        let result: Option<T> = cache.get("quote", "CORRUPT.JK").expect("get");
+        assert_eq!(result, Some(T { v: 7 }));
     }
 
     #[test]
-    fn corrupted_cache_entry_get_stale_returns_none_and_deletes_file() {
+    fn corrupted_cache_entry_get_stale_is_a_miss() {
         let root = tmp();
         let cache = Cache::at(root.clone());
 
@@ -401,8 +405,7 @@ mod tests {
             "corrupted entry should be treated as miss in get_stale"
         );
 
-        // The corrupted file should be deleted
-        assert!(!path.exists(), "corrupted file should be deleted");
+        assert!(path.exists(), "left for the next put to replace");
     }
 
     #[test]

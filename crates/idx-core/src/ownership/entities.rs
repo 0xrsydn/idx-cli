@@ -84,6 +84,7 @@ pub fn parse_id_percentage(s: &str) -> Result<i64, IdxError> {
     whole_i
         .checked_mul(100)
         .and_then(|bps| bps.checked_add(frac_i))
+        .filter(|bps| (0..=10_000).contains(bps))
         .ok_or_else(|| IdxError::ParseError(format!("Indonesian percentage '{s}' is out of range")))
 }
 
@@ -460,6 +461,8 @@ mod tests {
     #[test]
     fn huge_percentages_are_parse_errors_not_overflow() {
         assert!(super::parse_id_percentage("9223372036854775807,99").is_err());
+        assert!(super::parse_id_percentage("40000000,00").is_err());
+        assert_eq!(super::parse_id_percentage("100,00").unwrap(), 10_000);
         assert_eq!(super::parse_id_percentage("54,94").unwrap(), 5494);
     }
 }

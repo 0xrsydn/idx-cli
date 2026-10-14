@@ -3,8 +3,7 @@ name = "idx-mcp"
 description = "MCP server for Indonesian stock market (IDX) market, financial, and ownership data"
 version.workspace = true
 edition.workspace = true
-# rmcp requires 1.88.
-rust-version = "1.88"
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true

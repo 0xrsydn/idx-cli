@@ -348,20 +348,24 @@ fn inspect_local_db(db_path: &Path) -> Result<Option<LocalSnapshotState>, IdxErr
         return Ok(None);
     }
 
+    // Schema setup first: it may write to an empty database, and hashing
+    // afterwards keeps two inspections of an unchanged database equal. A
+    // published snapshot already has the schema, so its bytes are untouched.
+    let releases = {
+        let conn = Connection::open(db_path).map_err(|e| {
+            IdxError::DatabaseError(format!("failed to open {}: {e}", db_path.display()))
+        })?;
+        db::ensure_schema(&conn)?;
+        db::query_releases(&conn)?
+    };
+
     let file_sha256 = if checkpoint_wal(db_path) {
-        // Hash before opening: schema setup may write to an empty database.
         let bytes = fs::read(db_path)
             .map_err(|e| IdxError::Io(format!("failed to read {}: {e}", db_path.display())))?;
         Some(sha256_hex(&bytes))
     } else {
         None
     };
-
-    let conn = Connection::open(db_path).map_err(|e| {
-        IdxError::DatabaseError(format!("failed to open {}: {e}", db_path.display()))
-    })?;
-    db::ensure_schema(&conn)?;
-    let releases = db::query_releases(&conn)?;
 
     Ok(Some(LocalSnapshotState {
         file_sha256,
@@ -487,7 +491,9 @@ fn build_sync_decision(
     }
 
     if latest.sha256 == snapshot.latest_release_sha256 {
-        if latest.row_count != snapshot.latest_row_count {
+        if latest.row_count != snapshot.latest_row_count
+            && snapshot.release_count >= local.release_count
+        {
             return SyncDecision {
                 action: OwnershipSyncAction::Updated,
                 should_download: true,
@@ -1097,6 +1103,23 @@ mod tests {
             })
             .unwrap();
         assert_eq!(release_count, 1);
+    }
+
+    #[test]
+    fn inspecting_an_empty_database_twice_sees_the_same_state() {
+        let dir = std::env::temp_dir().join(format!(
+            "idx-snapshot-empty-{}-{}",
+            std::process::id(),
+            fastrand::u64(..)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("ownership.db");
+        std::fs::write(&db_path, b"").unwrap();
+
+        let first = super::inspect_local_db(&db_path).unwrap();
+        let second = super::inspect_local_db(&db_path).unwrap();
+        assert!(super::same_local_state(first.as_ref(), second.as_ref()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

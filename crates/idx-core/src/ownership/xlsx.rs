@@ -163,14 +163,17 @@ struct SheetRow {
 fn row_number(element: &BytesStart<'_>, fallback: usize) -> Result<usize, IdxError> {
     for attribute in element.attributes() {
         let attribute = attribute.map_err(|e| xml_error("worksheet", e))?;
-        if attribute.key.local_name().as_ref() == b"r" {
-            if let Ok(number) = String::from_utf8_lossy(&attribute.value).trim().parse() {
-                return Ok(number);
-            }
+        if attribute.key.local_name().as_ref() == b"r"
+            && let Ok(number) = String::from_utf8_lossy(&attribute.value).trim().parse()
+        {
+            return Ok(number);
         }
     }
     Ok(fallback)
 }
+
+/// Total text across all cells of one worksheet; real registers hold a few MB.
+const MAX_CELL_TEXT_BYTES: usize = 256 * 1024 * 1024;
 
 fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow>, IdxError> {
     let mut reader = Reader::from_str(xml);
@@ -179,6 +182,7 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
     let mut cell: Option<(String, String)> = None;
     let mut value = String::new();
     let mut in_value = false;
+    let mut cell_text_bytes = 0usize;
 
     loop {
         match reader.read_event() {
@@ -231,6 +235,15 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
                             },
                             _ => value.clone(),
                         };
+                        // Shared strings are bounded per entry, but one large
+                        // string referenced from many cells is copied each time.
+                        cell_text_bytes += text.len();
+                        if cell_text_bytes > MAX_CELL_TEXT_BYTES {
+                            return Err(xml_error(
+                                "worksheet",
+                                format!("cell text exceeds {MAX_CELL_TEXT_BYTES} bytes"),
+                            ));
+                        }
                         current_row.cells.insert(column, text);
                     }
                 }
