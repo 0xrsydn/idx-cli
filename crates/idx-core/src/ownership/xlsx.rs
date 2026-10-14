@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 use std::path::Path;
 
 use chrono::{Duration, NaiveDate};
@@ -83,11 +83,7 @@ fn read_zip_entry(
             )));
         }
     };
-    let mut output = String::new();
-    file.read_to_string(&mut output).map_err(|e| {
-        IdxError::ParseError(format!("failed to decode ownership XLSX entry {name}: {e}"))
-    })?;
-    Ok(Some(output))
+    super::read_zip_entry_bounded(&mut file, &format!("ownership XLSX entry {name}")).map(Some)
 }
 
 fn first_worksheet_name(zip: &mut zip::ZipArchive<Cursor<&[u8]>>) -> Result<String, IdxError> {

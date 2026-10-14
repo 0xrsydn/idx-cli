@@ -202,6 +202,14 @@ pub fn sync_snapshot(
 
     let install_result = (|| -> Result<(), IdxError> {
         validate_snapshot_db(&temp_path, &manifest.snapshot)?;
+        // The decision was made before the download; an import or edit that
+        // landed since must not be overwritten without --force.
+        if !force && !same_local_state(local_state.as_ref(), inspect_local_db(db_path)?.as_ref()) {
+            return Err(IdxError::DatabaseError(
+                "the local ownership database changed during sync; rerun `idx ownership sync`"
+                    .to_string(),
+            ));
+        }
         install_snapshot_file(&temp_path, db_path)
     })();
 
@@ -362,6 +370,21 @@ fn inspect_local_db(db_path: &Path) -> Result<Option<LocalSnapshotState>, IdxErr
     }))
 }
 
+fn same_local_state(
+    before: Option<&LocalSnapshotState>,
+    after: Option<&LocalSnapshotState>,
+) -> bool {
+    match (before, after) {
+        (None, None) => true,
+        (Some(before), Some(after)) => {
+            before.file_sha256.is_some()
+                && before.file_sha256 == after.file_sha256
+                && before.release_count == after.release_count
+        }
+        _ => false,
+    }
+}
+
 /// Moves committed WAL frames into the database file, so its hash covers local
 /// edits too. Returns false when changes remain in the WAL.
 fn checkpoint_wal(db_path: &Path) -> bool {
@@ -446,10 +469,12 @@ fn build_sync_decision(
         };
     }
 
-    if snapshot
-        .replaces_sqlite_sha256
-        .iter()
-        .any(|sha256| file_sha256.is_some_and(|local| sha256.eq_ignore_ascii_case(local)))
+    // A rebuild never silently drops history the local database has.
+    if snapshot.release_count >= local.release_count
+        && snapshot
+            .replaces_sqlite_sha256
+            .iter()
+            .any(|sha256| file_sha256.is_some_and(|local| sha256.eq_ignore_ascii_case(local)))
     {
         return SyncDecision {
             action: OwnershipSyncAction::Updated,
@@ -907,6 +932,20 @@ mod tests {
         let decision = build_sync_decision(Some(&current), &snapshot, false);
         assert_eq!(decision.action, OwnershipSyncAction::NoChange);
         assert!(!decision.should_download);
+    }
+
+    #[test]
+    fn build_sync_decision_never_drops_history_through_a_rebuild() {
+        // A forced same-date rebuild with fewer releases lists the old build;
+        // a client holding it keeps its history instead of downgrading.
+        let earlier = "e".repeat(64);
+        let mut snapshot = same_date_snapshot(vec![earlier.clone()]);
+        snapshot.release_count = 1;
+        let mut local = same_release_local(&snapshot, &earlier);
+        local.release_count = 3;
+
+        let decision = build_sync_decision(Some(&local), &snapshot, false);
+        assert!(!decision.should_download, "{}", decision.reason);
     }
 
     #[test]

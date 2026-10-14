@@ -81,9 +81,10 @@ done
 work="$(mktemp -d "${TMPDIR:-/tmp}/idx-agent-smoke.XXXXXX")"
 cleanup() {
     if [[ "$keep" == 1 ]]; then
-        # Never leave copied agent credentials behind.
-        rm -f -- "$work/codex/auth.json" "$work/pi/auth.json" "$work/hermes/auth.json" "$work/hermes/.env"
-        echo "agent-smoke: kept $work (copied credentials removed)"
+        # Never leave copied agent logins or settings (which may hold API keys)
+        # behind; each run's raw output is already under runs/.
+        rm -rf -- "$work/codex" "$work/pi" "$work/hermes" "$work/opencode"
+        echo "agent-smoke: kept $work (copied agent configs removed)"
     elif [[ "$work" == */idx-agent-smoke.* ]]; then
         rm -rf -- "$work"
     fi

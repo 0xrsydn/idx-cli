@@ -279,6 +279,22 @@ fn errors_carry_cli_codes() {
         assert_eq!(body["code"], "INVALIDINPUT", "{tool}");
     }
 
+    let many: Vec<String> = (0..21).map(|i| format!("S{i}")).collect();
+    for (tool, arguments) in [
+        ("get_quotes", json!({"symbols": many})),
+        ("screen_stocks", json!({"limit": 201})),
+        ("screen_stocks", json!({"limit": 0})),
+        ("get_quotes", json!({"symbols": ["../../REPORT"]})),
+    ] {
+        let (is_error, body) = client.call(tool, arguments.clone());
+        assert!(is_error, "{tool} {arguments}: {body}");
+        assert_eq!(body["code"], "INVALIDINPUT", "{tool} {arguments}");
+    }
+    // Duplicates collapse instead of counting against the cap.
+    let repeated = vec!["BBCA"; 50];
+    let quotes = client.ok("get_quotes", json!({"symbols": repeated}));
+    assert_eq!(quotes["quotes"].as_array().unwrap().len(), 1);
+
     // Empty ownership database: investor tools point at the sync path.
     let status = client.ok("ownership_status", json!({}));
     assert_eq!(status["populated"], false);

@@ -15,6 +15,7 @@ use rmcp::model::{CallToolResult, Implementation, ServerCapabilities, ServerConf
 use rmcp::{ErrorData, ServerHandler, tool, tool_handler, tool_router};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
+use tokio::sync::{RwLock, Semaphore};
 
 use crate::params::{
     AnalysisKind, AnalyzeParams, ChangesParams, CompanyParams, CompanySection, EntityParams,
@@ -26,6 +27,18 @@ const NEWS_LIMIT: usize = 10;
 const SCREEN_LIMIT: usize = 50;
 const SEARCH_LIMIT: usize = 20;
 const CHANGES_LIMIT: usize = 200;
+// Hard caps on what one call may request, so a misbehaving or prompt-injected
+// agent cannot turn a call into unbounded upstream traffic or output.
+const MAX_SYMBOLS: usize = 20;
+const MAX_SCREEN_LIMIT: usize = 200;
+const MAX_SEARCH_LIMIT: usize = 100;
+const MAX_CHANGES_LIMIT: usize = 2000;
+
+/// Tool calls running at once; the rest wait their turn.
+static CALL_SLOTS: Semaphore = Semaphore::const_new(4);
+/// `ownership_sync` replaces the database file: it runs alone, while
+/// ownership reads may run together.
+static OWNERSHIP: RwLock<()> = RwLock::const_new(());
 
 const INSTRUCTIONS: &str = "Indonesian stock market (IDX) data. Market and financial \
 tools fetch live data (cached on disk) and wrap it as {data, source, fetched_at, stale}; \
@@ -79,6 +92,7 @@ impl IdxServer {
         } else {
             "run `idx ownership sync`, or restart idx-mcp with --allow-sync"
         };
+        let _read = OWNERSHIP.read().await;
         blocking(move || {
             if !investor.status()?.populated {
                 return Err(IdxError::NoMarketData(format!(
@@ -98,10 +112,10 @@ impl IdxServer {
 for one or more IDX tickers."
     )]
     async fn get_quotes(&self, params: Parameters<SymbolsParams>) -> ToolResult {
-        let SymbolsParams { symbols } = params.0;
-        if let Some(err) = empty_input("symbols", &symbols) {
-            return err;
-        }
+        let symbols = match checked_symbols(params.0.symbols) {
+            Ok(symbols) => symbols,
+            Err(err) => return err,
+        };
         self.live(move |idx| {
             let quotes = idx.market().quotes(&symbols, CachePolicy::Default)?;
             Ok(json!({ "quotes": quotes }))
@@ -143,7 +157,7 @@ for one or more IDX tickers."
                     .unwrap_or("top-performers")
                     .parse::<ScreenFilter>()?,
                 region: region.as_deref().unwrap_or("id").parse::<ScreenRegion>()?,
-                limit: limit.unwrap_or(SCREEN_LIMIT),
+                limit: bounded_limit("limit", limit, SCREEN_LIMIT, MAX_SCREEN_LIMIT)?,
             };
             idx.market().screen(&query, CachePolicy::Default)
         })
@@ -232,10 +246,10 @@ are listed under `errors`; the call fails only if every analysis fails."
 tickers. Tickers that fail are listed under `failures`."
     )]
     async fn compare_stocks(&self, params: Parameters<SymbolsParams>) -> ToolResult {
-        let SymbolsParams { symbols } = params.0;
-        if let Some(err) = empty_input("symbols", &symbols) {
-            return err;
-        }
+        let symbols = match checked_symbols(params.0.symbols) {
+            Ok(symbols) => symbols,
+            Err(err) => return err,
+        };
         self.live(move |idx| {
             let comparison = idx.analysis().compare(&symbols, CachePolicy::Default)?;
             let failures: Vec<Value> = comparison
@@ -273,7 +287,8 @@ with concentration metrics (top1, top3, HHI, free float)."
     async fn search_investors(&self, params: Parameters<SearchParams>) -> ToolResult {
         let SearchParams { query, limit } = params.0;
         self.local(move |investor| {
-            let entities = investor.search(&query, limit.unwrap_or(SEARCH_LIMIT))?;
+            let limit = bounded_limit("limit", limit, SEARCH_LIMIT, MAX_SEARCH_LIMIT)?;
+            let entities = investor.search(&query, limit)?;
             Ok(json!({ "entities": entities }))
         })
         .await
@@ -293,7 +308,12 @@ release dates, optionally for one ticker."
         self.local(move |investor| {
             let mut changes = investor.changes(&from, &to, ticker.as_deref())?;
             let total = changes.len();
-            changes.truncate(limit.unwrap_or(CHANGES_LIMIT));
+            changes.truncate(bounded_limit(
+                "limit",
+                limit,
+                CHANGES_LIMIT,
+                MAX_CHANGES_LIMIT,
+            )?);
             Ok(json!({ "from": from, "to": to, "total": total, "changes": changes }))
         })
         .await
@@ -305,6 +325,7 @@ KSEI release dates."
     )]
     async fn ownership_status(&self) -> ToolResult {
         let investor = Investor::new(&self.config);
+        let _read = OWNERSHIP.read().await;
         blocking(move || investor.status()).await
     }
 
@@ -315,6 +336,7 @@ the local database."
     async fn ownership_sync(&self, params: Parameters<SyncParams>) -> ToolResult {
         let SyncParams { force } = params.0;
         let investor = Investor::new(&self.config);
+        let _write = OWNERSHIP.write().await;
         blocking(move || investor.sync(None, force)).await
     }
 }
@@ -380,6 +402,10 @@ where
     T: Serialize + Send + 'static,
     F: FnOnce() -> Result<T, IdxError> + Send + 'static,
 {
+    let _slot = CALL_SLOTS
+        .acquire()
+        .await
+        .map_err(|err| ErrorData::internal_error(err.to_string(), None))?;
     let result = tokio::task::spawn_blocking(move || f().and_then(to_json))
         .await
         .map_err(|err| ErrorData::internal_error(err.to_string(), None))?;
@@ -389,15 +415,55 @@ where
     })
 }
 
+fn input_error(message: String) -> ToolResult {
+    let err = IdxError::InvalidInput(message);
+    Ok(CallToolResult::structured_error(Value::Object(error_body(
+        &err,
+    ))))
+}
+
 /// An explicitly empty list is an input error, as in the CLI, rather than an
 /// empty success an agent could mistake for data.
 fn empty_input<T>(field: &str, values: &[T]) -> Option<ToolResult> {
-    values.is_empty().then(|| {
-        let err = IdxError::InvalidInput(format!("{field} must not be empty"));
-        Ok(CallToolResult::structured_error(Value::Object(error_body(
-            &err,
-        ))))
-    })
+    values
+        .is_empty()
+        .then(|| input_error(format!("{field} must not be empty")))
+}
+
+/// Non-empty, deduplicated (case-insensitively, first wins), and capped.
+fn checked_symbols(symbols: Vec<String>) -> Result<Vec<String>, ToolResult> {
+    if let Some(err) = empty_input("symbols", &symbols) {
+        return Err(err);
+    }
+    let mut seen = std::collections::HashSet::new();
+    let symbols: Vec<String> = symbols
+        .into_iter()
+        .filter(|symbol| seen.insert(symbol.trim().to_uppercase()))
+        .collect();
+    if symbols.len() > MAX_SYMBOLS {
+        return Err(input_error(format!(
+            "at most {MAX_SYMBOLS} symbols per call (got {})",
+            symbols.len()
+        )));
+    }
+    Ok(symbols)
+}
+
+fn bounded_limit(
+    field: &str,
+    value: Option<usize>,
+    default: usize,
+    max: usize,
+) -> Result<usize, IdxError> {
+    match value.unwrap_or(default) {
+        0 => Err(IdxError::InvalidInput(format!(
+            "{field} must be at least 1"
+        ))),
+        n if n > max => Err(IdxError::InvalidInput(format!(
+            "{field} must be at most {max} (got {n})"
+        ))),
+        n => Ok(n),
+    }
 }
 
 fn to_json<T: Serialize>(value: T) -> Result<Value, IdxError> {

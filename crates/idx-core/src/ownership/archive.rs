@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 use std::path::Path;
 
 use chrono::NaiveDate;
@@ -177,11 +177,7 @@ fn extract_txt_from_zip(path: &Path) -> Result<String, IdxError> {
             continue;
         }
 
-        let mut output = String::new();
-        file.read_to_string(&mut output).map_err(|e| {
-            IdxError::ParseError(format!("failed to decode KSEI archive TXT entry: {e}"))
-        })?;
-        return Ok(output);
+        return super::read_zip_entry_bounded(&mut file, "KSEI archive TXT entry");
     }
 
     Err(IdxError::ParseError(
@@ -201,7 +197,8 @@ fn validate_header(header: &str) -> Result<(), IdxError> {
 
 fn parse_archive_date(raw: &str) -> Result<NaiveDate, IdxError> {
     let trimmed = raw.trim();
-    if trimmed.len() != 11 {
+    // Fixed byte offsets below; non-ASCII input would split a character.
+    if trimmed.len() != 11 || !trimmed.is_ascii() {
         return Err(IdxError::ParseError(format!(
             "invalid KSEI archive date `{trimmed}`"
         )));
@@ -356,5 +353,15 @@ mod tests {
         assert_eq!(pdf_local_cp.report_date, archive_local_cp.report_date);
         assert!(pdf_local_cp.total_shares <= archive_local_cp.total_shares);
         assert!(pdf_local_cp.percentage_bps <= archive_local_cp.percentage_bps);
+    }
+
+    #[test]
+    fn non_ascii_archive_dates_are_parse_errors_not_panics() {
+        // 11 bytes, but byte offsets would split the 'é'.
+        assert!(super::parse_archive_date("1éJan-2026").is_err());
+        assert_eq!(
+            super::parse_archive_date("27-FEB-2026").unwrap(),
+            chrono::NaiveDate::from_ymd_opt(2026, 2, 27).unwrap()
+        );
     }
 }

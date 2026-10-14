@@ -136,7 +136,14 @@ impl Cache {
         };
         let raw = serde_json::to_string_pretty(&entry)
             .map_err(|e| IdxError::ParseError(e.to_string()))?;
-        fs::write(path, raw).map_err(|e| IdxError::Io(e.to_string()))
+        // Write then rename, so a concurrent reader never sees a partial
+        // entry (and deletes it as corrupt).
+        let temp = path.with_extension(format!("json.{}.tmp", fastrand::u64(..)));
+        fs::write(&temp, raw).map_err(|e| IdxError::Io(e.to_string()))?;
+        fs::rename(&temp, &path).map_err(|e| {
+            let _ = fs::remove_file(&temp);
+            IdxError::Io(e.to_string())
+        })
     }
 
     pub fn info(&self) -> Result<CacheInfo, IdxError> {
@@ -244,8 +251,28 @@ impl Cache {
     }
 
     fn entry_path(&self, data_type: &str, symbol: &str) -> PathBuf {
-        self.root.join(data_type).join(format!("{symbol}.json"))
+        self.root
+            .join(safe_file_name(data_type))
+            .join(format!("{}.json", safe_file_name(symbol)))
     }
+}
+
+/// Keys become single path components: anything that could separate or
+/// climb directories is percent-encoded. Keys made of letters, digits, and
+/// `._-:^=` (every key idx produces) are unchanged.
+fn safe_file_name(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    for (i, byte) in key.bytes().enumerate() {
+        let safe = byte.is_ascii_alphanumeric()
+            || matches!(byte, b'_' | b'-' | b':' | b'^' | b'=')
+            || (byte == b'.' && i > 0);
+        if safe {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 fn is_expired(fetched_at: DateTime<Utc>, ttl_secs: u64) -> bool {
@@ -275,7 +302,7 @@ mod tests {
 
     use serde::{Deserialize, Serialize};
 
-    use super::{Cache, CacheEntry};
+    use super::{Cache, CacheEntry, safe_file_name};
 
     static TMP_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -376,5 +403,23 @@ mod tests {
 
         // The corrupted file should be deleted
         assert!(!path.exists(), "corrupted file should be deleted");
+    }
+
+    #[test]
+    fn cache_keys_cannot_leave_the_cache_root() {
+        assert_eq!(safe_file_name("BBCA.JK-3mo-1d"), "BBCA.JK-3mo-1d");
+        assert_eq!(
+            safe_file_name("top-performers:id:50"),
+            "top-performers:id:50"
+        );
+        assert_eq!(safe_file_name("../../REPORT"), "%2E.%2F..%2FREPORT");
+        assert_eq!(safe_file_name(".."), "%2E.");
+
+        let cache = Cache::at(std::path::PathBuf::from("/cache/idx"));
+        let path = cache.entry_path("msn-quote", "../../REPORT");
+        assert_eq!(
+            path.parent().unwrap(),
+            std::path::Path::new("/cache/idx/msn-quote")
+        );
     }
 }

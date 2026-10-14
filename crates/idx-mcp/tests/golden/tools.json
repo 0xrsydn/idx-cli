@@ -43,7 +43,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "symbols": {
-          "description": "IDX tickers, e.g. [\"BBCA\", \"BBRI\"]; the `.JK` suffix is optional.",
+          "description": "IDX tickers, e.g. [\"BBCA\", \"BBRI\"]; the `.JK` suffix is optional. At most 20.",
           "items": {
             "type": "string"
           },
@@ -125,7 +125,7 @@
         },
         "limit": {
           "default": null,
-          "description": "Maximum rows returned (default 200); `total` reports the full count.",
+          "description": "Maximum rows returned (default 200, at most 2000); `total` reports the full count.",
           "format": "uint",
           "minimum": 0,
           "type": [
@@ -202,7 +202,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "symbols": {
-          "description": "IDX tickers, e.g. [\"BBCA\", \"BBRI\"]; the `.JK` suffix is optional.",
+          "description": "IDX tickers, e.g. [\"BBCA\", \"BBRI\"]; the `.JK` suffix is optional. At most 20.",
           "items": {
             "type": "string"
           },
@@ -278,7 +278,7 @@
         },
         "limit": {
           "default": null,
-          "description": "Maximum results (default 50).",
+          "description": "Maximum results (default 50, at most 200).",
           "format": "uint",
           "minimum": 0,
           "type": [
@@ -310,7 +310,7 @@
       "properties": {
         "limit": {
           "default": null,
-          "description": "Maximum results (default 20).",
+          "description": "Maximum results (default 20, at most 100).",
           "format": "uint",
           "minimum": 0,
           "type": [

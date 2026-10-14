@@ -92,7 +92,7 @@ tests/agents/agent-smoke.sh --live --case shareholders --keep          # real da
   your own agent settings and MCP servers are not loaded or changed. Logins
   are copied from the agent's home (Codex `auth.json`, pi and Hermes auth
   files) into a temp dir that is deleted afterwards; `--keep` keeps the run
-  output but still deletes the copied credentials.
+  output but still deletes every copied agent config.
 - Tools are auto-approved for the run (Claude `dontAsk` with
   `mcp__idx__*`, Codex `default_tools_approval_mode="approve"`); Claude and pi
   also get no built-in tools, so they can only answer through MCP.
