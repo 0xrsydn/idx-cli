@@ -1,0 +1,4 @@
+exit: 2
+--- stdout
+--- stderr
+{"code":"CONFIGERROR","error":true,"message":"config error: invalid IDX_OUTPUT value: 'yaml', expected 'auto', 'table', 'json', or 'jsonl'"}

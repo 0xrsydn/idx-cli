@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+[{"date":"2024-03-01","open":9800,"high":9900,"low":9750,"close":9875,"volume":12300000},{"date":"2024-03-02","open":9850,"high":9920,"low":9800,"close":9880,"volume":11000000},{"date":"2024-03-03","open":9860,"high":9950,"low":9820,"close":9925,"volume":14000000}]
+--- stderr

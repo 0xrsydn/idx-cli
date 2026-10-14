@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+{"action":"merged","alias_updates":1,"bing_holdings_updates":0,"keep":1,"ksei_holdings_updates":1,"merge":2}
+--- stderr

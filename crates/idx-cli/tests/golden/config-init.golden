@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+<ROOT>/config/idx/config.toml
+--- stderr

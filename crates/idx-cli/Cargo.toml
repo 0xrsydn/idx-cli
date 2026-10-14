@@ -1,0 +1,41 @@
+[package]
+name = "idx-cli"
+description = "CLI tool for Indonesian stock market (IDX) analysis"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["idx", "stocks", "indonesia", "cli", "finance"]
+categories = ["command-line-utilities", "finance"]
+include = ["/Cargo.toml", "/LICENSE", "/src/**"]
+
+[[bin]]
+name = "idx"
+path = "src/main.rs"
+
+[features]
+default = ["ownership"]
+ownership = ["idx-core/ownership"]
+
+[dependencies]
+idx-core = { workspace = true, features = ["clap"] }
+clap.workspace = true
+clap_complete = "4"
+serde.workspace = true
+serde_json.workspace = true
+comfy-table = { version = "7", features = ["custom_styling"] }
+owo-colors = "4"
+toml.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+# Tests drive the binary with the mock provider; release builds exclude it.
+idx-core = { workspace = true, features = ["testing"] }
+assert_cmd = "2"
+predicates = "3"
+rusqlite.workspace = true
+sha2.workspace = true
+zip.workspace = true

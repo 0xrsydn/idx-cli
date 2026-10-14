@@ -27,7 +27,7 @@ jobs:
       - name: Restore and save Nix store
         uses: nix-community/cache-nix-action@v7
         with:
-          primary-key: nix-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.nix', 'flake.lock', 'Cargo.lock', 'Cargo.toml') }}-${{ hashFiles('src/**', 'tests/**', 'scripts/**', 'install.sh', 'README.md', 'LICENSE') }}
+          primary-key: nix-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.nix', 'flake.lock', 'Cargo.lock', 'Cargo.toml') }}-${{ hashFiles('crates/**', 'scripts/**', 'install.sh', 'README.md', 'LICENSE') }}
           restore-prefixes-first-match: |
             nix-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.nix', 'flake.lock', 'Cargo.lock', 'Cargo.toml') }}-
             nix-v2-${{ runner.os }}-${{ runner.arch }}-

@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Live provider drift check: runs shipped commands against real MSN, Yahoo,
 # and IDX endpoints and validates the JSON output shape. Deterministic CLI
-# behavior is covered by tests/cli.rs; this only answers "do the upstreams
-# still look the way our parsers expect?"
+# behavior is covered by tests/cli.rs and tests/golden.rs; this answers "do the
+# upstreams still look the way our parsers expect?"
+#
+# With --compare <old-idx>, every case also runs the old binary back to back
+# and fails on any difference in exit code or JSON structure, and on any value
+# difference for slow-moving data (see "Live A/B check" in docs/DESIGN.md).
 
 set -u
 set -o pipefail
@@ -10,6 +14,7 @@ set -o pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SYMBOL="BBCA"
 BIN_PATH=""
+COMPARE_BIN=""
 DRY_RUN=0
 declare -a GROUPS_SELECTED=()
 declare -a FAILURES=()
@@ -24,6 +29,7 @@ Options:
   --group <stocks|ownership>  Restrict to a group. Repeatable. Default: both
   --symbol <ticker>           Primary ticker. Default: BBCA
   --bin <path>                Use an existing idx binary (skips cargo build)
+  --compare <old-idx>         Also run an older idx binary and diff the results
   --dry-run                   Print cases without running them
   --help                      Show this help
 EOF
@@ -34,6 +40,7 @@ while [[ $# -gt 0 ]]; do
         --group) GROUPS_SELECTED+=("${2:-}"); shift 2 ;;
         --symbol) SYMBOL="${2:-}"; shift 2 ;;
         --bin) BIN_PATH="${2:-}"; shift 2 ;;
+        --compare) COMPARE_BIN="${2:-}"; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         --help|-h) usage; exit 0 ;;
         *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -58,14 +65,36 @@ selected() {
 
 WORKDIR="$ROOT_DIR/tmp/live-smoke/$(date +%Y%m%d-%H%M%S)"
 LOG_DIR="$WORKDIR/logs"
-BASE_ENV=(
-    "XDG_CONFIG_HOME=$WORKDIR/config"
-    "XDG_CACHE_HOME=$WORKDIR/cache"
-    "XDG_DATA_HOME=$WORKDIR/data"
-    "IDX_PROVIDER=msn"
-    "IDX_HISTORY_PROVIDER=auto"
-    "IDX_NO_COLOR=1"
-)
+COMMON_ENV=("IDX_PROVIDER=msn" "IDX_HISTORY_PROVIDER=auto" "IDX_NO_COLOR=1")
+
+# Each binary gets its own config, cache, and data so both really fetch.
+side_env() {
+    local home="$WORKDIR/$1"
+    printf '%s\n' "XDG_CONFIG_HOME=$home/config" "XDG_CACHE_HOME=$home/cache" \
+        "XDG_DATA_HOME=$home/data" "${COMMON_ENV[@]}"
+}
+
+# Values of these commands should not move between two back-to-back runs.
+stable_values() {
+    case "$1" in
+        "stocks profile "*|"stocks financials "*|"stocks earnings "*|"ownership ticker "*|"ownership releases") return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Key paths (array indices collapsed) that disappeared or appeared, and keys
+# whose non-null type changed. Empty lists mean the structure matches.
+# shellcheck disable=SC2016
+SHAPE_DIFF='
+def norm: map(if type == "number" then "*" else . end) | join(".");
+def keyset: [paths | norm] | unique;
+def types: [paths(scalars) as $p | select(getpath($p) != null)
+    | {k: ($p | norm), t: (getpath($p) | type)}]
+    | group_by(.k) | map({key: .[0].k, value: (map(.t) | unique)}) | from_entries;
+($old[0] | keyset) as $ko | ($new[0] | keyset) as $kn
+| ($old[0] | types) as $to | ($new[0] | types) as $tn
+| {missing: ($ko - $kn), added: ($kn - $ko),
+   type_changed: [$to | keys[] as $k | select($tn[$k] != null and $tn[$k] != $to[$k]) | $k]}'
 
 # jq filter describing the JSON shape each command must keep.
 contract() {
@@ -103,8 +132,16 @@ contract() {
     esac
 }
 
+run_bin() {
+    local side="$1" bin="$2" out="$3"
+    shift 3
+    local -a envs
+    mapfile -t envs < <(side_env "$side")
+    env "${envs[@]}" "$bin" -o json "$@" >"$out.stdout" 2>"$out.stderr"
+}
+
 run_case() {
-    local name="$1" cmd="$2" filter log
+    local name="$1" cmd="$2" filter log status old_status diff
     local -a args
     TOTAL=$((TOTAL + 1))
     printf '[%02d] %s\n' "$TOTAL" "$name"
@@ -115,8 +152,19 @@ run_case() {
 
     log="$LOG_DIR/$(printf '%02d' "$TOTAL")_$name"
     read -r -a args <<< "$cmd"
-    if ! env "${BASE_ENV[@]}" "$BIN_PATH" -o json "${args[@]}" >"$log.stdout" 2>"$log.stderr"; then
-        FAILURES+=("$name: non-zero exit (see $log.stderr)")
+    run_bin new "$BIN_PATH" "$log" "${args[@]}"
+    status=$?
+    if [[ -n "$COMPARE_BIN" ]]; then
+        run_bin old "$COMPARE_BIN" "$log.old" "${args[@]}"
+        old_status=$?
+        if (( status != old_status )); then
+            FAILURES+=("$name: exit $status, old binary exited $old_status (see $log.stderr, $log.old.stderr)")
+            echo "     FAIL exit differs from old binary"
+            return
+        fi
+    fi
+    if (( status != 0 )); then
+        FAILURES+=("$name: exit $status (see $log.stderr)")
         echo "     FAIL exit"
         return
     fi
@@ -125,6 +173,22 @@ run_case() {
         FAILURES+=("$name: output shape changed (see $log.stdout)")
         echo "     FAIL shape"
         return
+    fi
+    if [[ -n "$COMPARE_BIN" ]]; then
+        diff="$(jq -n --slurpfile old "$log.old.stdout" --slurpfile new "$log.stdout" "$SHAPE_DIFF")"
+        if [[ "$(jq -c '[.[] | length] | add' <<< "$diff")" != 0 ]]; then
+            printf '%s\n' "$diff" >"$log.diff"
+            FAILURES+=("$name: JSON structure differs from old binary (see $log.diff)")
+            echo "     FAIL structure differs"
+            return
+        fi
+        if stable_values "$cmd" && ! cmp -s \
+            <(jq -S 'del(.. | .imported_at?)' "$log.old.stdout") \
+            <(jq -S 'del(.. | .imported_at?)' "$log.stdout"); then
+            FAILURES+=("$name: values differ from old binary (diff $log.old.stdout $log.stdout)")
+            echo "     FAIL values differ"
+            return
+        fi
     fi
     PASSED=$((PASSED + 1))
     echo "     PASS"
@@ -137,7 +201,10 @@ if (( ! DRY_RUN )); then
         BIN_PATH="$ROOT_DIR/target/debug/idx"
         (cd "$ROOT_DIR" && cargo build --quiet --bin idx) || { echo "cargo build failed" >&2; exit 1; }
     fi
-    env "${BASE_ENV[@]}" "$BIN_PATH" config set ownership.db_path "$WORKDIR/ownership.db" >/dev/null
+    if [[ -n "$COMPARE_BIN" && ! -x "$COMPARE_BIN" ]]; then
+        echo "--compare binary not found or not executable: $COMPARE_BIN" >&2
+        exit 2
+    fi
 fi
 
 if selected stocks; then
@@ -158,10 +225,12 @@ if selected ownership; then
         url="$(jq -r '.[0].pdf_url' "$LOG_DIR/$(printf '%02d' "$TOTAL")_discover.stdout")"
         run_case import "ownership import --url $url"
         run_case releases "ownership releases"
+        run_case ticker "ownership ticker $SYMBOL"
     fi
 fi
 
 (( DRY_RUN )) && { echo "dry-run: $TOTAL case(s)"; exit 0; }
+[[ -n "$COMPARE_BIN" ]] && printf '\ncompared against: %s\n' "$COMPARE_BIN"
 printf '\nsummary: %d passed, %d failed\nlogs: %s\n' "$PASSED" "$((TOTAL - PASSED))" "$LOG_DIR"
 if (( ${#FAILURES[@]} > 0 )); then
     printf '  - %s\n' "${FAILURES[@]}"

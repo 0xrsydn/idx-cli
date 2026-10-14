@@ -1,0 +1,4 @@
+exit: 4
+--- stdout
+--- stderr
+Error: provider unavailable

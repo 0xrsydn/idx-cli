@@ -396,6 +396,22 @@ if [[ "$old_asset" != "$new_asset" ]] && remote_asset_exists "$old_asset" && rem
 else
     fail "forced refresh keeps the previous content-addressed artifact (old=$old_asset new=$new_asset count=$(asset_count))"
 fi
+old_sha="${old_asset#ownership-snapshot-2026-08-31-}"
+old_sha="${old_sha%.sqlite}"
+if [[ "$(remote_manifest_field '.snapshot.replaces_sqlite_sha256 | join(",")')" == "$old_sha" ]]; then
+    pass "same-date rebuild lists the build it replaces"
+else
+    fail "same-date rebuild lists the build it replaces (got $(remote_manifest_field '.snapshot.replaces_sqlite_sha256'))"
+fi
+mid_sha="$(remote_manifest_field '.snapshot.sqlite_sha256')"
+export FAKE_BUILD_VARIANT="second-replacement"
+run_publisher --force
+unset FAKE_BUILD_VARIANT
+if [[ "$(remote_manifest_field '.snapshot.replaces_sqlite_sha256 | join(",")')" == "$old_sha,$mid_sha" ]]; then
+    pass "a second rebuild carries earlier replaced builds forward"
+else
+    fail "a second rebuild carries earlier replaced builds forward (got $(remote_manifest_field '.snapshot.replaces_sqlite_sha256'))"
+fi
 
 # ===========================================================================
 # 5. a trustworthy-looking manifest with a missing asset forces a republish

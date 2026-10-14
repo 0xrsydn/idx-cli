@@ -1,0 +1,10 @@
+exit: 0
+--- stdout
+nodes: 5  edges: 4
+
+BBCA [TICKER]
+├─ DWIMURIA INVESTAMA ANDALAN (54.94%, ksei)
+├─ ANTHONI SALIM (1.15%, ksei)
+├─ TRICIPTA MANDHALA GUMILANG (1.07%, ksei)
+└─ CATURGUWIRATNA SUMAPALA (1.02%, ksei)
+--- stderr

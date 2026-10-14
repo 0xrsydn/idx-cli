@@ -1,0 +1,34 @@
+{
+  "name": "idx-mcp",
+  "version": "0.3.0",
+  "description": "MCP server for Indonesian stock market (IDX) market, financial, and ownership data",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xrsydn/idx-cli.git",
+    "directory": "npm/idx-mcp"
+  },
+  "homepage": "https://github.com/0xrsydn/idx-cli",
+  "keywords": [
+    "idx",
+    "stocks",
+    "indonesia",
+    "finance",
+    "mcp"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "nativeBinary": "idx-mcp",
+  "bin": {
+    "idx-mcp": "./scripts/idx.js"
+  },
+  "files": [
+    "scripts/idx.js",
+    "scripts/install.js"
+  ],
+  "scripts": {
+    "prepack": "mkdir -p scripts && cp ../../scripts/idx.js ../../scripts/install.js scripts/",
+    "postinstall": "node scripts/install.js"
+  }
+}

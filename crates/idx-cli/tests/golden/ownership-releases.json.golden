@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+[{"id":1,"source_url":null,"sha256":"7c1a4c209b8ce5bde9112436a0c64d66b042915995b584d2bbf7ca7b15ce81e3","as_of_date":"2026-08-31","row_count":17,"imported_at":0},{"id":3,"source_url":null,"sha256":"7b8da1d820f67062410c48988bb6c70fec2088c24961d481d1c0fce8b9372547","as_of_date":"2026-02-27","row_count":18,"imported_at":0},{"id":2,"source_url":null,"sha256":"efb3d8fb19c9e0d803dc1b1734c8389356605d0f78d73db6729fb76d3d75753d","as_of_date":"2026-01-30","row_count":18,"imported_at":0}]
+--- stderr

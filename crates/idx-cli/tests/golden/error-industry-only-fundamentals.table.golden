@@ -1,0 +1,4 @@
+exit: 1
+--- stdout
+--- stderr
+Error: parse error: unsupported: company fundamentals unavailable from MSN; industry fallback is disabled

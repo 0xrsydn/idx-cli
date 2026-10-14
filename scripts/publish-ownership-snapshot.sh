@@ -461,6 +461,25 @@ cp "$STAGED_MANIFEST_PATH" "$OUTPUT_DIR/ownership-snapshot-manifest.json"
 cp "$STAGED_SQLITE_PATH" "$OUTPUT_DIR/"
 
 MANIFEST_PATH="$OUTPUT_DIR/ownership-snapshot-manifest.json"
+
+# A rebuild for the published as-of date (e.g. after a parser fix) lists the
+# builds it replaces, so clients still holding one update without --force.
+if [[ "$BUILT_AS_OF" == "$PUBLISHED_AS_OF" && "$PUBLISHED_SHA256" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    replaces_tmp="$PUBLISH_WORKDIR/manifest-replaces.json"
+    jq --arg published "$PUBLISHED_SHA256" \
+        --argjson previous "$(jq -c '.snapshot.replaces_sqlite_sha256 // []' <<< "$PUBLISHED_MANIFEST" 2>/dev/null || echo '[]')" '
+            .snapshot.sqlite_sha256 as $own
+            | .snapshot.replaces_sqlite_sha256 =
+                ([$previous[], $published]
+                 | map(ascii_downcase) | map(select(. != ($own | ascii_downcase)))
+                 | reduce .[] as $sha ([]; if index([$sha]) then . else . + [$sha] end)
+                 | .[-20:])
+            | if (.snapshot.replaces_sqlite_sha256 | length) == 0
+              then del(.snapshot.replaces_sqlite_sha256) else . end
+        ' "$MANIFEST_PATH" > "$replaces_tmp"
+    mv "$replaces_tmp" "$MANIFEST_PATH"
+fi
+
 SQLITE_PATH="$OUTPUT_DIR/$(basename "$STAGED_SQLITE_PATH")"
 SQLITE_ASSET_NAME="$(basename "$STAGED_SQLITE_PATH")"
 LOCAL_SQLITE_BYTES="$(wc -c < "$SQLITE_PATH" | tr -d ' ')"

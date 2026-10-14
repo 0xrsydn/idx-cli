@@ -8,9 +8,9 @@ offline with pinned tools:
 | Check | Covers |
 | --- | --- |
 | `fmt`, `clippy` | formatting and lints (`--all-targets`) |
-| `test` | unit/module tests and `tests/cli.rs` CLI integration tests |
+| `test` | unit/module tests, `tests/cli.rs` CLI integration tests, and `tests/golden.rs` output parity |
 | `default`, `package` | release build and `cargo package` verification |
-| `packaged-cli` | the wrapped Nix binary starts, emits JSON, and generates completions |
+| `packaged-cli` | the wrapped Nix release binary emits JSON, generates completions, and returns a JSON `CACHEMISS` error with exit 3 offline |
 | `ownership-publisher`, `publisher-test` | packaged publisher entry point and its regression scenarios |
 | `install-script-sh`, `install-script-dash`, `shellcheck` | installer regressions and shell lint |
 
@@ -18,6 +18,12 @@ offline with pinned tools:
 fixture-backed mock providers (`IDX_USE_MOCK_PROVIDER=1`) and covers output
 contracts, cache/offline transitions, provider routing, error codes, ownership
 imports and queries, and snapshot sync.
+
+`tests/golden.rs` pins the exact output (exit code, stdout, stderr) of every
+command listed in `tests/golden/cases.toml`, in table and JSON. A mismatch means
+user-visible output changed. Regenerate with
+`UPDATE_GOLDEN=1 cargo test --test golden` only when the change is intended,
+and commit the golden diff with the reason.
 
 For a focused loop, run one check or filter Cargo tests:
 
@@ -39,6 +45,7 @@ validates each JSON output shape. It is opt-in and never part of the gate.
 nix develop --command scripts/live-smoke.sh                   # stocks + ownership
 nix develop --command scripts/live-smoke.sh --group stocks --symbol BBRI
 nix develop --command scripts/live-smoke.sh --bin ./result/bin/idx
+nix develop --command scripts/live-smoke.sh --compare ./old/bin/idx  # A/B against an older build
 scripts/live-smoke.sh --dry-run
 ```
 
@@ -47,6 +54,12 @@ scripts/live-smoke.sh --dry-run
 - `ownership`: `discover`, then imports the newest supported report into a temp
   DB and lists `releases`. IDX sits behind Cloudflare and returns `403` to many
   datacenter IPs, including GitHub-hosted runners; run it from a network IDX accepts.
+
+`--compare <old-idx>` runs every case with both binaries back to back, each
+with its own config and cache, and fails on a different exit code, any added,
+missing, or retyped JSON key, or changed values for `profile`, `financials`,
+`earnings`, and ownership results. Build the old side with, for example,
+`nix build "git+file://$PWD?ref=main" -o old`.
 
 Each run isolates config, cache, and data under `tmp/live-smoke/<timestamp>/`
 and keeps per-case `.stdout`, `.stderr`, and `.validation` logs there.

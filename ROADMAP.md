@@ -15,12 +15,10 @@ history lives in git.
 ## Workflow
 - `watchlist`: named symbol sets usable by other commands
 - `alerts`: price alerts with a daemon
-- CSV/TSV and JSONL output
-- Stdin symbol input for chaining (`... | idx stocks fundamental --stdin`)
+- CSV/TSV output
 - Additional providers (Alpha Vantage, Twelve Data, IDX official)
 
 ## Agent integration
-- MCP server exposing the existing commands as tools (planned as `idx-mcp`)
 - JSON Schema export for command output
 - Composite `analyze` command (quote, fundamentals, ownership, sentiment)
 
@@ -29,5 +27,7 @@ history lives in git.
   can still fail.
 - `stocks technical` reports the SMA200 trend as unavailable when fewer than
   200 daily candles are returned.
+- MSN's `low-pe` screen returned no priced stocks on 2026-10-14 (upstream;
+  other filters work).
 - MSN history for IDX is price-only (`1mo`, `3mo`, `1y`); Yahoo stays the
   default OHLCV source.

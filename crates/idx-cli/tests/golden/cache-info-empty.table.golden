@@ -1,0 +1,8 @@
+exit: 0
+--- stdout
+path: <ROOT>/cache/idx
+files: 0
+size_bytes: 0
+oldest: -
+newest: -
+--- stderr

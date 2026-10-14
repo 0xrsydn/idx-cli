@@ -79,7 +79,9 @@ The publisher treats the published snapshot as current only when the manifest's
 `download_url` names this repo and tag and the referenced asset matches its
 SHA-256 and size. A missing or corrupt asset, a mismatched URL, an unreadable
 manifest, or any GitHub auth/network error means "publish", never "up to date".
-`--force` uploads regardless.
+`--force` uploads regardless. A forced rebuild for the already-published as-of
+date adds the replaced build's `sqlite_sha256` to `replaces_sqlite_sha256`
+(keeping the last 20), so clients still holding it update on their next sync.
 
 ## Run Result
 

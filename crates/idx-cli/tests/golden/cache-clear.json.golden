@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+{"failed":[],"removed":0}
+--- stderr

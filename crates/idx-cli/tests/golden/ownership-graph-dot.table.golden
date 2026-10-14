@@ -1,0 +1,20 @@
+exit: 0
+--- stdout
+digraph ownership {
+  rankdir=LR;
+  graph [fontname="Helvetica"];
+  node [fontname="Helvetica"];
+  edge [fontname="Helvetica"];
+
+  "entity:14" [label="DWIMURIA INVESTAMA ANDALAN", shape=ellipse];
+  "entity:15" [label="CATURGUWIRATNA SUMAPALA", shape=ellipse];
+  "entity:16" [label="TRICIPTA MANDHALA GUMILANG", shape=ellipse];
+  "entity:17" [label="ANTHONI SALIM", shape=ellipse];
+  "ticker:BBCA" [label="BBCA", shape=box];
+
+  "entity:17" -> "ticker:BBCA" [label="1.15% (ksei)"];
+  "entity:15" -> "ticker:BBCA" [label="1.02% (ksei)"];
+  "entity:14" -> "ticker:BBCA" [label="54.94% (ksei)"];
+  "entity:16" -> "ticker:BBCA" [label="1.07% (ksei)"];
+}
+--- stderr

@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+Merged entity 2 into 1 (aliases: 1, ksei_holdings: 1, bing_holdings: 0).
+--- stderr

@@ -1,0 +1,58 @@
+exit: 0
+--- stdout
+Ownership intelligence (KSEI + Bing).
+
+Preferred bootstrap path:
+  1. Run `idx ownership sync` to install or refresh a maintained SQLite snapshot.
+  2. If no snapshot manifest is available, run `idx ownership discover` and then `idx ownership import --url <pdf-url>`.
+  3. Local `.xlsx`, `.pdf`, `.zip`, and `.txt` imports remain available for manual or fallback workflows.
+
+Usage: idx ownership [OPTIONS] <COMMAND>
+
+Commands:
+  discover       Discover the latest IDX-hosted ownership report URLs
+  import         Import ownership data directly from source files
+  sync           Install or refresh a maintained ownership SQLite snapshot
+  ticker         Show all holders for a ticker (KSEI + Bing combined)
+  entity         Show all holdings for an entity across tickers
+  search         Search entities by name
+  cross-holders  Rank entities by cross-ownership breadth
+  concentration  Rank tickers by ownership concentration
+  flow           Show Bing institutional flow for a ticker
+  changes        Diff two KSEI releases
+  graph          Ownership network graph
+  resolve        Manual entity resolution workflow
+  releases       List imported KSEI releases
+  help           Print this message or the help of the given subcommand(s)
+
+Options:
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+          
+          [possible values: auto, table, json, jsonl]
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx ownership sync
+  idx ownership sync --manifest /path/to/ownership-snapshot-manifest.json
+  idx ownership discover --limit 1
+  idx ownership import --url <pdf-url>
+  idx ownership releases
+--- stderr

@@ -13,7 +13,11 @@ const packageRoot = path.resolve(__dirname, "..");
 const packageManifest = JSON.parse(
   fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"),
 );
-const binaryName = process.platform === "win32" ? "idx.exe" : "idx";
+// The package names its native binary (`idx` or `idx-mcp`); release assets
+// are named `<binary>-<platform>`.
+const nativeBinary = packageManifest.nativeBinary || "idx";
+const packageName = packageManifest.name;
+const binaryName = process.platform === "win32" ? `${nativeBinary}.exe` : nativeBinary;
 const binaryDirectory = path.join(packageRoot, "bin");
 const binaryPath = path.join(binaryDirectory, binaryName);
 const githubRepository = "0xrsydn/idx-cli";
@@ -24,22 +28,22 @@ const targets = {
   "linux/x64": {
     label: "linux-x64",
     triple: "x86_64-unknown-linux-gnu",
-    asset: "idx-linux-x64",
+    asset: `${nativeBinary}-linux-x64`,
   },
   "linux/arm64": {
     label: "linux-arm64",
     triple: "aarch64-unknown-linux-gnu",
-    asset: "idx-linux-arm64",
+    asset: `${nativeBinary}-linux-arm64`,
   },
   "darwin/arm64": {
     label: "darwin-arm64",
     triple: "aarch64-apple-darwin",
-    asset: "idx-darwin-arm64",
+    asset: `${nativeBinary}-darwin-arm64`,
   },
   "darwin/x64": {
     label: "darwin-x64",
     triple: "x86_64-apple-darwin",
-    asset: "idx-darwin-x64",
+    asset: `${nativeBinary}-darwin-x64`,
   },
 };
 
@@ -111,7 +115,7 @@ function request(url, onResponse, redirects = 0) {
       {
         headers: {
           Accept: "application/octet-stream",
-          "User-Agent": `idx-cli-npm/${packageManifest.version}`,
+          "User-Agent": `${packageName}-npm/${packageManifest.version}`,
         },
       },
       (response) => {
@@ -226,7 +230,7 @@ async function main() {
 
   // `npm install` inside the Rust checkout should not fetch a release binary.
   if (!override && fs.existsSync(path.join(packageRoot, "Cargo.toml"))) {
-    console.log("idx-cli: source checkout detected; skipping binary download (set IDX_BINARY_URL to override)");
+    console.log(`${packageName}: source checkout detected; skipping binary download (set IDX_BINARY_URL to override)`);
     return;
   }
 
@@ -241,22 +245,22 @@ async function main() {
         verifyChecksum(localPath, overrideSha256, localPath);
       }
       replaceWithLocalBinary(localPath);
-      console.log(`idx-cli: installed local binary from ${path.resolve(localPath)}`);
+      console.log(`${packageName}: installed local binary from ${path.resolve(localPath)}`);
       return;
     }
-    console.log(`idx-cli: downloading binary from IDX_BINARY_URL (${override})`);
+    console.log(`${packageName}: downloading binary from IDX_BINARY_URL (${override})`);
   } else {
-    console.log(`idx-cli: downloading ${target.asset} for ${target.label} from ${source}`);
+    console.log(`${packageName}: downloading ${target.asset} for ${target.label} from ${source}`);
   }
 
   const expectedSha256 = override
     ? overrideSha256
     : await expectedReleaseChecksum(target.asset);
   await replaceWithDownloadedBinary(source, expectedSha256);
-  console.log(`idx-cli: installed binary at ${binaryPath}`);
+  console.log(`${packageName}: installed binary at ${binaryPath}`);
 }
 
 main().catch((error) => {
-  console.error(`idx-cli: ${error.message}`);
+  console.error(`${packageName}: ${error.message}`);
   process.exit(1);
 });

@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+No institutional flow data available for BBCA.
+--- stderr

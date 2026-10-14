@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+[{"id":"news-1","symbol":"BBCA.JK","title":"BCA reports steady growth","url":"https://example.com/news/bca-growth","description":"BCA delivered steady quarterly growth across lending and deposits.","provider":"Contoso News","published_at":"2026-03-20T10:00:00Z","read_time_min":3}]
+--- stderr

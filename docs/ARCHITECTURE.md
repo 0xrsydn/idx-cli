@@ -1,10 +1,28 @@
 # Architecture
 
+## Crates
+
+The repo is a Cargo workspace with one shared version:
+
+- `crates/idx-core` (library): the `Idx` entry point with `market()`,
+  `financial()`, `analysis()`, and `investor()` (cache policy and `Fetched<T>` in
+  `client.rs`; ownership queries, import, sync, and discovery in `investor.rs`),
+  providers (`api/`), `analysis/`, `cache`, `config` (`CoreConfig`),
+  `ownership/` (SQLite, parsers, discovery, snapshot sync), `error`, and
+  `runtime` (quiet/info/warn). It owns the shared test fixtures in
+  `tests/fixtures/`; the fixture-backed mock provider needs the `testing` feature.
+- `crates/idx-cli` (binary `idx`): clap commands (`cli/`), output format and
+  color resolution (`config.rs`, `IdxConfig`), and rendering (`output/`). Its
+  `tests/` hold the CLI integration and golden output suites.
+
+`crates/idx-cli/src/cli/` holds no fetching, caching, or database logic: each
+command parses arguments, makes one idx-core call, and renders the result.
+
 ## Domain Map
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                      CLI Layer                           │
+│                 CLI Layer (idx-cli)                      │
 │  main.rs → cli/stocks.rs, cli/ownership.rs, cli/...     │
 │  Clap derive structs, command dispatch, arg validation   │
 └──────────────────────┬──────────────────────────────────┘
@@ -39,7 +57,7 @@
   sentiment, screener
 - `https://api.msn.com/msn/v0/pages/finance/`: key ratios, insights, news feed
 
-The public API key embedded in MSN Money lives in `src/api/msn/client.rs`.
+The public API key embedded in MSN Money lives in `crates/idx-core/src/api/msn/client.rs`.
 
 ### Hybrid History Strategy
 When `history_provider = auto` (default):
@@ -89,7 +107,7 @@ Unlike the `stocks` module (live-fetch), ownership is **import-then-query**:
 - **KSEI** — official ≥1% shareholder registry, published monthly by IDX. Through May 2026 it was a PDF announcement; from the 2026-05-29 report onward it is an XLSX workbook on the IDX "Data Kepemilikan Saham" page
 - **KSEI archive** — monthly ZIP/TXT balance-position matrix, used as a local fallback/backstop import path
 - **Bing Finance** — global institutional ownership. The schema, `--source bing`
-  queries, and `src/api/msn/bing.rs` exist, but `ownership import --fetch-bing`
+  queries, and `crates/idx-core/src/api/msn/bing.rs` exist, but `ownership import --fetch-bing`
   is intentionally unsupported, so no ingest path populates Bing rows today
 
 ### Discovery
@@ -144,11 +162,21 @@ CLI flags > environment variables > config file > defaults
 ## Error Strategy
 - `IdxError` enum (thiserror) with structured error codes
 - Table mode: human-readable error on stderr
-- JSON mode: `{"error": true, "code": "...", "message": "..."}`
-- Exit code 0 on success, non-zero on failure
+- JSON and JSONL modes: `{"error": true, "code": "...", "message": "..."}` on stderr, stdout empty
+- Exit codes by class: `0` success, `2` `INVALIDINPUT`/`CONFIGERROR` and clap usage
+  errors, `3` `SYMBOLNOTFOUND`/`NOMARKETDATA`/`CACHEMISS`, `4` `HTTP`/`RATELIMITED`/
+  `PROVIDERUNAVAILABLE`/`OFFLINE`/`AUTHERROR`, `5` `UNSUPPORTED`, `1` everything else
 - A totally failed `stocks compare` emits one structured error in JSON mode; per-symbol warnings are retained for partial success, not printed ahead of a total-failure error.
 
 ## CLI Output and Offline Cache
+- Output format resolves as `-o` flag > `IDX_OUTPUT` > `general.output` > `auto`.
+  `auto` is a table when stdout is a terminal and JSON otherwise
+  (`std::io::IsTerminal`).
+- JSON is pretty-printed only on a terminal; piped output is compact. `jsonl`
+  prints each array item on its own line with the same key order as `json`,
+  and a single object as one line.
+- ANSI styling goes through `output::style` and is disabled when stdout is not a
+  terminal or color is turned off.
 - `version`, `cache info`, `cache clear`, and `ownership resolve map|merge` emit
   JSON objects when JSON output is selected.
 - `stocks quote` and `stocks compare` require at least one symbol.

@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+Mapped alias 'SALIM ANTHONI' -> 'ANTHONI SALIM'.
+--- stderr

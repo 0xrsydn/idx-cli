@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+{"files":0,"newest":null,"oldest":null,"path":"<ROOT>/cache/idx","size_bytes":0}
+--- stderr

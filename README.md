@@ -13,7 +13,7 @@ curl -fsSL https://raw.githubusercontent.com/0xrsydn/idx-cli/main/install.sh | s
 Downloads the prebuilt `idx` binary for your platform from GitHub Releases,
 verifies it against the release `SHA256SUMS`, and installs it into
 `~/.local/bin` without sudo. Pin a version or change the directory with
-`sh -s -- --version v0.2.4 --dir ~/bin`. See [docs/INSTALL.md](docs/INSTALL.md).
+`sh -s -- --version v0.3.0 --dir ~/bin`. See [docs/INSTALL.md](docs/INSTALL.md).
 
 ### npm / npx
 
@@ -112,7 +112,11 @@ idx ownership changes --from 2026-07-31 --to 2026-08-31
 
 ### Output
 
-- Human-readable tables on stdout, JSON with `-o json`, errors on stderr
+- Tables when you run idx in a terminal; compact JSON when its output is piped
+  or captured, so scripts and AI agents get structured data with no flag
+- `-o table|json|jsonl` (or `IDX_OUTPUT`, or `general.output` in the config)
+  overrides that; `jsonl` prints one array item per line
+- Errors go to stderr, as one JSON object in JSON modes
 
 ## Configuration
 
@@ -133,11 +137,50 @@ Precedence order:
 3. Config file
 4. Built-in defaults
 
-## Agent-friendly usage
+## Scripting and agents
 
-- Use `idx --help` and subcommand help for discoverability
-- Use `-o json` / `--output json` for structured output
+idx composes with `jq`, Python, and other shell tools:
+
+```bash
+idx stocks quote BBCA BBRI | jq -r '.[] | "\(.symbol) \(.price)"'
+idx -o jsonl stocks history BBCA --period 1y | tail -5
+idx stocks screen --filter high-dividend | jq -r '.[].symbol' | idx stocks compare -
+```
+
+- stdout carries only data; warnings and errors go to stderr
+- `-` reads symbols from stdin for `stocks quote` and `stocks compare`
+- No color codes when output is not a terminal
+- Exit codes: `0` success, `2` invalid input or config, `3` not found or no
+  cached data, `4` upstream unavailable (retry later), `5` unsupported, `1` other
 - `idx completions <shell>` generates shell completions
+
+If you ran `idx config init` before v0.3, your config pins `output = "table"`;
+change it to `auto` with `idx config set general.output auto`.
+
+## MCP server
+
+`idx-mcp` serves the same data to MCP clients over stdio, as 11 tools:
+`get_quotes`, `get_price_history`, `screen_stocks`, `get_company`,
+`analyze_stock`, `compare_stocks`, `get_shareholders`,
+`get_investor_holdings`, `search_investors`, `get_ownership_changes`, and
+`ownership_status`. Live results come wrapped as
+`{data, source, fetched_at, stale}`; errors use the CLI's `{error, code,
+message}` body. It shares idx's config, cache, and ownership database.
+
+Install it like `idx` (npm, Cargo, or Nix), then register it with your MCP
+client:
+
+```bash
+claude mcp add idx -- npx -y idx-mcp   # Claude Code, via npm
+cargo install idx-mcp                  # or build it (Rust 1.88+)
+nix profile install github:0xrsydn/idx-cli#idx-mcp
+```
+
+Other clients run the `idx-mcp` command over stdio.
+
+Ownership tools need a populated database: run `idx ownership sync` once, or
+start the server with `idx-mcp --allow-sync` to expose an `ownership_sync`
+tool (it downloads several MB).
 
 ## Documentation
 

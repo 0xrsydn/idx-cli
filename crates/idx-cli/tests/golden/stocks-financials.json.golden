@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+{"instrument":{"id":"bn91jc","symbol":"BBCA.JK","name":"Bank Central Asia Tbk PT"},"balance_sheet":{"values":{"cashAndShortTermInvestments":500000000.0,"totalEquity":900000000.0},"currency":"IDR","report_date":"2025-12-31","end_date":"2025-12-31"},"cash_flow":{"values":{"operatingCashFlow":600000000.0},"currency":"IDR","report_date":"2025-12-31","end_date":"2025-12-31"},"income_statement":{"values":{"netIncome":400000000.0,"totalRevenue":1000000000.0},"currency":"IDR","report_date":"2025-12-31","end_date":"2025-12-31"}}
+--- stderr

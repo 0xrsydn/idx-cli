@@ -1,0 +1,4 @@
+exit: 2
+--- stdout
+--- stderr
+Error: invalid input: cannot combine --offline with --no-cache
