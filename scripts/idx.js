@@ -5,12 +5,17 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 
-const binaryName = process.platform === "win32" ? "idx.exe" : "idx";
+const packageManifest = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"),
+);
+const nativeBinary = packageManifest.nativeBinary || "idx";
+const packageName = packageManifest.name;
+const binaryName = process.platform === "win32" ? `${nativeBinary}.exe` : nativeBinary;
 const binaryPath = path.join(__dirname, "..", "bin", binaryName);
 
 if (!fs.existsSync(binaryPath)) {
-  console.error(`idx-cli: installed binary not found at ${binaryPath}`);
-  console.error("idx-cli: rerun npm install or set IDX_BINARY_URL for a local binary");
+  console.error(`${packageName}: installed binary not found at ${binaryPath}`);
+  console.error(`${packageName}: rerun npm install or set IDX_BINARY_URL for a local binary`);
   process.exit(1);
 }
 
@@ -24,7 +29,7 @@ for (const signal of ["SIGTERM", "SIGHUP"]) {
 process.on("SIGINT", () => {});
 
 child.once("error", (error) => {
-  console.error(`idx-cli: failed to start ${binaryPath}: ${error.message}`);
+  console.error(`${packageName}: failed to start ${binaryPath}: ${error.message}`);
   process.exit(1);
 });
 

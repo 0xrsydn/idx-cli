@@ -13,7 +13,7 @@ curl -fsSL https://raw.githubusercontent.com/0xrsydn/idx-cli/main/install.sh | s
 Downloads the prebuilt `idx` binary for your platform from GitHub Releases,
 verifies it against the release `SHA256SUMS`, and installs it into
 `~/.local/bin` without sudo. Pin a version or change the directory with
-`sh -s -- --version v0.2.4 --dir ~/bin`. See [docs/INSTALL.md](docs/INSTALL.md).
+`sh -s -- --version v0.3.0 --dir ~/bin`. See [docs/INSTALL.md](docs/INSTALL.md).
 
 ### npm / npx
 
@@ -167,12 +167,16 @@ change it to `auto` with `idx config set general.output auto`.
 `{data, source, fetched_at, stale}`; errors use the CLI's `{error, code,
 message}` body. It shares idx's config, cache, and ownership database.
 
-Until it is released, build it from this repo:
+Install it like `idx` (npm, Cargo, or Nix), then register it with your MCP
+client:
 
 ```bash
-cargo install --path crates/idx-mcp   # or: nix build .#idx-mcp
-claude mcp add idx -- idx-mcp          # Claude Code; other clients run `idx-mcp`
+claude mcp add idx -- npx -y idx-mcp   # Claude Code, via npm
+cargo install idx-mcp                  # or build it (Rust 1.88+)
+nix profile install github:0xrsydn/idx-cli#idx-mcp
 ```
+
+Other clients run the `idx-mcp` command over stdio.
 
 Ownership tools need a populated database: run `idx ownership sync` once, or
 start the server with `idx-mcp --allow-sync` to expose an `ownership_sync`

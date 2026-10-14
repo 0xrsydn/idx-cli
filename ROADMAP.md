@@ -19,7 +19,6 @@ history lives in git.
 - Additional providers (Alpha Vantage, Twelve Data, IDX official)
 
 ## Agent integration
-- Publish `idx-mcp` (crates.io, npm, release assets); see `docs/DESIGN.md` phase 5
 - JSON Schema export for command output
 - Composite `analyze` command (quote, fundamentals, ownership, sentiment)
 

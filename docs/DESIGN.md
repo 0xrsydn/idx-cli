@@ -1,6 +1,6 @@
 # System Design: idx-core and its frontends
 
-**Status:** Accepted 2026-10-14. Implementation on `refactor/idx-core`; phases 0-4 done.
+**Status:** Accepted 2026-10-14. Released in v0.3.0; phases 0-5 done.
 
 ## Goal
 

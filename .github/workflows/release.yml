@@ -16,6 +16,7 @@ on:
       - "crates/*/Cargo.toml"
       - "Cargo.lock"
       - "package.json"
+      - "npm/idx-mcp/package.json"
       - "scripts/install.js"
       - "install.sh"
 
@@ -69,19 +70,25 @@ jobs:
             # Bundled SQLite and ring compile C code; build it against musl too.
             export "CC_${target//-/_}=musl-gcc"
           fi
-          cargo build --release --locked --target "$target"
-          cp "target/${{ matrix.target }}/release/idx" "idx-${{ matrix.asset }}"
-          chmod 0755 "idx-${{ matrix.asset }}"
+          cargo build --release --locked --target "$target" -p idx-cli -p idx-mcp
+          for bin in idx idx-mcp; do
+            cp "target/${{ matrix.target }}/release/$bin" "$bin-${{ matrix.asset }}"
+            chmod 0755 "$bin-${{ matrix.asset }}"
+          done
 
-      - name: Check binary runs
+      - name: Check binaries run
         if: matrix.target != 'x86_64-apple-darwin'
-        run: ./idx-${{ matrix.asset }} --help >/dev/null
+        run: |
+          ./idx-${{ matrix.asset }} --help >/dev/null
+          ./idx-mcp-${{ matrix.asset }} --help >/dev/null
 
-      - name: Upload target artifact
+      - name: Upload target artifacts
         uses: actions/upload-artifact@v4
         with:
           name: idx-${{ matrix.asset }}
-          path: idx-${{ matrix.asset }}
+          path: |
+            idx-${{ matrix.asset }}
+            idx-mcp-${{ matrix.asset }}
           if-no-files-found: error
 
   publish:
@@ -105,7 +112,11 @@ jobs:
           merge-multiple: true
 
       - name: Write checksums
-        run: sha256sum idx-linux-x64 idx-linux-arm64 idx-darwin-arm64 idx-darwin-x64 > SHA256SUMS
+        run: |
+          sha256sum \
+            idx-linux-x64 idx-linux-arm64 idx-darwin-arm64 idx-darwin-x64 \
+            idx-mcp-linux-x64 idx-mcp-linux-arm64 idx-mcp-darwin-arm64 idx-mcp-darwin-x64 \
+            > SHA256SUMS
 
       - name: Attach binaries to the version tag
         uses: softprops/action-gh-release@v2
@@ -116,5 +127,9 @@ jobs:
             idx-linux-arm64
             idx-darwin-arm64
             idx-darwin-x64
+            idx-mcp-linux-x64
+            idx-mcp-linux-arm64
+            idx-mcp-darwin-arm64
+            idx-mcp-darwin-x64
             SHA256SUMS
             src/install.sh
