@@ -214,18 +214,26 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
                     if let (Some((column, cell_type)), Some(current_row)) =
                         (cell.take(), row.as_mut())
                     {
-                        let text = if cell_type == "s" {
-                            let index = value.trim().parse::<usize>().map_err(|e| {
-                                xml_error("worksheet", format!("bad shared string index: {e}"))
-                            })?;
-                            shared_strings.get(index).cloned().ok_or_else(|| {
-                                xml_error(
-                                    "worksheet",
-                                    format!("shared string {index} out of range"),
-                                )
-                            })?
-                        } else {
-                            value.clone()
+                        let text = match cell_type.as_str() {
+                            "s" => {
+                                let index = value.trim().parse::<usize>().map_err(|e| {
+                                    xml_error("worksheet", format!("bad shared string index: {e}"))
+                                })?;
+                                shared_strings.get(index).cloned().ok_or_else(|| {
+                                    xml_error(
+                                        "worksheet",
+                                        format!("shared string {index} out of range"),
+                                    )
+                                })?
+                            }
+                            // Excel stores the share code TRUE (TRINITI DINAMIK)
+                            // as a boolean cell holding 1.
+                            "b" => match value.trim() {
+                                "1" => "TRUE".to_string(),
+                                "0" => "FALSE".to_string(),
+                                _ => value.clone(),
+                            },
+                            _ => value.clone(),
                         };
                         current_row.cells.insert(column, text);
                     }
@@ -499,6 +507,19 @@ mod tests {
             NaiveDate::from_ymd_opt(2026, 3, 31).unwrap()
         );
         assert!(drafts[0].locality.is_some());
+    }
+
+    #[test]
+    fn boolean_cells_read_as_excel_displays_them() {
+        let xml = r#"<worksheet><sheetData><row r="6687">
+            <c r="A6687"><v>46295</v></c>
+            <c r="B6687" t="b"><v>1</v></c>
+            <c r="C6687" t="b"><v>0</v></c>
+        </row></sheetData></worksheet>"#;
+        let rows = parse_sheet_rows(xml, &[]).expect("sheet parses");
+        assert_eq!(rows[0].cells["A"], "46295");
+        assert_eq!(rows[0].cells["B"], "TRUE");
+        assert_eq!(rows[0].cells["C"], "FALSE");
     }
 
     #[test]
