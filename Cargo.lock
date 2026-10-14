@@ -718,10 +718,26 @@ dependencies = [
  "clap",
  "clap_complete",
  "comfy-table",
- "directories",
- "fastrand",
+ "idx-core",
  "owo-colors",
  "predicates",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+ "ureq",
+ "zip",
+]
+
+[[package]]
+name = "idx-core"
+version = "0.2.4"
+dependencies = [
+ "chrono",
+ "clap",
+ "directories",
+ "fastrand",
  "quick-xml",
  "rusqlite",
  "serde",

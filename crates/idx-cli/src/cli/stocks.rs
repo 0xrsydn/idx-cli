@@ -4,27 +4,27 @@ use std::io::Read;
 use clap::{Args, Subcommand, ValueEnum};
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::analysis::fundamental::{
-    FundamentalReport, GrowthReport, RiskReport, ValuationReport, analyze_fundamental,
-    analyze_growth, analyze_risk, analyze_valuation,
-};
-use crate::analysis::signals::{self, Signal, TechnicalSignal};
-use crate::analysis::technical;
-use crate::api::types::{
-    CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, Interval,
-    NewsItem, Ohlc, Period, Quote, SentimentData,
-};
-use crate::api::{MarketDataProvider, SelectedProvider, history_provider};
-use crate::cache::Cache;
 use crate::config::{HistoryProviderKind, IdxConfig, ProviderKind};
-use crate::error::IdxError;
 use crate::output::{
     MacdSnapshot, TechnicalReport, VolumeSnapshot, render_compare, render_earnings,
     render_financials, render_fundamental, render_growth, render_history, render_insights,
     render_news, render_profile, render_quotes, render_risk, render_screener, render_sentiment,
     render_technical, render_valuation,
 };
-use crate::runtime;
+use idx_core::analysis::fundamental::{
+    FundamentalReport, GrowthReport, RiskReport, ValuationReport, analyze_fundamental,
+    analyze_growth, analyze_risk, analyze_valuation,
+};
+use idx_core::analysis::signals::{self, Signal, TechnicalSignal};
+use idx_core::analysis::technical;
+use idx_core::api::types::{
+    CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, Interval,
+    NewsItem, Ohlc, Period, Quote, SentimentData,
+};
+use idx_core::api::{MarketDataProvider, SelectedProvider, history_provider};
+use idx_core::cache::Cache;
+use idx_core::error::IdxError;
+use idx_core::runtime;
 
 struct FundamentalCacheSpec {
     bucket: String,
@@ -287,7 +287,7 @@ pub fn handle(
             let quote_bucket = cache_bucket(provider.kind(), "quote");
             let mut quotes = Vec::new();
             for sym in expand_symbols(symbols)? {
-                let resolved = crate::api::resolve_symbol(&sym, &config.exchange)?;
+                let resolved = idx_core::api::resolve_symbol(&sym, &config.exchange)?;
                 if !no_cache && let Some(q) = cache.get(&quote_bucket, &resolved)? {
                     quotes.push(q);
                     continue;
@@ -343,10 +343,10 @@ pub fn handle(
                 ));
             }
             let history_bucket = format!("{}-history", history_source.as_str());
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
             let key = format!("{}-{}", period.as_str(), interval.as_str());
             if !no_cache
-                && let Some(history) = cache.get::<Vec<crate::api::types::Ohlc>>(
+                && let Some(history) = cache.get::<Vec<idx_core::api::types::Ohlc>>(
                     &history_bucket,
                     &format!("{resolved}-{key}"),
                 )?
@@ -355,7 +355,7 @@ pub fn handle(
             }
             if offline {
                 let stale = cache
-                    .get_offline::<Vec<crate::api::types::Ohlc>>(
+                    .get_offline::<Vec<idx_core::api::types::Ohlc>>(
                         &history_bucket,
                         &format!("{resolved}-{key}"),
                     )?
@@ -379,7 +379,7 @@ pub fn handle(
                 }
                 Err(err) => {
                     if !no_cache
-                        && let Some(stale) = cache.get_stale::<Vec<crate::api::types::Ohlc>>(
+                        && let Some(stale) = cache.get_stale::<Vec<idx_core::api::types::Ohlc>>(
                             &history_bucket,
                             &format!("{resolved}-{key}"),
                         )?
@@ -411,7 +411,7 @@ pub fn handle(
                 ));
             }
             let technical_bucket = format!("{}-technical", history_source.as_str());
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
             if !no_cache
                 && let Some(report) = cache.get::<TechnicalReport>(&technical_bucket, &resolved)?
             {
@@ -447,7 +447,7 @@ pub fn handle(
             }
         }
         StocksSubcommand::Growth { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
             let report: GrowthReport = fetch_fundamental_analysis_report(
                 &cache,
                 provider.market(),
@@ -463,7 +463,7 @@ pub fn handle(
             render_growth(&resolved, &report, &config.output, config.no_color)
         }
         StocksSubcommand::Valuation { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
             let report: ValuationReport = fetch_fundamental_analysis_report(
                 &cache,
                 provider.market(),
@@ -479,7 +479,7 @@ pub fn handle(
             render_valuation(&resolved, &report, &config.output, config.no_color)
         }
         StocksSubcommand::Risk { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
             let report: RiskReport = fetch_fundamental_analysis_report(
                 &cache,
                 provider.market(),
@@ -495,7 +495,7 @@ pub fn handle(
             render_risk(&resolved, &report, &config.output, config.no_color)
         }
         StocksSubcommand::Fundamental { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
             let report: FundamentalReport = fetch_fundamental_analysis_report(
                 &cache,
                 provider.market(),
@@ -511,7 +511,7 @@ pub fn handle(
             render_fundamental(&report, &config.output, config.no_color)
         }
         StocksSubcommand::Profile { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
             let bucket = cache_bucket(provider.kind(), "profile-v2");
             let profile_provider = provider.profile_provider(&resolved)?;
             let profile: CompanyProfile = fetch_with_cache(
@@ -529,7 +529,7 @@ pub fn handle(
             render_profile(&profile, &config.output)
         }
         StocksSubcommand::Financials { symbol, filters } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
             let bucket = cache_bucket(provider.kind(), "financials");
             let financials_provider = provider.financials_provider(&resolved)?;
             let mut financials: FinancialStatements = fetch_with_cache(
@@ -553,7 +553,7 @@ pub fn handle(
             render_financials(&filtered, &config.output)
         }
         StocksSubcommand::Earnings { symbol, filters } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
             let bucket = cache_bucket(provider.kind(), "earnings");
             let earnings_provider = provider.earnings_provider(&resolved)?;
             let mut earnings: EarningsReport = fetch_with_cache(
@@ -575,7 +575,7 @@ pub fn handle(
             render_earnings(&filtered, &config.output)
         }
         StocksSubcommand::Sentiment { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
             let bucket = cache_bucket(provider.kind(), "sentiment");
             let sentiment_provider = provider.sentiment_provider(&resolved)?;
             let sentiment: SentimentData = fetch_with_cache(
@@ -593,7 +593,7 @@ pub fn handle(
             render_sentiment(&sentiment, &config.output)
         }
         StocksSubcommand::Insights { symbol } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
             let bucket = cache_bucket(provider.kind(), "insights-v2");
             let insights_provider = provider.insights_provider(&resolved)?;
             let mut insights: InsightData = fetch_with_cache(
@@ -614,7 +614,7 @@ pub fn handle(
             render_insights(&insights, &config.output)
         }
         StocksSubcommand::News { symbol, limit } => {
-            let resolved = crate::api::resolve_symbol(symbol, &config.exchange)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.exchange)?;
             let bucket = cache_bucket(provider.kind(), "news");
             let key = format!("{resolved}-{limit}");
             let news_provider = provider.news_provider(&resolved)?;
@@ -679,7 +679,7 @@ pub fn handle(
             let mut failures = Vec::new();
 
             for sym in expand_symbols(symbols)? {
-                let resolved = crate::api::resolve_symbol(&sym, &config.exchange)?;
+                let resolved = idx_core::api::resolve_symbol(&sym, &config.exchange)?;
                 match fetch_fundamental_analysis_report(
                     &cache,
                     provider.market(),
@@ -920,7 +920,7 @@ fn filter_financial_statements(
 }
 
 fn filter_earnings_report(report: &EarningsReport, filters: &EarningsFilterArgs) -> EarningsReport {
-    let filter_rows = |rows: &[crate::api::types::EarningsData]| {
+    let filter_rows = |rows: &[idx_core::api::types::EarningsData]| {
         rows.iter()
             .filter(|row| filters.includes_period(&row.period_type))
             .cloned()
@@ -1044,11 +1044,11 @@ mod tests {
         build_technical_report, classify_earnings_period, filter_earnings_report,
         filter_financial_statements,
     };
-    use crate::analysis::signals::Signal;
-    use crate::api::types::{
+    use idx_core::analysis::signals::Signal;
+    use idx_core::api::types::{
         EarningsData, EarningsReport, FinancialStatements, InstrumentInfo, Ohlc, StatementSection,
     };
-    use crate::error::IdxError;
+    use idx_core::error::IdxError;
 
     #[test]
     fn technical_report_uses_latest_values() {
@@ -1080,7 +1080,7 @@ mod tests {
 
     #[test]
     fn sort_screener_top_performers_descending() {
-        use crate::api::types::Quote;
+        use idx_core::api::types::Quote;
 
         let mut quotes = vec![
             Quote {
@@ -1137,7 +1137,7 @@ mod tests {
 
     #[test]
     fn sort_screener_worst_performers_ascending() {
-        use crate::api::types::Quote;
+        use idx_core::api::types::Quote;
 
         let mut quotes = vec![
             Quote {
@@ -1205,8 +1205,8 @@ mod tests {
         assert_eq!(quotes.last().unwrap().symbol, "U");
     }
 
-    fn sample_quote(symbol: &str, change_pct: Option<f64>) -> crate::api::types::Quote {
-        crate::api::types::Quote {
+    fn sample_quote(symbol: &str, change_pct: Option<f64>) -> idx_core::api::types::Quote {
+        idx_core::api::types::Quote {
             symbol: symbol.into(),
             price: 100,
             change: None,

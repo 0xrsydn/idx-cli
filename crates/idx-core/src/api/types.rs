@@ -1,5 +1,4 @@
 use chrono::{DateTime, FixedOffset, NaiveDate};
-use clap::ValueEnum;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 
 /// Snapshot quote data normalized from Yahoo Finance `/v8/finance/chart` response.
@@ -273,23 +272,24 @@ where
     })
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ValueEnum)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum Period {
-    #[value(name = "1d")]
+    #[cfg_attr(feature = "clap", value(name = "1d"))]
     OneDay,
-    #[value(name = "5d")]
+    #[cfg_attr(feature = "clap", value(name = "5d"))]
     FiveDays,
-    #[value(name = "1mo")]
+    #[cfg_attr(feature = "clap", value(name = "1mo"))]
     OneMonth,
-    #[value(name = "3mo")]
+    #[cfg_attr(feature = "clap", value(name = "3mo"))]
     ThreeMonths,
-    #[value(name = "6mo")]
+    #[cfg_attr(feature = "clap", value(name = "6mo"))]
     SixMonths,
-    #[value(name = "1y")]
+    #[cfg_attr(feature = "clap", value(name = "1y"))]
     OneYear,
-    #[value(name = "2y")]
+    #[cfg_attr(feature = "clap", value(name = "2y"))]
     TwoYears,
-    #[value(name = "5y")]
+    #[cfg_attr(feature = "clap", value(name = "5y"))]
     FiveYears,
 }
 
@@ -308,13 +308,14 @@ impl Period {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ValueEnum)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum Interval {
-    #[value(name = "1d")]
+    #[cfg_attr(feature = "clap", value(name = "1d"))]
     Day,
-    #[value(name = "1wk")]
+    #[cfg_attr(feature = "clap", value(name = "1wk"))]
     Week,
-    #[value(name = "1mo")]
+    #[cfg_attr(feature = "clap", value(name = "1mo"))]
     Month,
 }
 

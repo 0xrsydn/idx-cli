@@ -10,13 +10,13 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::config::IdxConfig;
-use crate::error::IdxError;
 use crate::output::json;
 use crate::output::table::format_idr;
-use crate::ownership::types::{
+use idx_core::error::IdxError;
+use idx_core::ownership::types::{
     ChangeType, FlowSignal, HolderRow, KseiHolding, OwnershipRelease, OwnershipSource,
 };
-use crate::ownership::{archive, db, entities, graph, parser, remote, search, snapshot, xlsx};
+use idx_core::ownership::{archive, db, entities, graph, parser, remote, search, snapshot, xlsx};
 
 #[derive(Debug, Args)]
 #[command(
@@ -215,7 +215,7 @@ pub fn handle(cmd: &OwnershipCommand, config: &IdxConfig) -> Result<(), IdxError
 
 fn handle_sync(args: &SyncArgs, config: &IdxConfig) -> Result<(), IdxError> {
     let manifest_source = snapshot::resolve_manifest_source(args.manifest.as_deref())?;
-    let db_path = db::db_path(config)?;
+    let db_path = db::db_path()?;
     let result = snapshot::sync_snapshot(&manifest_source, &db_path, args.force)?;
 
     if config.output.is_json() {
@@ -301,7 +301,7 @@ fn handle_discover(args: &DiscoverArgs, config: &IdxConfig) -> Result<(), IdxErr
 }
 
 fn handle_ticker(args: &TickerArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db(config)?;
+    let conn = db::open_db()?;
     let symbol = args.symbol.trim().to_uppercase();
     let source = args.source.trim().to_lowercase();
     if !["all", "ksei", "bing"].contains(&source.as_str()) {
@@ -368,8 +368,8 @@ fn handle_ticker(args: &TickerArgs, config: &IdxConfig) -> Result<(), IdxError> 
             Cell::new(&h.name),
             Cell::new(h.investor_type.clone().unwrap_or_else(|| "-".to_string())),
             Cell::new(match h.locality {
-                Some(crate::ownership::types::Locality::Local) => "L",
-                Some(crate::ownership::types::Locality::Foreign) => "F",
+                Some(idx_core::ownership::types::Locality::Local) => "L",
+                Some(idx_core::ownership::types::Locality::Foreign) => "F",
                 None => "-",
             }),
             Cell::new(format_idr(h.shares)),
@@ -393,7 +393,7 @@ fn handle_ticker(args: &TickerArgs, config: &IdxConfig) -> Result<(), IdxError> 
 }
 
 fn handle_entity(args: &EntityArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db(config)?;
+    let conn = db::open_db()?;
     let q = format!("%{}%", args.name.trim());
 
     let entity = conn
@@ -436,7 +436,7 @@ fn handle_entity(args: &EntityArgs, config: &IdxConfig) -> Result<(), IdxError> 
 }
 
 fn handle_search(args: &SearchArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db(config)?;
+    let conn = db::open_db()?;
     let entities = search::fts_search(&conn, &args.query, args.limit)?;
 
     if config.output.is_json() {
@@ -471,7 +471,7 @@ fn handle_search(args: &SearchArgs, config: &IdxConfig) -> Result<(), IdxError> 
 }
 
 fn handle_cross_holders(args: &CrossHolderArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db(config)?;
+    let conn = db::open_db()?;
     let rows = db::query_cross_holders(&conn, args.min_tickers, args.top)?;
 
     if config.output.is_json() {
@@ -498,7 +498,7 @@ fn handle_cross_holders(args: &CrossHolderArgs, config: &IdxConfig) -> Result<()
 }
 
 fn handle_concentration(args: &ConcentrationArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db(config)?;
+    let conn = db::open_db()?;
     let by = args.by.trim().to_lowercase();
     if !["top1", "top3", "hhi"].contains(&by.as_str()) {
         return Err(IdxError::ParseError(
@@ -543,7 +543,7 @@ fn handle_concentration(args: &ConcentrationArgs, config: &IdxConfig) -> Result<
 }
 
 fn handle_flow(args: &FlowArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db(config)?;
+    let conn = db::open_db()?;
     let symbol = args.symbol.trim().to_uppercase();
     let ticker_id = db::get_ticker_id(&conn, &symbol)?
         .ok_or_else(|| IdxError::SymbolNotFound(symbol.clone()))?;
@@ -551,7 +551,9 @@ fn handle_flow(args: &FlowArgs, config: &IdxConfig) -> Result<(), IdxError> {
     let flow = db::query_bing_flow(&conn, ticker_id)?;
     let Some(flow) = flow else {
         if config.output.is_json() {
-            return json::print_json(&Option::<crate::ownership::types::InstitutionalFlow>::None);
+            return json::print_json(
+                &Option::<idx_core::ownership::types::InstitutionalFlow>::None,
+            );
         }
         println!("No institutional flow data available for {symbol}.");
         return Ok(());
@@ -595,14 +597,14 @@ fn print_flow_section(title: &str, rows: &[HolderRow]) {
 }
 
 fn handle_graph(args: &GraphArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db(config)?;
+    let conn = db::open_db()?;
     let (nodes, edges) = graph::query_ownership_graph(&conn, &args.root, args.depth)?;
 
     if config.output.is_json() {
         #[derive(Serialize)]
         struct GraphOutput<'a> {
-            nodes: &'a [crate::ownership::types::GraphNode],
-            edges: &'a [crate::ownership::types::GraphEdge],
+            nodes: &'a [idx_core::ownership::types::GraphNode],
+            edges: &'a [idx_core::ownership::types::GraphEdge],
         }
         return json::print_json(&GraphOutput {
             nodes: &nodes,
@@ -626,7 +628,7 @@ fn handle_graph(args: &GraphArgs, config: &IdxConfig) -> Result<(), IdxError> {
 }
 
 fn handle_changes(args: &ChangesArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db(config)?;
+    let conn = db::open_db()?;
     let changes = db::query_changes(&conn, &args.from, &args.to)?;
 
     if config.output.is_json() {
@@ -672,7 +674,7 @@ fn handle_changes(args: &ChangesArgs, config: &IdxConfig) -> Result<(), IdxError
 }
 
 fn handle_resolve(args: &ResolveArgs, config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db(config)?;
+    let conn = db::open_db()?;
 
     match &args.command {
         ResolveCommand::Unresolved { limit } => {
@@ -799,7 +801,7 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
         return Ok(());
     };
 
-    let conn = db::open_db(config)?;
+    let conn = db::open_db()?;
 
     let sha256 = sha256_file(&import_input.import_path)?;
     if !args.force && db::release_exists(&conn, &sha256)? {
@@ -911,7 +913,7 @@ fn handle_import(args: &ImportArgs, config: &IdxConfig) -> Result<(), IdxError> 
 }
 
 fn handle_releases(config: &IdxConfig) -> Result<(), IdxError> {
-    let conn = db::open_db(config)?;
+    let conn = db::open_db()?;
     let releases = db::query_releases(&conn)?;
 
     if config.output.is_json() {
@@ -1042,7 +1044,7 @@ fn cache_download_path(url: &str, format: ImportInputFormat) -> Result<PathBuf, 
         ImportInputFormat::Xlsx => ".xlsx",
         _ => ".pdf",
     };
-    let raw_dir = crate::cache::cache_dir()?.join("ownership").join("raw");
+    let raw_dir = idx_core::cache::cache_dir()?.join("ownership").join("raw");
     fs::create_dir_all(&raw_dir).map_err(|e| IdxError::Io(e.to_string()))?;
 
     let mut file_name = url

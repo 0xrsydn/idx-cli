@@ -18,6 +18,7 @@
         pkgs = import nixpkgs { inherit system overlays; };
         lib = pkgs.lib;
         cargoManifest = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+        version = cargoManifest.workspace.package.version;
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "rust-analyzer" ];
         };
@@ -31,12 +32,15 @@
         rustFiles = [
           ./Cargo.toml
           ./Cargo.lock
-          ./src
-          ./tests/fixtures
+          ./crates/idx-core/Cargo.toml
+          ./crates/idx-core/src
+          ./crates/idx-core/tests/fixtures
+          ./crates/idx-cli/Cargo.toml
+          ./crates/idx-cli/src
         ];
         testSrc = lib.fileset.toSource {
           root = ./.;
-          fileset = lib.fileset.unions (rustFiles ++ [ ./tests ]);
+          fileset = lib.fileset.unions (rustFiles ++ [ ./crates/idx-cli/tests ]);
         };
         src = lib.fileset.toSource {
           root = ./.;
@@ -44,8 +48,8 @@
         };
         commonArgs = {
           inherit src;
-          pname = cargoManifest.package.name;
-          version = cargoManifest.package.version;
+          pname = "idx-cli";
+          inherit version;
           CARGO_PROFILE = "dev";
           strictDeps = true;
           nativeBuildInputs = with pkgs; [ pkg-config ];
@@ -90,7 +94,7 @@
         ];
         ownershipPublisher = pkgs.stdenvNoCC.mkDerivation {
           pname = "idx-ownership-publisher";
-          version = cargoManifest.package.version;
+          inherit version;
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions publisherScripts;
@@ -155,7 +159,7 @@
             ${ownershipPublisher}/bin/idx-ownership-publish --help
             touch "$out"
           '';
-          fmt = craneLib.cargoFmt { src = testSrc; };
+          fmt = craneLib.cargoFmt { src = testSrc; pname = "idx-cli"; inherit version; };
           clippy = craneLib.cargoClippy (commonArgs // {
             inherit cargoArtifacts;
             src = testSrc;
@@ -172,20 +176,39 @@
             # `curl` against a local fixture server.
             nativeCheckInputs = [ pkgs.curl ];
           });
-          # `cargo package` verification: the published crate (per the
-          # `include` list in Cargo.toml) must build on its own.
+          # `cargo package` verification: each published crate (per the
+          # `include` lists in crates/*/Cargo.toml) must build on its own.
           package = craneLib.mkCargoDerivation (commonArgs // {
             inherit cargoArtifacts;
             pnameSuffix = "-package";
             src = lib.fileset.toSource {
               root = ./.;
               fileset = lib.fileset.unions (rustFiles ++ [
-                ./tests
+                ./crates/idx-cli/tests
+                ./crates/idx-core/LICENSE
+                ./crates/idx-cli/LICENSE
                 ./LICENSE
                 ./README.md
               ]);
             };
-            buildPhaseCargoCommand = "cargo package --locked --offline --allow-dirty";
+            buildPhaseCargoCommand = ''
+              # idx-core: full `cargo package` verification.
+              cargo package -p idx-core --registry crates-io --locked --offline --allow-dirty
+              # idx-cli depends on idx-core, which is not on crates.io yet, so
+              # cargo cannot resolve it from the vendored registry. Package
+              # idx-cli without lockfile or verification, then build the
+              # extracted tarball against the packaged idx-core. Real releases
+              # publish idx-core first and package idx-cli normally.
+              cargo package -p idx-cli --registry crates-io --no-verify --exclude-lockfile --offline --allow-dirty
+              verify="$TMPDIR/package-verify"
+              mkdir -p "$verify"
+              tar -xzf target/package/idx-core-${version}.crate -C "$verify"
+              tar -xzf target/package/idx-cli-${version}.crate -C "$verify"
+              cp Cargo.lock "$verify/idx-cli-${version}/"
+              (cd "$verify/idx-cli-${version}" && cargo build --offline \
+                --config 'patch.crates-io.idx-core.path="../idx-core-${version}"' \
+                --target-dir "$verify/target")
+            '';
             doInstallCargoArtifacts = false;
             installPhaseCommand = "touch $out";
           });
@@ -196,7 +219,7 @@
             ''
               # The mock provider reads fixtures relative to the working dir.
               mkdir -p tests
-              cp -r ${./tests/fixtures} tests/fixtures
+              cp -r ${./crates/idx-core/tests/fixtures} tests/fixtures
               export HOME="$TMPDIR"
               ${idxPackage}/bin/idx -o json version | jq -e '.version | type == "string"'
               ${idxPackage}/bin/idx completions bash | bash -n

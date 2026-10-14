@@ -1,10 +1,25 @@
 # Architecture
 
+## Crates
+
+The repo is a Cargo workspace with one shared version:
+
+- `crates/idx-core` (library): providers (`api/`), `analysis/`, `cache`, config
+  file handling and provider selection (`config`), `ownership/` (SQLite, parsers,
+  discovery, snapshot sync), `error`, and `runtime` (quiet/info/warn). It owns the
+  shared test fixtures in `tests/fixtures/`.
+- `crates/idx-cli` (binary `idx`): clap commands (`cli/`), output format and
+  color resolution (`config.rs`, `IdxConfig`), and rendering (`output/`). Its
+  `tests/` hold the CLI integration and golden output suites.
+
+Some fetch/cache orchestration still lives in `crates/idx-cli/src/cli/` until
+phase 3 of `docs/DESIGN.md` moves it into idx-core.
+
 ## Domain Map
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                      CLI Layer                           │
+│                 CLI Layer (idx-cli)                      │
 │  main.rs → cli/stocks.rs, cli/ownership.rs, cli/...     │
 │  Clap derive structs, command dispatch, arg validation   │
 └──────────────────────┬──────────────────────────────────┘
@@ -39,7 +54,7 @@
   sentiment, screener
 - `https://api.msn.com/msn/v0/pages/finance/`: key ratios, insights, news feed
 
-The public API key embedded in MSN Money lives in `src/api/msn/client.rs`.
+The public API key embedded in MSN Money lives in `crates/idx-core/src/api/msn/client.rs`.
 
 ### Hybrid History Strategy
 When `history_provider = auto` (default):
@@ -89,7 +104,7 @@ Unlike the `stocks` module (live-fetch), ownership is **import-then-query**:
 - **KSEI** — official ≥1% shareholder registry, published monthly by IDX. Through May 2026 it was a PDF announcement; from the 2026-05-29 report onward it is an XLSX workbook on the IDX "Data Kepemilikan Saham" page
 - **KSEI archive** — monthly ZIP/TXT balance-position matrix, used as a local fallback/backstop import path
 - **Bing Finance** — global institutional ownership. The schema, `--source bing`
-  queries, and `src/api/msn/bing.rs` exist, but `ownership import --fetch-bing`
+  queries, and `crates/idx-core/src/api/msn/bing.rs` exist, but `ownership import --fetch-bing`
   is intentionally unsupported, so no ingest path populates Bing rows today
 
 ### Discovery

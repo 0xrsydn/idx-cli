@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use directories::ProjectDirs;
 use rusqlite::{Connection, params};
 
-use crate::config::{IdxConfig, get_config_value};
+use crate::config::get_config_value;
 use crate::error::IdxError;
 use crate::ownership::search;
 use crate::ownership::types::{
@@ -128,8 +128,8 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), IdxError> {
 }
 
 /// Open ownership database connection and run idempotent schema migration.
-pub fn open_db(config: &IdxConfig) -> Result<Connection, IdxError> {
-    let db_path = db_path(config)?;
+pub fn open_db() -> Result<Connection, IdxError> {
+    let db_path = db_path()?;
 
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent).map_err(|e| IdxError::DatabaseError(e.to_string()))?;
@@ -1204,7 +1204,7 @@ pub fn compute_concentration(percentages_bps: &[i64]) -> ConcentrationMetrics {
     }
 }
 
-pub fn db_path(_config: &IdxConfig) -> Result<PathBuf, IdxError> {
+pub fn db_path() -> Result<PathBuf, IdxError> {
     if let Some(custom_path) = get_config_value("ownership.db_path")? {
         let trimmed = custom_path.trim();
         if !trimmed.is_empty() {

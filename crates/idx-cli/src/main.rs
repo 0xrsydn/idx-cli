@@ -1,50 +1,18 @@
-pub mod analysis;
-mod api;
-mod cache;
 mod cli;
 mod config;
-mod curl_impersonate;
-mod error;
 mod output;
-#[cfg(feature = "ownership")]
-pub mod ownership;
 
-pub mod runtime {
-    use std::fmt::Display;
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    static QUIET: AtomicBool = AtomicBool::new(false);
-
-    pub fn set_quiet(quiet: bool) {
-        QUIET.store(quiet, Ordering::Relaxed);
-    }
-
-    pub fn is_quiet() -> bool {
-        QUIET.load(Ordering::Relaxed)
-    }
-
-    pub fn info(message: impl Display) {
-        if !is_quiet() {
-            eprintln!("info: {message}");
-        }
-    }
-
-    pub fn warn(message: impl Display) {
-        if !is_quiet() {
-            eprintln!("warning: {message}");
-        }
-    }
-}
+use idx_core::runtime;
 
 use clap::CommandFactory;
 use clap::Parser;
 use clap_complete::{generate, shells};
 
-use crate::api::default_provider;
 use crate::cli::{Cli, Commands};
 use crate::config::IdxConfig;
-use crate::error::IdxError;
 use crate::output::{OutputFormat, OutputSetting, emit_error};
+use idx_core::api::default_provider;
+use idx_core::error::IdxError;
 
 fn main() {
     if let Err(err) = run() {

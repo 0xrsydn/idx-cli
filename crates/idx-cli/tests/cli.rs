@@ -26,7 +26,7 @@ fn resolve_idx_binary_path() -> PathBuf {
     }
 
     let target_debug = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
+        .join("../../target")
         .join("debug")
         .join(format!("idx{}", std::env::consts::EXE_SUFFIX));
     if candidate_is_idx_binary(&target_debug) {
@@ -113,7 +113,8 @@ fn bin_with_root(root: &Path) -> Command {
     fs::create_dir_all(&cache_home).expect("create cache dir");
 
     let mut cmd = bin();
-    cmd.current_dir(env!("CARGO_MANIFEST_DIR"));
+    // The mock provider reads fixtures relative to the working directory.
+    cmd.current_dir(core_dir());
     // Tests run with piped stdout, where the default (auto) format is JSON.
     // Pin table so tests that assert table text keep doing so; `-o` and
     // per-test IDX_OUTPUT still override this.
@@ -128,11 +129,13 @@ fn test_bin(name: &str) -> Command {
     bin_with_root(&root)
 }
 
+/// idx-core crate root, which owns the shared test fixtures.
+fn core_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../idx-core")
+}
+
 fn fixture_path(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join(name)
+    core_dir().join("tests").join("fixtures").join(name)
 }
 
 fn run_success_stdout(cmd: &mut Command) -> String {
@@ -375,11 +378,11 @@ fn prepare_snapshot_fixture(root: &Path) -> (PathBuf, PathBuf) {
         &[
             (
                 "release-2026-01-31.pdf",
-                include_str!("fixtures/ksei_above1_stext_excerpt_prev.xml"),
+                include_str!("../../idx-core/tests/fixtures/ksei_above1_stext_excerpt_prev.xml"),
             ),
             (
                 "release-2026-02-27.pdf",
-                include_str!("fixtures/ksei_above1_stext_excerpt.xml"),
+                include_str!("../../idx-core/tests/fixtures/ksei_above1_stext_excerpt.xml"),
             ),
         ],
     );
@@ -1064,7 +1067,7 @@ const UNREACHABLE_DATA_PAGE_URL: &str = "http://127.0.0.1:9/data-kepemilikan-sah
 
 #[test]
 fn ownership_discover_finds_xlsx_on_share_ownership_page() {
-    let page = fs::read_to_string("tests/fixtures/idx_share_ownership_page_excerpt.html")
+    let page = fs::read_to_string(fixture_path("idx_share_ownership_page_excerpt.html"))
         .expect("read share ownership page fixture");
     let page_url = spawn_single_response_server("text/html", page);
 
@@ -1098,7 +1101,7 @@ fn ownership_discover_finds_xlsx_on_share_ownership_page() {
 
 #[test]
 fn ownership_discover_lists_fixture_candidates() {
-    let body = fs::read_to_string("tests/fixtures/idx_announcement_kepemilikan.json")
+    let body = fs::read_to_string(fixture_path("idx_announcement_kepemilikan.json"))
         .expect("read ownership discovery fixture");
     let json_url = spawn_single_response_server("application/json", body);
 
@@ -1332,7 +1335,7 @@ fn ownership_import_url_supported_pdf_succeeds_with_fake_mutool() {
     let db_path = root.join("ownership.db");
     let fake_mutool_dir = install_fake_mutool(
         &root,
-        include_str!("fixtures/ksei_above1_stext_excerpt.xml"),
+        include_str!("../../idx-core/tests/fixtures/ksei_above1_stext_excerpt.xml"),
     );
     let pdf_base = spawn_single_response_server("application/pdf", fake_pdf_bytes());
     let pdf_url = pdf_url(&pdf_base, "supported");
@@ -1369,7 +1372,7 @@ fn ownership_import_url_caches_download_under_xdg_cache_home() {
     let cache_home = root.join("xdg-cache");
     let fake_mutool_dir = install_fake_mutool(
         &root,
-        include_str!("fixtures/ksei_above1_stext_excerpt.xml"),
+        include_str!("../../idx-core/tests/fixtures/ksei_above1_stext_excerpt.xml"),
     );
     let pdf_base = spawn_single_response_server("application/pdf", fake_pdf_bytes());
     let pdf_url = pdf_url(&pdf_base, "cached-raw");
@@ -1408,7 +1411,7 @@ fn ownership_import_url_duplicate_release_is_skipped() {
     let db_path = root.join("ownership.db");
     let fake_mutool_dir = install_fake_mutool(
         &root,
-        include_str!("fixtures/ksei_above1_stext_excerpt.xml"),
+        include_str!("../../idx-core/tests/fixtures/ksei_above1_stext_excerpt.xml"),
     );
     let first_base = spawn_single_response_server("application/pdf", fake_pdf_bytes());
     let second_base = spawn_single_response_server("application/pdf", fake_pdf_bytes());
@@ -1446,7 +1449,7 @@ fn ownership_import_file_xlsx_supports_ticker_and_releases() {
     let xlsx_path = root.join("peng-2026-08-00017-satu-persen.xlsx");
     fs::write(
         &xlsx_path,
-        include_bytes!("fixtures/ksei_above1_20260831_excerpt.xlsx"),
+        include_bytes!("../../idx-core/tests/fixtures/ksei_above1_20260831_excerpt.xlsx"),
     )
     .expect("write xlsx fixture");
 
@@ -1495,7 +1498,7 @@ fn ownership_import_file_rejects_above5_xlsx() {
     let xlsx_path = root.join("peng-2026-09-23-00080-lima-persen.xlsx");
     fs::write(
         &xlsx_path,
-        include_bytes!("fixtures/ksei_above5_20260923_excerpt.xlsx"),
+        include_bytes!("../../idx-core/tests/fixtures/ksei_above5_20260923_excerpt.xlsx"),
     )
     .expect("write xlsx fixture");
 
@@ -1523,7 +1526,7 @@ fn ownership_import_force_reimports_existing_release() {
     let pdf_path = root.join("force.pdf");
     let fake_mutool_dir = install_fake_mutool(
         &root,
-        include_str!("fixtures/ksei_above1_stext_excerpt.xml"),
+        include_str!("../../idx-core/tests/fixtures/ksei_above1_stext_excerpt.xml"),
     );
     fs::write(&pdf_path, fake_pdf_bytes()).expect("write local pdf fixture");
 
@@ -1571,7 +1574,7 @@ fn ownership_import_url_rejects_legacy_above5_pdf_schema() {
     let data_home = root.join("data");
     let fake_mutool_dir = install_fake_mutool(
         &root,
-        include_str!("fixtures/ksei_above5_stext_excerpt.xml"),
+        include_str!("../../idx-core/tests/fixtures/ksei_above5_stext_excerpt.xml"),
     );
     let pdf_base = spawn_single_response_server("application/pdf", fake_pdf_bytes());
     let pdf_url = pdf_url(&pdf_base, "legacy-above5");
@@ -1593,7 +1596,7 @@ fn ownership_import_url_rejects_legacy_investor_type_pdf_schema() {
     let data_home = root.join("data");
     let fake_mutool_dir = install_fake_mutool(
         &root,
-        include_str!("fixtures/ksei_investor_type_stext_excerpt.xml"),
+        include_str!("../../idx-core/tests/fixtures/ksei_investor_type_stext_excerpt.xml"),
     );
     let pdf_base = spawn_single_response_server("application/pdf", fake_pdf_bytes());
     let pdf_url = pdf_url(&pdf_base, "legacy-investor-type");
@@ -1616,7 +1619,7 @@ fn ownership_import_file_txt_archive_succeeds() {
     let txt_path = root.join("Balancepos20260227.txt");
     fs::write(
         &txt_path,
-        include_str!("fixtures/ksei_balancepos_20260227_excerpt.txt"),
+        include_str!("../../idx-core/tests/fixtures/ksei_balancepos_20260227_excerpt.txt"),
     )
     .expect("write txt archive fixture");
 
@@ -1654,12 +1657,12 @@ fn ownership_import_file_zip_archive_supports_releases_ticker_and_changes() {
     write_zip_with_text(
         &jan_zip,
         "Balancepos20260130.txt",
-        include_str!("fixtures/ksei_balancepos_20260130_excerpt.txt"),
+        include_str!("../../idx-core/tests/fixtures/ksei_balancepos_20260130_excerpt.txt"),
     );
     write_zip_with_text(
         &feb_zip,
         "Balancepos20260227.txt",
-        include_str!("fixtures/ksei_balancepos_20260227_excerpt.txt"),
+        include_str!("../../idx-core/tests/fixtures/ksei_balancepos_20260227_excerpt.txt"),
     );
 
     bin_with_root(&root)

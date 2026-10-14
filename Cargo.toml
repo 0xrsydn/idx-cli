@@ -1,50 +1,23 @@
-[package]
-name = "idx-cli"
+[workspace]
+resolver = "3"
+members = ["crates/idx-core", "crates/idx-cli"]
+
+[workspace.package]
 version = "0.2.4"
 edition = "2024"
 rust-version = "1.85"
-description = "CLI tool for Indonesian stock market (IDX) analysis"
 license = "MIT"
 repository = "https://github.com/0xrsydn/idx-cli"
 homepage = "https://github.com/0xrsydn/idx-cli"
-keywords = ["idx", "stocks", "indonesia", "cli", "finance"]
-categories = ["command-line-utilities", "finance"]
-include = [
-  "/Cargo.toml",
-  "/Cargo.lock",
-  "/LICENSE",
-  "/README.md",
-  "/src/**",
-  "/tests/cli.rs",
-  "/tests/fixtures/**",
-]
 
-[[bin]]
-name = "idx"
-path = "src/main.rs"
-
-[features]
-default = ["ownership"]
-ownership = ["dep:rusqlite", "dep:quick-xml", "dep:sha2", "dep:zip"]
-
-[dependencies]
+[workspace.dependencies]
+idx-core = { path = "crates/idx-core", version = "=0.2.4" }
 clap = { version = "4", features = ["derive"] }
-clap_complete = "4"
-ureq = { version = "3", features = ["json", "cookies"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
-comfy-table = "7"
-owo-colors = "4"
 toml = "0.8"
-directories = "5"
 chrono = { version = "0.4", features = ["serde"] }
-thiserror = "2"
-fastrand = "2"
-rusqlite = { version = "0.32", features = ["bundled-full"], optional = true }
-quick-xml = { version = "0.37", optional = true }
-sha2 = { version = "0.10", optional = true }
-zip = { version = "2", default-features = false, features = ["deflate"], optional = true }
-
-[dev-dependencies]
-assert_cmd = "2"
-predicates = "3"
+ureq = { version = "3", features = ["json", "cookies"] }
+rusqlite = { version = "0.32", features = ["bundled-full"] }
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }

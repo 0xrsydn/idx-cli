@@ -1,14 +1,16 @@
 use crate::output::style::Paint;
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 
-use crate::analysis::fundamental::{FundamentalReport, GrowthReport, RiskReport, ValuationReport};
-use crate::analysis::signals::Signal;
-use crate::api::types::{
+use crate::output::TechnicalReport;
+use idx_core::analysis::fundamental::{
+    FundamentalReport, GrowthReport, RiskReport, ValuationReport,
+};
+use idx_core::analysis::signals::Signal;
+use idx_core::api::types::{
     CompanyProfile, EarningsData, EarningsReport, FinancialStatements, InsightData, NewsItem, Ohlc,
     Quote, SentimentData,
 };
-use crate::error::IdxError;
-use crate::output::TechnicalReport;
+use idx_core::error::IdxError;
 
 pub fn format_idr(value: i64) -> String {
     let sign = if value.is_negative() { "-" } else { "" };
@@ -708,7 +710,7 @@ pub fn print_profile(profile: &CompanyProfile) -> Result<(), IdxError> {
 }
 
 pub fn print_financials(fin: &FinancialStatements) -> Result<(), IdxError> {
-    let print_section = |label: &str, section: &crate::api::types::StatementSection| {
+    let print_section = |label: &str, section: &idx_core::api::types::StatementSection| {
         println!("\n── {label} ({}) ──", format_table_date(&section.end_date));
         let mut t = Table::new();
         let value_header = format!("VALUE ({})", section.currency);
@@ -887,8 +889,8 @@ mod tests {
         format_earnings_period, format_idr, format_signal, format_table_date, format_u64,
         humanize_metric_key, stale_quote_notes,
     };
-    use crate::analysis::signals::Signal;
-    use crate::api::types::Quote;
+    use idx_core::analysis::signals::Signal;
+    use idx_core::api::types::Quote;
 
     fn quote_as_of(symbol: &str, as_of: &str) -> Quote {
         Quote {

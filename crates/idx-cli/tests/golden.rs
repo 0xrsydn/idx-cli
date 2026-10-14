@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 use serde::Deserialize;
 
 const IDX: &str = env!("CARGO_BIN_EXE_idx");
-const REPO: &str = env!("CARGO_MANIFEST_DIR");
+const CRATE: &str = env!("CARGO_MANIFEST_DIR");
 
 #[derive(Deserialize)]
 struct CaseFile {
@@ -50,8 +50,17 @@ fn default_formats() -> Vec<String> {
     vec!["table".into(), "json".into()]
 }
 
+/// Commands run from the idx-core crate root: the mock provider and the cases
+/// read fixtures as `tests/fixtures/...` relative to the working directory.
+fn core_dir() -> PathBuf {
+    Path::new(CRATE)
+        .join("../idx-core")
+        .canonicalize()
+        .expect("idx-core crate dir")
+}
+
 fn golden_dir() -> PathBuf {
-    Path::new(REPO).join("tests").join("golden")
+    Path::new(CRATE).join("tests").join("golden")
 }
 
 fn work_dir() -> PathBuf {
@@ -70,7 +79,7 @@ fn idx_with_stdin(
     stdin: Option<&str>,
 ) -> std::process::Output {
     let mut cmd = Command::new(IDX);
-    cmd.current_dir(REPO).args(args);
+    cmd.current_dir(core_dir()).args(args);
     for (key, _) in std::env::vars_os() {
         if key.to_string_lossy().starts_with("IDX_") || key == "NO_COLOR" {
             cmd.env_remove(key);
@@ -105,14 +114,14 @@ fn seeded_ownership_db() -> &'static Path {
         // The importer derives the release from the IDX file name.
         let xlsx = root.join("peng-2026-08-00017-satu-persen.xlsx");
         fs::copy(
-            Path::new(REPO).join("tests/fixtures/ksei_above1_20260831_excerpt.xlsx"),
+            core_dir().join("tests/fixtures/ksei_above1_20260831_excerpt.xlsx"),
             &xlsx,
         )
         .expect("copy xlsx fixture");
         let inputs = [
             xlsx,
-            Path::new(REPO).join("tests/fixtures/ksei_balancepos_20260130_excerpt.txt"),
-            Path::new(REPO).join("tests/fixtures/ksei_balancepos_20260227_excerpt.txt"),
+            core_dir().join("tests/fixtures/ksei_balancepos_20260130_excerpt.txt"),
+            core_dir().join("tests/fixtures/ksei_balancepos_20260227_excerpt.txt"),
         ];
         for input in inputs {
             let args = ["ownership", "import", "--file", input.to_str().unwrap()]
@@ -137,7 +146,7 @@ fn render(root: &Path, out: &std::process::Output) -> String {
     let normalize = |bytes: &[u8]| {
         String::from_utf8_lossy(bytes)
             .replace(root.to_str().unwrap(), "<ROOT>")
-            .replace(REPO, "<REPO>")
+            .replace(core_dir().to_str().unwrap(), "<REPO>")
     };
     format!(
         "exit: {}\n--- stdout\n{}--- stderr\n{}",

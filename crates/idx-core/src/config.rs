@@ -1,14 +1,16 @@
+//! Config file location, provider selection, and `config.toml` read/write.
+//! Presentation settings (output format, color) are resolved by frontends.
+
 use std::fs;
-use std::io::IsTerminal;
 use std::path::PathBuf;
 
-use clap::ValueEnum;
 use directories::ProjectDirs;
 use serde::Deserialize;
 
-use crate::cli::Cli;
 use crate::error::IdxError;
-use crate::output::{OutputFormat, OutputSetting};
+
+/// Values accepted for `general.output`; frontends decide what they mean.
+pub const OUTPUT_VALUES: &[&str] = &["auto", "table", "json", "jsonl"];
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -17,9 +19,10 @@ pub enum ProviderKind {
     Msn,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, ValueEnum, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "lowercase")]
-#[value(rename_all = "lower")]
+#[cfg_attr(feature = "clap", value(rename_all = "lower"))]
 pub enum HistoryProviderKind {
     Auto,
     Yahoo,
@@ -34,7 +37,7 @@ impl ProviderKind {
         }
     }
 
-    fn parse(value: &str) -> Result<Self, IdxError> {
+    pub fn parse(value: &str) -> Result<Self, IdxError> {
         if value.eq_ignore_ascii_case("yahoo") {
             Ok(Self::Yahoo)
         } else if value.eq_ignore_ascii_case("msn") {
@@ -56,7 +59,7 @@ impl HistoryProviderKind {
         }
     }
 
-    fn parse(value: &str) -> Result<Self, IdxError> {
+    pub fn parse(value: &str) -> Result<Self, IdxError> {
         if value.eq_ignore_ascii_case("auto") {
             Ok(Self::Auto)
         } else if value.eq_ignore_ascii_case("yahoo") {
@@ -71,129 +74,7 @@ impl HistoryProviderKind {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct IdxConfig {
-    pub provider: ProviderKind,
-    pub history_provider: HistoryProviderKind,
-    pub exchange: String,
-    pub output: OutputFormat,
-    pub no_color: bool,
-    pub quote_ttl: u64,
-    pub fundamental_ttl: u64,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct FileConfig {
-    general: Option<FileGeneral>,
-    cache: Option<FileCache>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct FileGeneral {
-    provider: Option<ProviderKind>,
-    history_provider: Option<HistoryProviderKind>,
-    exchange: Option<String>,
-    output: Option<OutputSetting>,
-    color: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct FileCache {
-    quote_ttl: Option<u64>,
-    fundamental_ttl: Option<u64>,
-}
-
-impl Default for IdxConfig {
-    fn default() -> Self {
-        Self {
-            provider: ProviderKind::Msn,
-            history_provider: HistoryProviderKind::Auto,
-            exchange: "JK".to_string(),
-            output: OutputSetting::Auto.resolve(stdout_is_terminal()),
-            no_color: false,
-            quote_ttl: 300,
-            fundamental_ttl: 3600,
-        }
-    }
-}
-
-impl IdxConfig {
-    pub fn load_with_cli(cli: &Cli) -> Result<Self, IdxError> {
-        let mut cfg = Self::load()?;
-
-        if let Ok(provider) = std::env::var("IDX_PROVIDER") {
-            cfg.provider = ProviderKind::parse(&provider)?;
-        }
-        if let Ok(history_provider) = std::env::var("IDX_HISTORY_PROVIDER") {
-            cfg.history_provider = HistoryProviderKind::parse(&history_provider)?;
-        }
-        if let Ok(exchange) = std::env::var("IDX_EXCHANGE") {
-            cfg.exchange = exchange;
-        }
-        if let Ok(output) = std::env::var("IDX_OUTPUT") {
-            let setting = OutputSetting::parse(&output).ok_or_else(|| {
-                IdxError::ConfigError(format!(
-                    "invalid IDX_OUTPUT value: '{output}', expected 'auto', 'table', 'json', or 'jsonl'"
-                ))
-            })?;
-            cfg.output = setting.resolve(stdout_is_terminal());
-        }
-        if let Ok(no_color) = std::env::var("IDX_NO_COLOR") {
-            cfg.no_color = no_color == "1" || no_color.eq_ignore_ascii_case("true");
-        }
-        if let Some(parsed) = parse_env_ttl("IDX_CACHE_QUOTE_TTL")? {
-            cfg.quote_ttl = parsed;
-        }
-        if let Some(parsed) = parse_env_ttl("IDX_CACHE_FUNDAMENTAL_TTL")? {
-            cfg.fundamental_ttl = parsed;
-        }
-
-        if let Some(output) = cli.output {
-            cfg.output = output.resolve(stdout_is_terminal());
-        }
-        cfg.no_color = cfg.no_color || cli.no_color || !stdout_is_terminal();
-
-        Ok(cfg)
-    }
-
-    pub fn load() -> Result<Self, IdxError> {
-        let mut cfg = Self::default();
-        let path = config_path()?;
-        if path.exists() {
-            let raw = fs::read_to_string(&path).map_err(|e| IdxError::Io(e.to_string()))?;
-            let parsed: FileConfig =
-                toml::from_str(&raw).map_err(|e| IdxError::ConfigError(e.to_string()))?;
-            if let Some(general) = parsed.general {
-                if let Some(provider) = general.provider {
-                    cfg.provider = provider;
-                }
-                if let Some(history_provider) = general.history_provider {
-                    cfg.history_provider = history_provider;
-                }
-                if let Some(exchange) = general.exchange {
-                    cfg.exchange = exchange;
-                }
-                if let Some(output) = general.output {
-                    cfg.output = output.resolve(stdout_is_terminal());
-                }
-                if let Some(color) = general.color {
-                    cfg.no_color = !color;
-                }
-            }
-            if let Some(cache) = parsed.cache {
-                if let Some(v) = cache.quote_ttl {
-                    cfg.quote_ttl = v;
-                }
-                if let Some(v) = cache.fundamental_ttl {
-                    cfg.fundamental_ttl = v;
-                }
-            }
-        }
-        Ok(cfg)
-    }
-}
-
-fn parse_env_ttl(name: &str) -> Result<Option<u64>, IdxError> {
+pub fn parse_env_ttl(name: &str) -> Result<Option<u64>, IdxError> {
     let Ok(raw) = std::env::var(name) else {
         return Ok(None);
     };
@@ -212,10 +93,6 @@ fn parse_env_ttl(name: &str) -> Result<Option<u64>, IdxError> {
     })?;
 
     Ok(Some(parsed))
-}
-
-pub fn stdout_is_terminal() -> bool {
-    std::io::stdout().is_terminal()
 }
 
 pub fn default_config_toml() -> String {
@@ -294,7 +171,7 @@ fn normalize_config_value(key: &str, value: &str) -> Result<toml::Value, IdxErro
             HistoryProviderKind::parse(value)?.as_str().to_string(),
         )),
         "general.output" => {
-            if OutputSetting::parse(value).is_none() {
+            if !OUTPUT_VALUES.iter().any(|v| v.eq_ignore_ascii_case(value)) {
                 return Err(IdxError::InvalidInput(format!(
                     "invalid output format '{value}': expected 'auto', 'table', 'json', or 'jsonl'"
                 )));
@@ -381,17 +258,6 @@ pub fn set_config_value(key: &str, value: &str) -> Result<(), IdxError> {
 
 #[cfg(test)]
 mod tests {
-    use super::IdxConfig;
-
-    #[test]
-    fn default_values_are_sane() {
-        let cfg = IdxConfig::default();
-        assert_eq!(cfg.provider, super::ProviderKind::Msn);
-        assert_eq!(cfg.history_provider, super::HistoryProviderKind::Auto);
-        assert_eq!(cfg.exchange, "JK");
-        assert_eq!(cfg.quote_ttl, 300);
-    }
-
     #[test]
     fn parses_provider_values() {
         assert_eq!(

@@ -8,13 +8,15 @@ use chrono::NaiveDate;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-use crate::analysis::fundamental::{FundamentalReport, GrowthReport, RiskReport, ValuationReport};
-use crate::analysis::signals::TechnicalSignal;
-use crate::api::types::{
+use idx_core::analysis::fundamental::{
+    FundamentalReport, GrowthReport, RiskReport, ValuationReport,
+};
+use idx_core::analysis::signals::TechnicalSignal;
+use idx_core::api::types::{
     CompanyProfile, EarningsReport, FinancialStatements, InsightData, NewsItem, Ohlc, Quote,
     SentimentData,
 };
-use crate::error::IdxError;
+use idx_core::error::IdxError;
 
 /// Output format requested by the user (flag, `IDX_OUTPUT`, or config file).
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq, Serialize, serde::Deserialize, Default)]

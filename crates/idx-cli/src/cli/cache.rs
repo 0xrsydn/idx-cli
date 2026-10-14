@@ -1,9 +1,9 @@
 use clap::{Args, Subcommand};
 
-use crate::cache::Cache;
-use crate::error::IdxError;
 use crate::output::{OutputFormat, json};
-use crate::runtime;
+use idx_core::cache::Cache;
+use idx_core::error::IdxError;
+use idx_core::runtime;
 
 #[derive(Debug, Args)]
 #[command(about = "Manage local cache")]

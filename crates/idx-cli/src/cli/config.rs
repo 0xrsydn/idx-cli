@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand};
 
 use crate::config::{config_path, ensure_default_config, get_config_value, set_config_value};
-use crate::error::IdxError;
+use idx_core::error::IdxError;
 
 #[derive(Debug, Args)]
 #[command(about = "Manage configuration")]

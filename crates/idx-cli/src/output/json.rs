@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use serde::Serialize;
 
-use crate::error::IdxError;
+use idx_core::error::IdxError;
 
 const PRETTY: u8 = 0;
 const COMPACT: u8 = 1;

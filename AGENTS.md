@@ -5,16 +5,19 @@
 
 ## Navigation
 ```text
-src/
-├── main.rs, config.rs, cache.rs, error.rs, curl_impersonate.rs
-├── cli/        clap commands: stocks, ownership, config, cache
-├── api/        providers: msn/ (default), yahoo/ (history/OHLCV)
-├── analysis/   technical, fundamental, signals
-├── ownership/  xlsx + pdf parsers, archive (ZIP/TXT), remote discovery,
-│               snapshot sync, db (SQLite/FTS5), entities, search, graph
-└── output/     table.rs, json.rs
-tests/          cli.rs (behavior), golden.rs + golden/ (output parity), fixtures/
-scripts/        smoke, installer, and ownership snapshot publisher
+crates/idx-core/            library: all data access and analysis
+├── src/api/                providers: msn/ (default), yahoo/ (history/OHLCV)
+├── src/analysis/           technical, fundamental, signals
+├── src/ownership/          xlsx + pdf parsers, archive (ZIP/TXT), remote discovery,
+│                           snapshot sync, db (SQLite/FTS5), entities, search, graph
+├── src/{cache,config,error,curl_impersonate}.rs, lib.rs (runtime)
+└── tests/fixtures/         shared fixtures (also read by the mock provider)
+crates/idx-cli/             binary `idx`
+├── src/cli/                clap commands: stocks, ownership, config, cache
+├── src/config.rs           IdxConfig: output format and color resolution
+├── src/output/             table.rs, json.rs, style.rs
+└── tests/                  cli.rs (behavior), golden.rs + golden/ (output parity)
+scripts/                    smoke, installer, and ownership snapshot publisher
 ```
 
 Docs:

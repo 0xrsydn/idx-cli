@@ -1,6 +1,6 @@
 # System Design: idx-core and its frontends
 
-**Status:** Accepted 2026-10-14. Implementation on `refactor/idx-core`; phases 0-1 done.
+**Status:** Accepted 2026-10-14. Implementation on `refactor/idx-core`; phases 0-2 done.
 
 ## Goal
 
@@ -99,7 +99,7 @@ Key decisions:
 - **Typed inputs.** Screener filters, regions, statement and earnings filters
   become enums with `FromStr`, so validation is identical across frontends.
 
-## What Moves Out of `src/cli/`
+## What Moves Out of `crates/idx-cli/src/cli/`
 
 | From | To |
 | --- | --- |
