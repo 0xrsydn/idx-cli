@@ -1,0 +1,42 @@
+/* idx theme: neutral greys, one red accent (Indonesian flag red), Plex + JetBrains Mono. */
+:root {
+	--sl-font: 'IBM Plex Sans', system-ui, sans-serif;
+	--sl-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+	--sl-color-accent-low: #2a0a0e;
+	--sl-color-accent: #ce1126;
+	--sl-color-accent-high: #ff8a8d;
+	/* Starlight's "tip" aside uses purple; keep it on the accent. */
+	--sl-color-purple-low: #2a1216;
+	--sl-color-purple: #ff6b6f;
+	--sl-color-purple-high: #ffd6d7;
+	--sl-color-white: #ffffff;
+	--sl-color-gray-1: #e8eaed;
+	--sl-color-gray-2: #c3c8cf;
+	--sl-color-gray-3: #9aa1ab;
+	--sl-color-gray-4: #5f6670;
+	--sl-color-gray-5: #2c3036;
+	--sl-color-gray-6: #16181c;
+	--sl-color-black: #0d0e10;
+}
+
+:root[data-theme='light'] {
+	--sl-color-accent-low: #fde3e4;
+	--sl-color-accent: #b30f21;
+	--sl-color-accent-high: #6e0a15;
+	--sl-color-purple-low: #fde3e4;
+	--sl-color-purple: #b30f21;
+	--sl-color-purple-high: #6e0a15;
+	--sl-color-white: #0d0e10;
+	--sl-color-gray-1: #16181c;
+	--sl-color-gray-2: #2c3036;
+	--sl-color-gray-3: #4b525c;
+	--sl-color-gray-4: #7c838d;
+	--sl-color-gray-5: #c9ced5;
+	--sl-color-gray-6: #eef0f2;
+	--sl-color-gray-7: #f7f8f9;
+	--sl-color-black: #ffffff;
+}
+
+.sl-markdown-content code:not(:where(.not-content *)) {
+	font-size: 0.875em;
+}

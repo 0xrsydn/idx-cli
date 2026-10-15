@@ -1,0 +1,427 @@
+---
+import '@fontsource/ibm-plex-sans/400.css';
+import '@fontsource/ibm-plex-sans/600.css';
+import '@fontsource/ibm-plex-sans/700.css';
+import '@fontsource/jetbrains-mono/400.css';
+import '@fontsource/jetbrains-mono/700.css';
+
+const agentPrompt =
+	'Install idx-cli and its MCP server for me by following https://idx.rasyidanaf.com/agents/install.md, then show me that it works.';
+
+const installs = [
+	{ id: 'npm', label: 'npm', cmd: 'npm install -g idx-cli', note: 'Downloads the checksum-verified release binary. Or run once with npx idx-cli.' },
+	{ id: 'curl', label: 'curl', cmd: 'curl -fsSL https://raw.githubusercontent.com/0xrsydn/idx-cli/main/install.sh | sh', note: 'Linux and macOS. Installs to ~/.local/bin without sudo.' },
+	{ id: 'cargo', label: 'cargo', cmd: 'cargo install idx-cli', note: 'Builds from source. Requires Rust 1.89+.' },
+	{ id: 'nix', label: 'nix', cmd: 'nix profile install github:0xrsydn/idx-cli', note: 'Bundles curl-impersonate and MuPDF for the ownership importers.' },
+	{ id: 'agent', label: 'Ask your agent', cmd: agentPrompt, prompt: true, note: 'Paste into Claude Code, Codex, Cursor or any coding agent. It installs idx, registers idx-mcp with itself, and asks before changing global config.' },
+];
+
+const agents = [
+	{ id: 'claude', label: 'Claude Code', file: 'terminal', code: 'claude mcp add idx -- npx -y idx-mcp' },
+	{ id: 'codex', label: 'Codex', file: '~/.codex/config.toml', code: '[mcp_servers.idx]\ncommand = "npx"\nargs = ["-y", "idx-mcp"]' },
+	{ id: 'cursor', label: 'Cursor', file: '~/.cursor/mcp.json', code: '{\n  "mcpServers": {\n    "idx": { "command": "npx", "args": ["-y", "idx-mcp"] }\n  }\n}' },
+	{ id: 'opencode', label: 'opencode', file: 'opencode.json', code: '{\n  "mcp": {\n    "idx": { "type": "local", "command": ["npx", "-y", "idx-mcp"] }\n  }\n}' },
+	{ id: 'pi', label: 'pi', file: '~/.pi/agent/mcp.json', code: '{\n  "mcpServers": {\n    "idx": { "command": "npx", "args": ["-y", "idx-mcp"], "exposure": "direct" }\n  }\n}' },
+	{ id: 'hermes', label: 'Hermes', file: '~/.hermes/config.yaml', code: 'mcp_servers:\n  idx:\n    command: npx\n    args: ["-y", "idx-mcp"]\n    enabled: true' },
+	{ id: 'other', label: 'Other', file: 'any MCP client (stdio)', code: 'command: npx\nargs: -y idx-mcp\n# add --allow-sync to expose ownership_sync' },
+];
+
+// Captured from `idx ownership ticker BBCA` on the 2026-09-30 snapshot.
+const holders = [
+	{ name: 'DWIMURIA INVESTAMA ANDALAN', type: 'Corporate', shares: '67,729,950,000', pct: 54.94 },
+	{ name: 'ANTHONI SALIM', type: 'Individual', shares: '1,416,306,835', pct: 1.15 },
+	{ name: 'TRICIPTA MANDHALA GUMILANG', type: 'Corporate', shares: '1,313,250,000', pct: 1.07 },
+	{ name: 'CATURGUWIRATNA SUMAPALA', type: 'Corporate', shares: '1,261,750,000', pct: 1.02 },
+];
+
+const copyIcon =
+	'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>';
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>idx: Indonesian stocks and ownership, in your terminal and your agent</title>
+		<meta name="description" content="Quotes, fundamentals, technicals and KSEI shareholder data for every IDX stock. Tables for you, JSON for scripts, and an MCP server for AI agents." />
+		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+		<link rel="canonical" href="https://idx.rasyidanaf.com/" />
+		<link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt" />
+		<meta property="og:title" content="idx: Indonesian stocks and ownership, in your terminal and your agent" />
+		<meta property="og:description" content="A Rust CLI and MCP server for IDX market data and KSEI shareholder ownership." />
+		<meta property="og:url" content="https://idx.rasyidanaf.com/" />
+		<meta property="og:type" content="website" />
+	</head>
+	<body>
+		<header class="bar">
+			<nav class="wrap nav">
+				<a href="/" class="mark" aria-label="idx home">idx<span class="cursor"></span></a>
+				<div class="links">
+					<a href="/start/install/">Docs</a>
+					<a href="/mcp/">MCP</a>
+					<a href="/agents/">Agents</a>
+					<a href="https://github.com/0xrsydn/idx-cli">GitHub</a>
+				</div>
+			</nav>
+		</header>
+
+		<main>
+			<section class="wrap hero">
+				<div class="hero-text">
+					<div class="eyebrow">v0.3.1 · Rust · MIT</div>
+					<h1>Indonesian stocks and ownership, in your terminal and your agent.</h1>
+					<p class="lede">Quotes, fundamentals, technicals and KSEI shareholder data for every IDX stock. Tables for you, JSON for scripts, and an MCP server for AI agents.</p>
+
+					<div class="tabs" data-tabs>
+						<div role="tablist" aria-label="Install method" class="tablist">
+							{installs.map((t, i) => (
+								<button type="button" role="tab" id={`tab-${t.id}`} aria-controls={`panel-${t.id}`} aria-selected={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1}>{t.label}</button>
+							))}
+						</div>
+						{installs.map((t, i) => (
+							<div role="tabpanel" id={`panel-${t.id}`} aria-labelledby={`tab-${t.id}`} hidden={i !== 0}>
+								<div class="cmd">
+									<code class={t.prompt ? 'prompt' : ''}>{!t.prompt && <span class="dim">$ </span>}{t.cmd}</code>
+									<button type="button" class="copy" data-copy={t.cmd} aria-label="Copy" set:html={copyIcon} />
+								</div>
+								<p class="note">{t.note}</p>
+							</div>
+						))}
+					</div>
+
+					<div class="ctas">
+						<a class="btn primary" href="/start/quickstart/">Get started</a>
+						<a class="btn" href="#agents">Add to your agent</a>
+					</div>
+				</div>
+
+				<div class="term" aria-label="Example idx session">
+					<div class="term-bar"><span></span><span></span><span></span><em>real data · 15 Oct 2026</em></div>
+					<pre><span class="dim">$</span> <b>idx stocks quote BBCA BBRI BMRI TLKM</b>
+<span class="muted">SYMBOL    PRICE   CHG%    VOLUME</span>
+BBCA.JK   6,125   <span class="up">+2.94%</span>  136,303,100
+BBRI.JK   3,090   <span class="up">+0.32%</span>  109,152,100
+BMRI.JK   3,960   <span class="down">-0.75%</span>  106,870,300
+TLKM.JK   2,250   <span class="up">+0.45%</span>   87,159,900
+
+<span class="dim">$</span> <b>idx stocks quote BBCA | jq -c '.[0] | &#123;symbol, price, change_pct&#125;'</b>
+&#123;"symbol":"BBCA.JK","price":6125,"change_pct":2.9412&#125;
+
+<span class="dim">$</span> <b>idx ownership ticker BBCA</b>
+<span class="muted">Ownership: BBCA  KSEI=2026-09-30</span>
+  1  DWIMURIA INVESTAMA ANDALAN  <b>54.94%</b>
+  2  ANTHONI SALIM                1.15%
+  3  TRICIPTA MANDHALA GUMILANG   1.07%
+<span class="muted">Concentration: top1=54.94%  free_float=41.82%</span></pre>
+				</div>
+			</section>
+
+			<section class="band">
+				<div class="wrap features">
+					<div>
+						<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"></path><path d="M15 7h6v6"></path></svg>
+						<h2>Stocks</h2>
+						<p>Quotes, OHLC history, financial statements and a screener. Technical, growth, valuation and risk analysis, and side-by-side compare.</p>
+						<code>idx stocks fundamental BBRI</code>
+					</div>
+					<div>
+						<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 3v9l6.5 6"></path></svg>
+						<h2>Ownership</h2>
+						<p>Who holds more than 1% of every listed company, from the monthly KSEI register. Month-over-month changes, entity search, cross-holdings. Sync once, query offline.</p>
+						<code>idx ownership entity "ANTHONI SALIM"</code>
+					</div>
+					<div>
+						<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="3"></rect><path d="M12 3v4M9 13h.01M15 13h.01"></path></svg>
+						<h2>Agents</h2>
+						<p>JSON whenever output is piped, errors as one JSON object, meaningful exit codes. Plus idx-mcp: 11 tools for any MCP client.</p>
+						<code>npx -y idx-mcp</code>
+					</div>
+				</div>
+			</section>
+
+			<section id="agents" class="wrap split">
+				<div class="side">
+					<h2 class="h2">Add idx to your agent</h2>
+					<p class="muted-p">idx-mcp serves the same data over stdio. Each setup below is the one our agent smoke test runs against real agents.</p>
+					<div class="card">
+						<div class="label">Ask it</div>
+						<div class="ask">"Who are BBCA's largest holders, and what changed last month?"</div>
+						<div class="chips"><span>get_shareholders</span><span>get_ownership_changes</span></div>
+					</div>
+					<div class="card hot">
+						<div class="label strong">Or let your agent set it up</div>
+						<div class="cmd bare">
+							<code class="prompt">{agentPrompt}</code>
+							<button type="button" class="copy" data-copy={agentPrompt} aria-label="Copy agent prompt" set:html={copyIcon} />
+						</div>
+					</div>
+					<a class="more" href="/mcp/tools/">See all 11 tools →</a>
+				</div>
+
+				<div class="main-col tabs" data-tabs>
+					<div role="tablist" aria-label="Agent" class="tablist">
+						{agents.map((a, i) => (
+							<button type="button" role="tab" id={`tab-${a.id}`} aria-controls={`panel-${a.id}`} aria-selected={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1}>{a.label}</button>
+						))}
+					</div>
+					{agents.map((a, i) => (
+						<div role="tabpanel" id={`panel-${a.id}`} aria-labelledby={`tab-${a.id}`} hidden={i !== 0} class="codebox">
+							<div class="codebar"><span>{a.file}</span><button type="button" class="copy flat" data-copy={a.code} aria-label="Copy configuration" set:html={copyIcon} /></div>
+							<pre>{a.code}</pre>
+						</div>
+					))}
+					<p class="note">Ownership tools need data: run <code>idx ownership sync</code> once, or start the server with <code>--allow-sync</code>. <a href="/mcp/setup/">Full setup guide</a></p>
+				</div>
+			</section>
+
+			<section class="band">
+				<div class="wrap stack">
+					<div class="head-row">
+						<h2 class="h2">Who owns BBCA?</h2>
+						<span class="mono muted">KSEI register, holders above 1% · as of 30 Sep 2026</span>
+					</div>
+					<div class="table-box">
+						<table>
+							<thead><tr><th>#</th><th>Investor</th><th>Type</th><th class="r">Shares</th><th class="stake">Stake</th></tr></thead>
+							<tbody>
+								{holders.map((h, i) => (
+									<tr>
+										<td class="muted">{i + 1}</td>
+										<td class="name">{h.name}</td>
+										<td class="soft">{h.type}</td>
+										<td class="r mono">{h.shares}</td>
+										<td><div class="bar-row"><div class="track"><div class="fill" style={`width: ${h.pct}%`}></div></div><span class="mono pct">{h.pct.toFixed(2)}%</span></div></td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
+					<div class="stats">
+						<div><span>Top holder</span><b>54.94%</b></div>
+						<div><span>Top 3</span><b>57.16%</b></div>
+						<div><span>Free float (below 1%)</span><b>41.82%</b></div>
+						<div><span>HHI</span><b>3,021</b></div>
+					</div>
+					<p class="muted-p small">Rendered from <code>idx ownership ticker BBCA</code>. The snapshot is rebuilt when IDX publishes a new month.</p>
+				</div>
+			</section>
+
+			<section class="wrap split center">
+				<div class="side">
+					<h2 class="h2">Built for pipes</h2>
+					<p class="muted-p">stdout carries only data. Errors go to stderr as one JSON object, with exit codes an agent can act on.</p>
+					<dl class="codes">
+						<dt>2</dt><dd>invalid input or config</dd>
+						<dt>3</dt><dd>not found, or no cached data offline</dd>
+						<dt>4</dt><dd>upstream unavailable, retry later</dd>
+						<dt>5</dt><dd>unsupported</dd>
+					</dl>
+				</div>
+				<div class="main-col term">
+					<pre><span class="dim"># screen, then compare the hits</span>
+idx stocks screen --filter high-dividend \
+  | jq -r '.[].symbol' \
+  | idx stocks compare -
+
+<span class="dim"># a year of daily closes, one JSON object per line</span>
+idx -o jsonl stocks history BBCA --period 1y | tail -5
+
+<span class="dim"># bad input fails fast, as JSON on stderr</span>
+idx stocks quote ../x
+<span class="down">&#123;"error":true,"code":"INVALIDINPUT","message":"invalid input: invalid ticker symbol '../x'"&#125;</span>
+<span class="dim">exit 2</span></pre>
+				</div>
+			</section>
+		</main>
+
+		<footer class="bar top">
+			<div class="wrap foot">
+				<span class="mark small">idx</span>
+				<a href="https://github.com/0xrsydn/idx-cli">GitHub</a>
+				<a href="https://www.npmjs.com/package/idx-cli">npm</a>
+				<a href="https://crates.io/crates/idx-cli">crates.io</a>
+				<a href="/llms.txt">llms.txt</a>
+				<a href="/about/">About the data</a>
+				<span class="grow"></span>
+				<span>MIT licensed. Not affiliated with IDX or KSEI. Not investment advice.</span>
+			</div>
+		</footer>
+
+		<script>
+			for (const group of document.querySelectorAll<HTMLElement>('[data-tabs]')) {
+				const tabs = [...group.querySelectorAll<HTMLButtonElement>(':scope > [role=tablist] > [role=tab]')];
+				const select = (tab: HTMLButtonElement) => {
+					for (const t of tabs) {
+						const on = t === tab;
+						t.setAttribute('aria-selected', String(on));
+						t.tabIndex = on ? 0 : -1;
+						const panel = document.getElementById(t.getAttribute('aria-controls')!);
+						if (panel) panel.hidden = !on;
+					}
+				};
+				tabs.forEach((tab, i) => {
+					tab.addEventListener('click', () => select(tab));
+					tab.addEventListener('keydown', (e) => {
+						const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+						if (!step) return;
+						const next = tabs[(i + step + tabs.length) % tabs.length];
+						select(next);
+						next.focus();
+					});
+				});
+			}
+			for (const button of document.querySelectorAll<HTMLButtonElement>('[data-copy]')) {
+				button.addEventListener('click', async () => {
+					try {
+						await navigator.clipboard.writeText(button.dataset.copy ?? '');
+						button.classList.add('done');
+						setTimeout(() => button.classList.remove('done'), 1200);
+					} catch {
+						/* clipboard unavailable: the text stays selectable */
+					}
+				});
+			}
+		</script>
+
+		<style is:global>
+			:root {
+				--bg: #0d0e10;
+				--band: #111316;
+				--surface: #16181c;
+				--term: #121417;
+				--line: #2c3036;
+				--line-soft: #1d2024;
+				--text: #e8eaed;
+				--soft: #b8bec6;
+				--muted: #9aa1ab;
+				--dim: #6f7782;
+				--accent: #ce1126;
+				--link: #ff6b6f;
+				--up: #4ac26b;
+				--down: #ff7b72;
+				--mono: 'JetBrains Mono', ui-monospace, monospace;
+				color-scheme: dark;
+			}
+			* { box-sizing: border-box; }
+			body { margin: 0; background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 16px; line-height: 1.55; }
+			a { color: var(--link); text-decoration: none; }
+			a:hover { color: #ff9a9c; }
+			code, pre { font-family: var(--mono); }
+			pre { margin: 0; }
+			.wrap { max-width: 1200px; margin: 0 auto; padding-left: 24px; padding-right: 24px; }
+			.bar { border-bottom: 1px solid #23262b; }
+			.bar.top { border-bottom: 0; border-top: 1px solid var(--line-soft); }
+			.nav { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; padding-top: 16px; padding-bottom: 16px; }
+			.mark { display: inline-flex; align-items: center; font-family: var(--mono); font-weight: 700; font-size: 22px; color: var(--text); }
+			.mark.small { font-size: 16px; }
+			.cursor { display: inline-block; width: 10px; height: 20px; background: var(--accent); margin-left: 3px; }
+			.links { display: flex; flex-wrap: wrap; gap: 20px; font-size: 15px; }
+			.links a { color: #c3c8cf; }
+			.links a:hover { color: var(--text); }
+
+			.hero { display: flex; flex-wrap: wrap; gap: 56px; align-items: center; padding-top: 88px; padding-bottom: 72px; }
+			.hero-text { flex: 1 1 440px; min-width: 0; display: flex; flex-direction: column; gap: 24px; }
+			.eyebrow { font-family: var(--mono); font-size: 13px; color: var(--muted); letter-spacing: 0.04em; }
+			h1 { margin: 0; font-size: clamp(36px, 5vw, 52px); line-height: 1.08; font-weight: 700; letter-spacing: -0.02em; }
+			.lede { margin: 0; font-size: 19px; color: var(--soft); max-width: 540px; }
+
+			.tabs { display: flex; flex-direction: column; max-width: 560px; }
+			.main-col.tabs { max-width: none; }
+			.tablist { display: flex; flex-wrap: wrap; gap: 4px; }
+			[role=tab] { min-height: 44px; padding: 0 16px; border-radius: 8px 8px 0 0; font: inherit; font-size: 14px; cursor: pointer; background: transparent; color: var(--muted); border: 1px solid transparent; border-bottom: 0; }
+			[role=tab]:hover { color: var(--text); }
+			[role=tab][aria-selected=true] { background: var(--surface); color: var(--text); font-weight: 600; border-color: var(--line); box-shadow: inset 0 2px 0 var(--accent); }
+			.codebox [role=tab][aria-selected=true], .main-col [role=tab][aria-selected=true] { background: var(--term); }
+			.cmd { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 0 10px 10px 10px; padding: 14px 16px; }
+			.cmd.bare { background: transparent; border: 0; padding: 0; align-items: flex-start; }
+			.cmd code { flex-grow: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: 14px; }
+			.cmd code.prompt { white-space: normal; line-height: 1.55; }
+			.dim { color: var(--dim); }
+			.note { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+			.note code { font-size: 12px; }
+			.copy { flex-shrink: 0; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--line); border-radius: 8px; color: #c3c8cf; cursor: pointer; }
+			.copy:hover { color: var(--text); border-color: #3a3f46; }
+			.copy.flat { border: 0; }
+			.copy.done { color: var(--up); border-color: var(--up); }
+
+			.ctas { display: flex; flex-wrap: wrap; gap: 12px; }
+			.btn { display: inline-flex; align-items: center; min-height: 44px; padding: 0 22px; border-radius: 8px; border: 1px solid #3a3f46; color: var(--text); font-weight: 600; }
+			.btn:hover { color: var(--text); border-color: var(--muted); }
+			.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+			.btn.primary:hover { background: #b30f21; color: #fff; }
+
+			.term { flex: 1 1 520px; min-width: 0; background: var(--term); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45); }
+			.term-bar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #23262b; }
+			.term-bar span { width: 11px; height: 11px; border-radius: 50%; background: #3a3f46; }
+			.term-bar em { flex-grow: 1; text-align: center; font-style: normal; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+			.term pre { overflow-x: auto; padding: 20px; font-size: 13px; line-height: 1.5; color: #c3c8cf; }
+			.split .term pre { font-size: 14px; line-height: 1.6; color: var(--text); }
+			.term b { color: var(--text); font-weight: 400; }
+			.up { color: var(--up); }
+			.down { color: var(--down); }
+			.muted { color: var(--muted); }
+			.soft { color: var(--soft); }
+
+			.band { border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); background: var(--band); }
+			.features { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 32px; padding-top: 64px; padding-bottom: 64px; }
+			.features > div { display: flex; flex-direction: column; gap: 12px; }
+			.features svg { color: var(--link); }
+			.features h2 { margin: 0; font-size: 22px; font-weight: 600; }
+			.features p { margin: 0; color: var(--soft); }
+			.features code { font-size: 13px; color: var(--muted); }
+
+			.split { display: flex; flex-wrap: wrap; gap: 56px; padding-top: 88px; padding-bottom: 88px; }
+			.split.center { align-items: center; }
+			.side { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+			.main-col { flex: 1.4 1 520px; min-width: 0; }
+			.h2 { margin: 0; font-size: 36px; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em; }
+			.muted-p { margin: 0; color: var(--soft); }
+			.muted-p.small { font-size: 14px; color: var(--muted); }
+			.muted-p code { color: #c3c8cf; }
+			.card { display: flex; flex-direction: column; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+			.card.hot { background: #1a1416; border-color: #4a2a2f; }
+			.card.hot code { font-size: 13px; color: #fff; }
+			.card.hot .copy { border-color: #4a2a2f; color: #e3d5d6; }
+			.label { font-size: 13px; color: var(--muted); }
+			.label.strong { color: #e3d5d6; font-weight: 600; }
+			.ask { font-size: 17px; }
+			.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+			.chips span { font-family: var(--mono); font-size: 12px; padding: 4px 8px; border-radius: 6px; background: #22252a; color: #c3c8cf; }
+			.more { font-weight: 600; }
+			.codebox { background: var(--term); border: 1px solid var(--line); border-radius: 0 10px 10px 10px; overflow: hidden; }
+			.codebar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 4px 0 16px; border-bottom: 1px solid #23262b; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+			.codebox pre { overflow-x: auto; padding: 20px; font-size: 14px; line-height: 1.6; }
+
+			.stack { display: flex; flex-direction: column; gap: 28px; padding-top: 88px; padding-bottom: 88px; }
+			.head-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; }
+			.mono { font-family: var(--mono); font-size: 13px; }
+			.table-box { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+			table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 15px; }
+			thead tr { background: var(--surface); color: var(--muted); font-size: 13px; text-align: left; }
+			th { padding: 12px 16px; font-weight: 500; }
+			td { padding: 14px 16px; border-top: 1px solid #23262b; }
+			td.mono { font-size: 14px; }
+			.r { text-align: right; }
+			.stake { width: 36%; }
+			.name { font-weight: 600; }
+			.bar-row { display: flex; align-items: center; gap: 12px; }
+			.track { flex-grow: 1; height: 8px; background: #23262b; border-radius: 4px; }
+			.fill { height: 8px; min-width: 4px; background: var(--accent); border-radius: 4px; }
+			.pct { width: 64px; text-align: right; font-size: 14px; }
+			.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+			.stats div { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+			.stats span { font-size: 13px; color: var(--muted); }
+			.stats b { font-family: var(--mono); font-size: 24px; font-weight: 400; }
+
+			.codes { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 15px; }
+			.codes dt { font-family: var(--mono); }
+			.codes dd { margin: 0; color: var(--soft); }
+
+			.foot { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: center; padding-top: 32px; padding-bottom: 32px; font-size: 14px; color: var(--muted); }
+			.foot a { color: var(--soft); }
+			.grow { flex-grow: 1; }
+			:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+		</style>
+	</body>
+</html>

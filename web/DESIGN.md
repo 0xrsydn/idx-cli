@@ -1,6 +1,8 @@
 # idx-cli website: design
 
-**Status:** Draft 2026-10-15, for review before any build work.
+**Status:** Built 2026-10-15 (phases 1-5). The landing page is a standalone
+Astro page (`src/pages/index.astro`); the docs are Starlight. The agent-smoke
+case for the install prompt is still to do.
 **Branch:** `feat/web`. **URL:** `https://idx.rasyidanaf.com`.
 
 ## Goals
