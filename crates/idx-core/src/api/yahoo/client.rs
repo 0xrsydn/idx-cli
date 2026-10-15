@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use crate::api::types::{Interval, Period};
@@ -19,6 +20,9 @@ const CRUMB_FETCH_URL: &str = "https://query1.finance.yahoo.com/v1/test/getcrumb
 pub(super) struct YahooClient {
     agent: ureq::Agent,
     crumb: Mutex<Option<String>>,
+    /// One jar per client, paired with its crumb: clients in the same process
+    /// (concurrent MCP calls) must not overwrite each other's cookies.
+    cookie_jar: PathBuf,
 }
 
 impl YahooClient {
@@ -29,9 +33,16 @@ impl YahooClient {
             .build()
             .into();
 
+        static NEXT_JAR: AtomicU64 = AtomicU64::new(0);
+        let cookie_jar = std::env::temp_dir().join(format!(
+            "idx_yf_{}_{}.txt",
+            std::process::id(),
+            NEXT_JAR.fetch_add(1, Ordering::Relaxed)
+        ));
         Self {
             agent,
             crumb: Mutex::new(None),
+            cookie_jar,
         }
     }
 
@@ -47,10 +58,6 @@ impl YahooClient {
         format!(
             "{BASE_URL}/v10/finance/quoteSummary/{symbol}?modules=summaryDetail,defaultKeyStatistics,financialData,assetProfile,incomeStatementHistory&crumb={crumb}"
         )
-    }
-
-    fn cookie_jar_path() -> PathBuf {
-        std::env::temp_dir().join(format!("idx_yf_{}.txt", std::process::id()))
     }
 
     pub(super) fn parse_crumb_body(raw: &str) -> Result<String, IdxError> {
@@ -123,7 +130,7 @@ impl YahooClient {
     fn fetch_crumb_via_curl(&self) -> Result<String, IdxError> {
         let binary = curl_impersonate::chrome_curl_binary()?;
 
-        let cookie_jar = Self::cookie_jar_path();
+        let cookie_jar = &self.cookie_jar;
         let cookie_jar_str = cookie_jar.to_str().ok_or_else(|| {
             IdxError::Io(format!(
                 "failed to encode Yahoo cookie jar path {}",
@@ -235,7 +242,7 @@ impl YahooClient {
     ) -> Result<QuoteSummaryResponse, IdxError> {
         for auth_attempt in 0..2 {
             let crumb = self.get_or_init_crumb()?;
-            let cookie_header = match Self::cookie_header_from_jar(&Self::cookie_jar_path()) {
+            let cookie_header = match Self::cookie_header_from_jar(&self.cookie_jar) {
                 Ok(header) => header,
                 Err(err) => {
                     runtime::warn(format!("failed to parse Yahoo cookie jar: {err}"));
@@ -282,6 +289,12 @@ impl YahooClient {
 
 fn jitter() -> Duration {
     Duration::from_millis(fastrand::u64(0..100))
+}
+
+impl Drop for YahooClient {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.cookie_jar);
+    }
 }
 
 #[cfg(test)]

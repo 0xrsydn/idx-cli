@@ -280,6 +280,7 @@
             shellcheck -s sh ${installerSrc}/install.sh
             shellcheck ${installerSrc}/scripts/install-sh-test.sh
             shellcheck ${./scripts/live-smoke.sh}
+            shellcheck ${./tests/agents/agent-smoke.sh}
             touch "$out"
           '';
           publisher-test = pkgs.runCommand "idx-publisher-test" {
@@ -295,6 +296,23 @@
             touch "$out"
           '';
         };
+
+        # `nix develop .#agents`: the default shell plus coding-agent CLIs for
+        # tests/agents/agent-smoke.sh. They are appended to PATH, so agents
+        # already installed (and logged in) on the host take precedence.
+        # pi and Hermes Agent are not in the pinned nixpkgs; use host installs.
+        devShells.agents =
+          let
+            agentPkgs = import nixpkgs {
+              inherit system;
+              config.allowUnfreePredicate = pkg: lib.getName pkg == "claude-code";
+            };
+          in
+          self.devShells.${system}.default.overrideAttrs (old: {
+            shellHook = (old.shellHook or "") + ''
+              export PATH="$PATH:${lib.makeBinPath (with agentPkgs; [ claude-code codex opencode ])}"
+            '';
+          });
 
         devShells.default = pkgs.mkShell {
           inputsFrom = [ idxPackage ];

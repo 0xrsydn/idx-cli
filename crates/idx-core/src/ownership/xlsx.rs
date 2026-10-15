@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 use std::path::Path;
 
 use chrono::{Duration, NaiveDate};
@@ -83,11 +83,7 @@ fn read_zip_entry(
             )));
         }
     };
-    let mut output = String::new();
-    file.read_to_string(&mut output).map_err(|e| {
-        IdxError::ParseError(format!("failed to decode ownership XLSX entry {name}: {e}"))
-    })?;
-    Ok(Some(output))
+    super::read_zip_entry_bounded(&mut file, &format!("ownership XLSX entry {name}")).map(Some)
 }
 
 fn first_worksheet_name(zip: &mut zip::ZipArchive<Cursor<&[u8]>>) -> Result<String, IdxError> {
@@ -131,7 +127,10 @@ fn parse_shared_strings(xml: &str) -> Result<Vec<String>, IdxError> {
                 b"rPh" => in_phonetic = true,
                 _ => {}
             },
-            Ok(Event::Empty(e)) if e.local_name().as_ref() == b"si" => strings.push(String::new()),
+            Ok(Event::Empty(e)) if e.local_name().as_ref() == b"si" => {
+                check_shared_string_count(strings.len())?;
+                strings.push(String::new())
+            }
             Ok(Event::Text(text)) if in_text && !in_phonetic => {
                 if let Some(value) = current.as_mut() {
                     let unescaped = text
@@ -141,7 +140,10 @@ fn parse_shared_strings(xml: &str) -> Result<Vec<String>, IdxError> {
                 }
             }
             Ok(Event::End(e)) => match e.local_name().as_ref() {
-                b"si" => strings.push(current.take().unwrap_or_default()),
+                b"si" => {
+                    check_shared_string_count(strings.len())?;
+                    strings.push(current.take().unwrap_or_default())
+                }
                 b"t" => in_text = false,
                 b"rPh" => in_phonetic = false,
                 _ => {}
@@ -167,13 +169,47 @@ struct SheetRow {
 fn row_number(element: &BytesStart<'_>, fallback: usize) -> Result<usize, IdxError> {
     for attribute in element.attributes() {
         let attribute = attribute.map_err(|e| xml_error("worksheet", e))?;
-        if attribute.key.local_name().as_ref() == b"r" {
-            if let Ok(number) = String::from_utf8_lossy(&attribute.value).trim().parse() {
-                return Ok(number);
-            }
+        if attribute.key.local_name().as_ref() == b"r"
+            && let Ok(number) = String::from_utf8_lossy(&attribute.value).trim().parse()
+        {
+            return Ok(number);
         }
     }
     Ok(fallback)
+}
+
+/// Bounds on one worksheet. Real above-1% registers hold about 7,000 rows
+/// and a few MB of text.
+const MAX_CELL_TEXT_BYTES: usize = 256 * 1024 * 1024;
+const MAX_SHEET_ROWS: usize = 1_000_000;
+
+fn text_cap_error() -> IdxError {
+    xml_error(
+        "worksheet",
+        format!("cell text exceeds {MAX_CELL_TEXT_BYTES} bytes"),
+    )
+}
+
+const MAX_SHARED_STRINGS: usize = 2_000_000;
+
+fn check_shared_string_count(count: usize) -> Result<(), IdxError> {
+    if count >= MAX_SHARED_STRINGS {
+        return Err(xml_error(
+            "shared strings",
+            format!("more than {MAX_SHARED_STRINGS} entries"),
+        ));
+    }
+    Ok(())
+}
+
+fn check_row_count(rows: usize) -> Result<(), IdxError> {
+    if rows >= MAX_SHEET_ROWS {
+        return Err(xml_error(
+            "worksheet",
+            format!("more than {MAX_SHEET_ROWS} rows"),
+        ));
+    }
+    Ok(())
 }
 
 fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow>, IdxError> {
@@ -183,11 +219,13 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
     let mut cell: Option<(String, String)> = None;
     let mut value = String::new();
     let mut in_value = false;
+    let mut cell_text_bytes = 0usize;
 
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => match e.local_name().as_ref() {
                 b"row" => {
+                    check_row_count(rows.len())?;
                     row = Some(SheetRow {
                         number: row_number(&e, rows.len() + 1)?,
                         cells: HashMap::new(),
@@ -200,10 +238,13 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
                 b"v" | b"t" if cell.is_some() => in_value = true,
                 _ => {}
             },
-            Ok(Event::Empty(e)) if e.local_name().as_ref() == b"row" => rows.push(SheetRow {
-                number: row_number(&e, rows.len() + 1)?,
-                cells: HashMap::new(),
-            }),
+            Ok(Event::Empty(e)) if e.local_name().as_ref() == b"row" => {
+                check_row_count(rows.len())?;
+                rows.push(SheetRow {
+                    number: row_number(&e, rows.len() + 1)?,
+                    cells: HashMap::new(),
+                })
+            }
             Ok(Event::Text(text)) if in_value => {
                 let unescaped = text.unescape().map_err(|e| xml_error("worksheet", e))?;
                 value.push_str(&unescaped);
@@ -219,12 +260,18 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
                                 let index = value.trim().parse::<usize>().map_err(|e| {
                                     xml_error("worksheet", format!("bad shared string index: {e}"))
                                 })?;
-                                shared_strings.get(index).cloned().ok_or_else(|| {
+                                let shared = shared_strings.get(index).ok_or_else(|| {
                                     xml_error(
                                         "worksheet",
                                         format!("shared string {index} out of range"),
                                     )
-                                })?
+                                })?;
+                                // Check before copying: one large string may be
+                                // referenced from many cells.
+                                if cell_text_bytes + shared.len() > MAX_CELL_TEXT_BYTES {
+                                    return Err(text_cap_error());
+                                }
+                                shared.clone()
                             }
                             // Excel stores the share code TRUE (TRINITI DINAMIK)
                             // as a boolean cell holding 1.
@@ -235,6 +282,10 @@ fn parse_sheet_rows(xml: &str, shared_strings: &[String]) -> Result<Vec<SheetRow
                             },
                             _ => value.clone(),
                         };
+                        cell_text_bytes += text.len();
+                        if cell_text_bytes > MAX_CELL_TEXT_BYTES {
+                            return Err(text_cap_error());
+                        }
                         current_row.cells.insert(column, text);
                     }
                 }

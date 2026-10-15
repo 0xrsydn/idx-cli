@@ -144,20 +144,34 @@ pub fn parse_manifest(raw: &str) -> Result<OwnershipSnapshotManifest, IdxError> 
     Ok(manifest)
 }
 
-pub fn sync_snapshot(
+/// `lock(resolved_db_path, exclusive)` takes the database's lock: shared
+/// while inspecting the local database, exclusive while rechecking and
+/// installing, and never held during the downloads. The path is resolved
+/// once, so the lock and the replaced file are always the same database.
+pub fn sync_snapshot<L>(
     manifest_source: &str,
     db_path: &Path,
     force: bool,
+    lock: impl Fn(&Path, bool) -> Result<L, IdxError>,
 ) -> Result<OwnershipSyncResult, IdxError> {
+    // Results report the configured path; files are read and replaced at the
+    // resolved one, so a symlinked path updates its target instead of being
+    // overwritten with a regular file.
+    let configured_db_path = db_path;
+    let resolved_db_path = db::resolve_db_path(db_path)?;
+    let db_path = resolved_db_path.as_path();
     let manifest = fetch_manifest(manifest_source)?;
-    let local_state = inspect_local_db(db_path)?;
+    let local_state = {
+        let _shared = lock(db_path, false)?;
+        inspect_local_db(db_path)?
+    };
     let decision = build_sync_decision(local_state.as_ref(), &manifest.snapshot, force);
 
     if !decision.should_download {
         return Ok(OwnershipSyncResult {
             action: decision.action,
             manifest: manifest_source.to_string(),
-            db_path: db_path.display().to_string(),
+            db_path: configured_db_path.display().to_string(),
             snapshot_version: manifest.snapshot.version.clone(),
             latest_as_of_date: manifest.snapshot.latest_as_of_date,
             release_count: manifest.snapshot.release_count,
@@ -202,18 +216,28 @@ pub fn sync_snapshot(
 
     let install_result = (|| -> Result<(), IdxError> {
         validate_snapshot_db(&temp_path, &manifest.snapshot)?;
+        let _lock = lock(db_path, true)?;
+        // The decision was made before the download; an import or edit that
+        // landed since must not be overwritten without --force.
+        if !force && !same_local_state(local_state.as_ref(), inspect_local_db(db_path)?.as_ref()) {
+            return Err(IdxError::DatabaseError(
+                "the local ownership database changed during sync; rerun `idx ownership sync`"
+                    .to_string(),
+            ));
+        }
         install_snapshot_file(&temp_path, db_path)
     })();
 
     if install_result.is_err() {
         let _ = fs::remove_file(&temp_path);
+        let _ = remove_sqlite_sidecars(&temp_path);
     }
     install_result?;
 
     Ok(OwnershipSyncResult {
         action: decision.action,
         manifest: manifest_source.to_string(),
-        db_path: db_path.display().to_string(),
+        db_path: configured_db_path.display().to_string(),
         snapshot_version: manifest.snapshot.version.clone(),
         latest_as_of_date: manifest.snapshot.latest_as_of_date,
         release_count: manifest.snapshot.release_count,
@@ -340,8 +364,18 @@ fn inspect_local_db(db_path: &Path) -> Result<Option<LocalSnapshotState>, IdxErr
         return Ok(None);
     }
 
+    // Schema setup first: it may write to an empty database, and hashing
+    // afterwards keeps two inspections of an unchanged database equal. A
+    // published snapshot already has the schema, so its bytes are untouched.
+    let releases = {
+        let conn = Connection::open(db_path).map_err(|e| {
+            IdxError::DatabaseError(format!("failed to open {}: {e}", db_path.display()))
+        })?;
+        db::ensure_schema(&conn)?;
+        db::query_releases(&conn)?
+    };
+
     let file_sha256 = if checkpoint_wal(db_path) {
-        // Hash before opening: schema setup may write to an empty database.
         let bytes = fs::read(db_path)
             .map_err(|e| IdxError::Io(format!("failed to read {}: {e}", db_path.display())))?;
         Some(sha256_hex(&bytes))
@@ -349,17 +383,26 @@ fn inspect_local_db(db_path: &Path) -> Result<Option<LocalSnapshotState>, IdxErr
         None
     };
 
-    let conn = Connection::open(db_path).map_err(|e| {
-        IdxError::DatabaseError(format!("failed to open {}: {e}", db_path.display()))
-    })?;
-    db::ensure_schema(&conn)?;
-    let releases = db::query_releases(&conn)?;
-
     Ok(Some(LocalSnapshotState {
         file_sha256,
         latest_release: releases.first().cloned(),
         release_count: releases.len(),
     }))
+}
+
+fn same_local_state(
+    before: Option<&LocalSnapshotState>,
+    after: Option<&LocalSnapshotState>,
+) -> bool {
+    match (before, after) {
+        (None, None) => true,
+        (Some(before), Some(after)) => {
+            before.file_sha256.is_some()
+                && before.file_sha256 == after.file_sha256
+                && before.release_count == after.release_count
+        }
+        _ => false,
+    }
 }
 
 /// Moves committed WAL frames into the database file, so its hash covers local
@@ -446,10 +489,12 @@ fn build_sync_decision(
         };
     }
 
-    if snapshot
-        .replaces_sqlite_sha256
-        .iter()
-        .any(|sha256| file_sha256.is_some_and(|local| sha256.eq_ignore_ascii_case(local)))
+    // A rebuild never silently drops history the local database has.
+    if snapshot.release_count >= local.release_count
+        && snapshot
+            .replaces_sqlite_sha256
+            .iter()
+            .any(|sha256| file_sha256.is_some_and(|local| sha256.eq_ignore_ascii_case(local)))
     {
         return SyncDecision {
             action: OwnershipSyncAction::Updated,
@@ -462,7 +507,9 @@ fn build_sync_decision(
     }
 
     if latest.sha256 == snapshot.latest_release_sha256 {
-        if latest.row_count != snapshot.latest_row_count {
+        if latest.row_count != snapshot.latest_row_count
+            && snapshot.release_count >= local.release_count
+        {
             return SyncDecision {
                 action: OwnershipSyncAction::Updated,
                 should_download: true,
@@ -608,6 +655,8 @@ fn build_temp_path(db_path: &Path) -> PathBuf {
 }
 
 fn install_snapshot_file(temp_path: &Path, db_path: &Path) -> Result<(), IdxError> {
+    // Validation opened the temp database; its sidecars are named after it.
+    remove_sqlite_sidecars(temp_path)?;
     if let Some(parent) = db_path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -717,7 +766,8 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 fn read_text(source: &str, context: &str) -> Result<String, IdxError> {
     if is_http_source(source) {
-        let response = ureq::get(source)
+        let response = http_agent()
+            .get(source)
             .header("User-Agent", USER_AGENT)
             .header("Accept", "application/json,text/plain;q=0.9,*/*;q=0.8")
             .call()
@@ -733,9 +783,20 @@ fn read_text(source: &str, context: &str) -> Result<String, IdxError> {
         .map_err(|e| IdxError::Io(format!("failed to read {context} {}: {e}", path.display())))
 }
 
+/// Downloads give up rather than hang: a stalled connection must not keep
+/// sync (and anything waiting on it) blocked forever.
+fn http_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_connect(Some(std::time::Duration::from_secs(15)))
+        .timeout_global(Some(std::time::Duration::from_secs(600)))
+        .build()
+        .into()
+}
+
 fn read_bytes(source: &str, context: &str, limit_bytes: u64) -> Result<Vec<u8>, IdxError> {
     if is_http_source(source) {
-        let response = ureq::get(source)
+        let response = http_agent()
+            .get(source)
             .header("User-Agent", USER_AGENT)
             .header(
                 "Accept",
@@ -910,6 +971,20 @@ mod tests {
     }
 
     #[test]
+    fn build_sync_decision_never_drops_history_through_a_rebuild() {
+        // A forced same-date rebuild with fewer releases lists the old build;
+        // a client holding it keeps its history instead of downgrading.
+        let earlier = "e".repeat(64);
+        let mut snapshot = same_date_snapshot(vec![earlier.clone()]);
+        snapshot.release_count = 1;
+        let mut local = same_release_local(&snapshot, &earlier);
+        local.release_count = 3;
+
+        let decision = build_sync_decision(Some(&local), &snapshot, false);
+        assert!(!decision.should_download, "{}", decision.reason);
+    }
+
+    #[test]
     fn build_sync_decision_keeps_a_locally_modified_database() {
         // Same release metadata but a file matching no published build (local
         // imports or entity edits): unchanged behavior, never replaced silently.
@@ -1058,6 +1133,23 @@ mod tests {
             })
             .unwrap();
         assert_eq!(release_count, 1);
+    }
+
+    #[test]
+    fn inspecting_an_empty_database_twice_sees_the_same_state() {
+        let dir = std::env::temp_dir().join(format!(
+            "idx-snapshot-empty-{}-{}",
+            std::process::id(),
+            fastrand::u64(..)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("ownership.db");
+        std::fs::write(&db_path, b"").unwrap();
+
+        let first = super::inspect_local_db(&db_path).unwrap();
+        let second = super::inspect_local_db(&db_path).unwrap();
+        assert!(super::same_local_state(first.as_ref(), second.as_ref()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

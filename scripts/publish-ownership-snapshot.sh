@@ -464,7 +464,9 @@ MANIFEST_PATH="$OUTPUT_DIR/ownership-snapshot-manifest.json"
 
 # A rebuild for the published as-of date (e.g. after a parser fix) lists the
 # builds it replaces, so clients still holding one update without --force.
-if [[ "$BUILT_AS_OF" == "$PUBLISHED_AS_OF" && "$PUBLISHED_SHA256" =~ ^[0-9a-fA-F]{64}$ ]]; then
+# Only when it keeps at least the published history: clients never downgrade.
+if [[ "$BUILT_AS_OF" == "$PUBLISHED_AS_OF" && "$PUBLISHED_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] \
+    && [[ "$PUBLISHED_RELEASE_COUNT" =~ ^[0-9]+$ ]] && (( BUILT_RELEASE_COUNT >= PUBLISHED_RELEASE_COUNT )); then
     replaces_tmp="$PUBLISH_WORKDIR/manifest-replaces.json"
     jq --arg published "$PUBLISHED_SHA256" \
         --argjson previous "$(jq -c '.snapshot.replaces_sqlite_sha256 // []' <<< "$PUBLISHED_MANIFEST" 2>/dev/null || echo '[]')" '

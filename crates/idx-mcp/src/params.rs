@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SymbolsParams {
-    /// IDX tickers, e.g. ["BBCA", "BBRI"]; the `.JK` suffix is optional.
+    /// IDX tickers, e.g. ["BBCA", "BBRI"]; the `.JK` suffix is optional. At most 20.
     pub symbols: Vec<String>,
 }
 
@@ -36,7 +36,7 @@ pub struct ScreenParams {
     #[serde(default)]
     #[schemars(schema_with = "region_schema")]
     pub region: Option<String>,
-    /// Maximum results (default 50).
+    /// Maximum results (default 50, at most 200).
     #[serde(default)]
     pub limit: Option<usize>,
 }
@@ -130,7 +130,7 @@ pub struct EntityParams {
 pub struct SearchParams {
     /// Full-text query over investor names.
     pub query: String,
-    /// Maximum results (default 20).
+    /// Maximum results (default 20, at most 100).
     #[serde(default)]
     pub limit: Option<usize>,
 }
@@ -144,7 +144,7 @@ pub struct ChangesParams {
     /// Only this ticker's changes.
     #[serde(default)]
     pub ticker: Option<String>,
-    /// Maximum rows returned (default 200); `total` reports the full count.
+    /// Maximum rows returned (default 200, at most 2000); `total` reports the full count.
     #[serde(default)]
     pub limit: Option<usize>,
 }

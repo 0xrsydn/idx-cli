@@ -181,6 +181,31 @@ fn lists_grouped_tools_and_hides_sync_unless_allowed() {
     assert_eq!(client.tool_names(), expected);
 }
 
+/// What agents see (names, descriptions, input schemas) is part of the
+/// contract: changes must show up as a reviewed diff. Regenerate with
+/// `UPDATE_GOLDEN=1`.
+#[test]
+fn tool_definitions_match_golden() {
+    let mut client = Client::start(&["--allow-sync"], false);
+    let mut tools = client.request("tools/list", json!({}))["tools"]
+        .as_array()
+        .unwrap()
+        .clone();
+    tools.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    let rendered = serde_json::to_string_pretty(&tools).unwrap() + "\n";
+
+    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/tools.json");
+    if std::env::var_os("UPDATE_GOLDEN").is_some() {
+        std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
+        std::fs::write(&golden, &rendered).unwrap();
+    }
+    let expected = std::fs::read_to_string(&golden).expect("tests/golden/tools.json");
+    assert!(
+        rendered == expected,
+        "tool definitions changed; review and rerun with UPDATE_GOLDEN=1:\n{rendered}"
+    );
+}
+
 #[test]
 fn live_tools_wrap_data_with_freshness() {
     let mut client = Client::start(&[], false);
@@ -253,6 +278,22 @@ fn errors_carry_cli_codes() {
         assert!(is_error, "{tool}: {body}");
         assert_eq!(body["code"], "INVALIDINPUT", "{tool}");
     }
+
+    let many: Vec<String> = (0..21).map(|i| format!("S{i}")).collect();
+    for (tool, arguments) in [
+        ("get_quotes", json!({"symbols": many})),
+        ("screen_stocks", json!({"limit": 201})),
+        ("screen_stocks", json!({"limit": 0})),
+        ("get_quotes", json!({"symbols": ["../../REPORT"]})),
+    ] {
+        let (is_error, body) = client.call(tool, arguments.clone());
+        assert!(is_error, "{tool} {arguments}: {body}");
+        assert_eq!(body["code"], "INVALIDINPUT", "{tool} {arguments}");
+    }
+    // Duplicates collapse instead of counting against the cap.
+    let repeated = vec!["BBCA"; 50];
+    let quotes = client.ok("get_quotes", json!({"symbols": repeated}));
+    assert_eq!(quotes["quotes"].as_array().unwrap().len(), 1);
 
     // Empty ownership database: investor tools point at the sync path.
     let status = client.ok("ownership_status", json!({}));

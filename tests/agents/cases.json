@@ -1,0 +1,38 @@
+[
+  {
+    "id": "shareholders",
+    "prompt": "Who are the shareholders above 5% of BBCA?",
+    "expect_tools": [{"name": "get_shareholders", "args": {"ticker": "BBCA"}}],
+    "expect_text": ["(?i)dwimuria", "54[.,]9"]
+  },
+  {
+    "id": "quote",
+    "prompt": "What is the latest BBCA share price?",
+    "expect_tools": [{"name": "get_quotes", "args": {"symbols": ["BBCA"]}}],
+    "expect_text": ["(?i)bbca"]
+  },
+  {
+    "id": "compare",
+    "prompt": "Compare the fundamentals of BBCA and BBRI.",
+    "expect_tools": [{"name": "compare_stocks", "args": {"symbols": ["BBCA", "BBRI"]}}],
+    "expect_text": ["(?i)bbri"]
+  },
+  {
+    "id": "technical",
+    "prompt": "Give me a technical analysis of BBCA: trend, RSI, and MACD.",
+    "expect_tools": [{"name": "analyze_stock", "args": {"symbol": "BBCA"}}],
+    "expect_text": ["(?i)rsi"]
+  },
+  {
+    "id": "investor",
+    "prompt": "Which IDX stocks does Anthoni Salim hold above 1%?",
+    "expect_tools": [{"any": ["get_investor_holdings", "search_investors"]}],
+    "expect_text": ["(?i)bbca"]
+  },
+  {
+    "id": "changes",
+    "prompt": "Which shareholders changed between the 2026-01-30 and 2026-02-27 KSEI releases?",
+    "expect_tools": [{"name": "get_ownership_changes", "args": {"from": "2026-01-30", "to": "2026-02-27"}}],
+    "expect_text": []
+  }
+]

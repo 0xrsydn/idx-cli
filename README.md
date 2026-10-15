@@ -47,7 +47,7 @@ helper tool below is available automatically.
 cargo install idx-cli
 ```
 
-Builds from source; requires Rust `1.85+`.
+Builds from source; requires Rust `1.89+`.
 
 ### Runtime helper tools
 
@@ -172,7 +172,7 @@ client:
 
 ```bash
 claude mcp add idx -- npx -y idx-mcp   # Claude Code, via npm
-cargo install idx-mcp                  # or build it (Rust 1.88+)
+cargo install idx-mcp                  # or build it (Rust 1.89+)
 nix profile install github:0xrsydn/idx-cli#idx-mcp
 ```
 

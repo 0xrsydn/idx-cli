@@ -8,7 +8,7 @@ offline with pinned tools:
 | Check | Covers |
 | --- | --- |
 | `fmt`, `clippy` | formatting and lints (`--all-targets`) |
-| `test` | unit/module tests, `tests/cli.rs` CLI integration tests, and `tests/golden.rs` output parity |
+| `test` | unit/module tests, `tests/cli.rs` CLI integration tests, `tests/golden.rs` output parity, and `crates/idx-mcp/tests/mcp.rs` MCP stdio tests |
 | `default`, `package` | release build and `cargo package` verification |
 | `packaged-cli` | the wrapped Nix release binary emits JSON, generates completions, and returns a JSON `CACHEMISS` error with exit 3 offline |
 | `ownership-publisher`, `publisher-test` | packaged publisher entry point and its regression scenarios |
@@ -24,6 +24,11 @@ command listed in `tests/golden/cases.toml`, in table and JSON. A mismatch means
 user-visible output changed. Regenerate with
 `UPDATE_GOLDEN=1 cargo test --test golden` only when the change is intended,
 and commit the golden diff with the reason.
+
+`crates/idx-mcp/tests/mcp.rs` drives `idx-mcp` over stdio JSON-RPC with the
+mock provider. `crates/idx-mcp/tests/golden/tools.json` pins what agents see (tool
+names, descriptions, input schemas); regenerate it the same way after an
+intended change.
 
 For a focused loop, run one check or filter Cargo tests:
 
@@ -66,3 +71,36 @@ and keeps per-case `.stdout`, `.stderr`, and `.validation` logs there.
 
 `scripts/audit-msn-fundamentals.sh` is a heavier sweep of valuation output
 across the whole IDX MSN symbol map, for provider-health audits.
+
+## Agent smoke test
+
+The MCP tests prove the protocol works; they cannot show whether a real
+coding agent picks the right tools. `tests/agents/agent-smoke.sh` runs each
+case in `tests/agents/cases.json` through Claude Code, Codex, pi, Hermes Agent,
+and opencode in headless mode against a local `idx-mcp` build, then checks
+the tools each agent called (and their key arguments) and, with mock data, key
+facts in the answer. It is opt-in: it needs agent logins and model credits,
+and agent behavior varies between runs, so it is never part of the gate.
+
+```bash
+nix develop .#agents --command tests/agents/agent-smoke.sh            # every agent found
+nix develop .#agents --command tests/agents/agent-smoke.sh --agents claude,codex --runs 3
+tests/agents/agent-smoke.sh --live --case shareholders --keep          # real data
+```
+
+- Each agent gets an isolated config that registers only the local server;
+  your own agent settings and MCP servers are not loaded or changed. Logins
+  are copied from the agent's home (Codex `auth.json`, pi and Hermes auth
+  files) into a temp dir that is deleted afterwards; `--keep` keeps the run
+  output but still deletes every copied agent config.
+- Tools are auto-approved for the run (Claude `dontAsk` with
+  `mcp__idx__*`, Codex `default_tools_approval_mode="approve"`); Claude and pi
+  also get no built-in tools, so they can only answer through MCP.
+- `IDX_AGENT_MODEL_<AGENT>` picks a model (for example
+  `IDX_AGENT_MODEL_CLAUDE=sonnet`). `IDX_AGENT_EXEC_PREFIX` prefixes every
+  agent command, for hosts that inject API keys through a wrapper.
+- The run fails only when an agent fails a case in every run; use `--runs` to
+  measure pass rates. `--keep` keeps raw agent output and `results.jsonl`.
+- `nix develop .#agents` adds Claude Code, Codex, and opencode from nixpkgs
+  after your PATH, so installed versions win. pi and Hermes Agent must be
+  installed on the host.

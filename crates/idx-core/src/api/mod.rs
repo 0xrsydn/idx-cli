@@ -163,6 +163,19 @@ pub fn resolve_symbol(symbol: &str, exchange: &str) -> Result<String, IdxError> 
             "ticker symbol cannot be empty".into(),
         ));
     }
+    // Tickers name cache files and provider URLs: letters, digits, and the
+    // separators real symbols use (BBCA.JK, BRK-B, ^JKSE), nothing else.
+    if trimmed.len() > 32
+        || trimmed.contains("..")
+        || !trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '^' | '='))
+    {
+        return Err(IdxError::InvalidInput(format!(
+            "invalid ticker symbol '{}'",
+            symbol.trim()
+        )));
+    }
     if let Some((base, suffix)) = trimmed.rsplit_once('.')
         && !base.is_empty()
         && !suffix.is_empty()
@@ -299,6 +312,26 @@ mod tests {
         assert!(resolve_symbol("  ", "JK").is_err());
         // Valid ticker returns Ok
         assert_eq!(resolve_symbol("BBCA", "JK").unwrap(), "BBCA.JK");
+    }
+
+    #[test]
+    fn rejects_symbols_that_are_not_tickers() {
+        for bad in [
+            "../../REPORT",
+            "a/b",
+            "a\\b",
+            "BB CA",
+            "BBCA..JK",
+            "BBCA\u{0}",
+            &"A".repeat(40),
+        ] {
+            assert!(
+                matches!(resolve_symbol(bad, "JK"), Err(IdxError::InvalidInput(_))),
+                "{bad:?} accepted"
+            );
+        }
+        assert_eq!(resolve_symbol("^jkse", "JK").unwrap(), "^JKSE.JK");
+        assert_eq!(resolve_symbol("BRK-B.US", "JK").unwrap(), "BRK-B.US");
     }
 
     #[test]
