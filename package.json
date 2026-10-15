@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/0xrsydn/idx-cli.git"
+    "url": "git+https://github.com/0xrsydn/idx-cli.git"
   },
   "homepage": "https://github.com/0xrsydn/idx-cli",
   "keywords": [
@@ -19,7 +19,7 @@
     "node": ">=16"
   },
   "bin": {
-    "idx": "./scripts/idx.js"
+    "idx": "scripts/idx.js"
   },
   "files": [
     "scripts/idx.js",

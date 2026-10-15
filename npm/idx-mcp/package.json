@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/0xrsydn/idx-cli.git",
+    "url": "git+https://github.com/0xrsydn/idx-cli.git",
     "directory": "npm/idx-mcp"
   },
   "homepage": "https://github.com/0xrsydn/idx-cli",
@@ -21,7 +21,7 @@
   },
   "nativeBinary": "idx-mcp",
   "bin": {
-    "idx-mcp": "./scripts/idx.js"
+    "idx-mcp": "scripts/idx.js"
   },
   "files": [
     "scripts/idx.js",
