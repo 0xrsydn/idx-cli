@@ -40,3 +40,22 @@
 .sl-markdown-content code:not(:where(.not-content *)) {
 	font-size: 0.875em;
 }
+
+/* Prev/next links: Starlight's are card-sized with a 2xl title; keep them compact. */
+.pagination-links {
+	gap: 0.75rem;
+}
+.pagination-links > a {
+	padding: 0.625rem 0.875rem;
+	box-shadow: none;
+	font-size: var(--sl-text-xs);
+	color: var(--sl-color-gray-3);
+	line-height: 1.4;
+}
+.pagination-links .link-title {
+	font-size: var(--sl-text-base);
+	font-weight: 600;
+}
+.pagination-links svg {
+	--sl-icon-size: 1rem !important;
+}
