@@ -19,6 +19,8 @@ pub enum Shell {
 #[command(
     name = "idx",
     bin_name = "idx",
+    version,
+    disable_version_flag = true,
     about = "CLI tool for Indonesian stock market (IDX) analysis",
     long_about = "idx-cli is a Rust command-line tool for Indonesian stock market (IDX) analysis.\nIt supports quote lookup, historical data, local caching, and output formats for both humans and AI agents."
 )]
@@ -41,6 +43,9 @@ pub struct Cli {
     pub offline: bool,
     #[arg(long, global = true, help = "Bypass local cache")]
     pub no_cache: bool,
+    // `idx version` is the documented form; `--version` is a hidden alias.
+    #[arg(short = 'V', long, action = clap::ArgAction::Version, hide = true)]
+    version: Option<bool>,
     #[command(subcommand)]
     pub command: Commands,
 }

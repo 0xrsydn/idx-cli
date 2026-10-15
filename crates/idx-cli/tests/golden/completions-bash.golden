@@ -439,7 +439,7 @@ _idx() {
 
     case "${cmd}" in
         idx)
-            opts="-o -q -v -h --output --no-color --quiet --verbose --offline --no-cache --help stocks config cache ownership completions version help"
+            opts="-o -q -v -V -h --output --no-color --quiet --verbose --offline --no-cache --version --help stocks config cache ownership completions version help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
