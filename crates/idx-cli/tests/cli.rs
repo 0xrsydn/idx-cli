@@ -419,6 +419,17 @@ fn version_prints_cargo_version() {
 }
 
 #[test]
+fn version_flags_print_cargo_version() {
+    for flag in ["--version", "-V"] {
+        test_bin("version-flag")
+            .arg(flag)
+            .assert()
+            .success()
+            .stdout(format!("idx {}\n", env!("CARGO_PKG_VERSION")));
+    }
+}
+
+#[test]
 fn quote_table_with_mock_contains_expected_columns() {
     test_bin("quote-table")
         .env("IDX_USE_MOCK_PROVIDER", "1")
