@@ -1,0 +1,98 @@
+---
+title: Install
+description: Install idx with npm, the install script, Cargo or Nix.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Prebuilt binaries cover Linux x64/arm64 (static) and macOS arm64/x64. On
+Windows, use WSL.
+
+:::tip[Let your agent do it]
+Paste this into Claude Code, Codex, Cursor or another coding agent:
+
+```text wrap
+Install idx-cli and its MCP server for me by following https://idx.rasyidanaf.com/agents/install.md, then show me that it works.
+```
+:::
+
+<Tabs syncKey="install">
+<TabItem label="npm">
+
+```bash
+npm install --global idx-cli
+npx idx-cli --help            # or run without installing
+```
+
+The package downloads the checksum-verified release binary during
+`postinstall`. pnpm 10+ and bun skip install scripts by default; allow them
+with `pnpm add --global --allow-build=idx-cli idx-cli` or
+`bun add --global --trust idx-cli`.
+
+</TabItem>
+<TabItem label="Install script">
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/0xrsydn/idx-cli/main/install.sh | sh
+```
+
+Downloads the binary for your platform from GitHub Releases, verifies it
+against the release `SHA256SUMS`, and installs it into `~/.local/bin` without
+sudo. Pin a version or change the directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/0xrsydn/idx-cli/main/install.sh | sh -s -- --version v0.3.1 --dir ~/bin
+```
+
+</TabItem>
+<TabItem label="Cargo">
+
+```bash
+cargo install idx-cli
+```
+
+Builds from source. Requires Rust 1.89 or newer.
+
+</TabItem>
+<TabItem label="Nix">
+
+```bash
+nix profile install github:0xrsydn/idx-cli
+nix run github:0xrsydn/idx-cli -- version   # or run without installing
+```
+
+The Nix package bundles the helper tools below.
+
+</TabItem>
+</Tabs>
+
+Check it works:
+
+```bash
+idx version
+```
+
+## Helper tools
+
+Everyday use needs nothing else: stock data with the default MSN provider,
+price history, `ownership sync` and every local ownership query. A few
+commands call external tools:
+
+| Tool | Needed for |
+| --- | --- |
+| `curl_chrome*` from [curl-impersonate](https://github.com/lexiforest/curl-impersonate), or `IDX_CURL_IMPERSONATE_BIN` | `ownership discover` and `ownership import --url` (IDX sits behind Cloudflare), and Yahoo fundamentals with `IDX_PROVIDER=yahoo` |
+| `mutool` from MuPDF | importing legacy PDF ownership reports |
+
+## The MCP server
+
+`idx-mcp` installs the same ways (`npx -y idx-mcp`, `cargo install idx-mcp`,
+or `nix profile install github:0xrsydn/idx-cli#idx-mcp`). See
+[MCP setup](/mcp/setup/).
+
+## Shell completions
+
+```bash
+idx completions bash > ~/.local/share/bash-completion/completions/idx
+idx completions zsh  > "${fpath[1]}/_idx"
+idx completions fish > ~/.config/fish/completions/idx.fish
+```

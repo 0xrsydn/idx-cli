@@ -1,0 +1,61 @@
+---
+title: Set up idx-mcp
+description: Add idx-mcp to Claude Code, Codex, Cursor, opencode, pi, Hermes or any MCP client.
+sidebar:
+  label: Setup
+---
+
+import McpClientTabs from '../../../components/McpClientTabs.astro';
+
+:::tip[Quickest: let your agent do it]
+Paste this into your coding agent. It follows
+[agents/install.md](/agents/install/): installs idx, registers idx-mcp with
+itself, syncs ownership data and runs a test call. It asks before changing
+global config.
+
+```text wrap
+Install idx-cli and its MCP server for me by following https://idx.rasyidanaf.com/agents/install.md, then show me that it works.
+```
+:::
+
+Or set it up yourself:
+
+## 1. Get the server
+
+Nothing to install if your client can run `npx`: the configs below use
+`npx -y idx-mcp`. Otherwise install the binary once and use `idx-mcp` as the
+command:
+
+```bash
+cargo install idx-mcp                                  # Rust 1.89+
+nix profile install github:0xrsydn/idx-cli#idx-mcp
+```
+
+## 2. Add it to your client
+
+<McpClientTabs />
+
+The Claude Code, Codex, opencode, pi and Hermes setups are the ones
+`tests/agents/agent-smoke.sh` drives with the real agents.
+
+## 3. Get ownership data
+
+Ownership tools read a local database. Fill it once:
+
+```bash
+npx -y idx-cli ownership sync    # or: idx ownership sync
+```
+
+Or start the server with `--allow-sync` so the agent can call
+`ownership_sync` itself.
+
+## 4. Check it works
+
+Ask your agent:
+
+> What is BBCA's free float, and who is its largest holder?
+
+It should call `get_shareholders` and answer with the free float and
+DWIMURIA INVESTAMA ANDALAN, the largest holder.
+
+See [all tools](/mcp/tools/).

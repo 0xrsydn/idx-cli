@@ -184,6 +184,9 @@ tool (it downloads several MB).
 
 ## Documentation
 
+User docs, MCP setup per agent, and agent-readable `llms.txt`:
+**https://idx.rasyidanaf.com**. Maintainer docs:
+
 - [docs/INSTALL.md](docs/INSTALL.md): install script options
 - [docs/NPM_DISTRIBUTION.md](docs/NPM_DISTRIBUTION.md): npm package and release flow
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): providers, ownership ingest, and discovery

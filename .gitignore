@@ -21,3 +21,6 @@ research/
 
 /target
 out.txt
+
+# Cloudflare CLI account cache
+.cloudflare/

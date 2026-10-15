@@ -8,7 +8,7 @@ edition = "2024"
 rust-version = "1.89"
 license = "MIT"
 repository = "https://github.com/0xrsydn/idx-cli"
-homepage = "https://github.com/0xrsydn/idx-cli"
+homepage = "https://idx.rasyidanaf.com"
 
 [workspace.dependencies]
 idx-core = { path = "crates/idx-core", version = "=0.3.1" }

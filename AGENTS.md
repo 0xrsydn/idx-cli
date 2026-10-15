@@ -23,6 +23,7 @@ crates/idx-cli/             binary `idx`
 crates/idx-mcp/             binary `idx-mcp`: stdio MCP tools (server.rs), inputs (params.rs)
 └── tests/mcp.rs            JSON-RPC over stdio against the mock provider
 tests/agents/               opt-in agent smoke test: real coding agents against idx-mcp
+web/                        website + user docs (Astro Starlight, bun); deployed by Cloudflare Pages
 scripts/                    smoke, installer, and ownership snapshot publisher
 ```
 
@@ -54,4 +55,11 @@ nix flake check -L                       # canonical gate (fmt, clippy, tests, p
 nix develop --command cargo test <name>  # focused loop
 scripts/live-smoke.sh --compare <old>    # live drift check, A/B against an older build
 tests/agents/agent-smoke.sh              # after changing idx-mcp tools: real agents, opt-in
+nix develop .#web --command sh -c 'cd web && bun install && bun run build'   # website
 ```
+
+## Website
+User-facing docs live in `web/src/content/docs/`; `docs/` is for maintainers.
+When CLI help or idx-mcp tools change, regenerate the reference pages
+(`web/scripts/gen-cli-reference.sh <idx>` and `web/scripts/gen-mcp-tools.sh
+crates/idx-mcp/tests/golden/tools.json`); `nix flake check` fails until you do.

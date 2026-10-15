@@ -272,6 +272,18 @@
               jq -se 'map(select(.id == 2))[0].result.tools | length == 11' out.jsonl
               touch "$out"
             '';
+          # The website's generated pages match the CLI help and the MCP
+          # tools golden; regenerate with web/scripts/gen-*.sh.
+          web-generated = pkgs.runCommand "idx-web-generated"
+            { nativeBuildInputs = with pkgs; [ bash coreutils diffutils gawk gnused jq ]; }
+            ''
+              export HOME="$TMPDIR" XDG_CACHE_HOME="$TMPDIR/cache" XDG_CONFIG_HOME="$TMPDIR/config"
+              bash ${./web/scripts/gen-cli-reference.sh} ${idxPackage}/bin/idx > reference.md
+              diff -u ${./web/src/content/docs/cli/reference.md} reference.md
+              bash ${./web/scripts/gen-mcp-tools.sh} ${./crates/idx-mcp/tests/golden/tools.json} > tools.md
+              diff -u ${./web/src/content/docs/mcp/tools.md} tools.md
+              touch "$out"
+            '';
           install-script-sh = installerCheck "sh";
           install-script-dash = installerCheck "dash";
           shellcheck = pkgs.runCommand "idx-shellcheck" {
@@ -281,6 +293,7 @@
             shellcheck ${installerSrc}/scripts/install-sh-test.sh
             shellcheck ${./scripts/live-smoke.sh}
             shellcheck ${./tests/agents/agent-smoke.sh}
+            shellcheck ${./web/scripts/gen-cli-reference.sh} ${./web/scripts/gen-mcp-tools.sh}
             touch "$out"
           '';
           publisher-test = pkgs.runCommand "idx-publisher-test" {
@@ -313,6 +326,11 @@
               export PATH="$PATH:${lib.makeBinPath (with agentPkgs; [ claude-code codex opencode ])}"
             '';
           });
+
+        # `nix develop .#web`: bun for the website in web/.
+        devShells.web = pkgs.mkShell {
+          packages = with pkgs; [ bun nodejs_22 jq ];
+        };
 
         devShells.default = pkgs.mkShell {
           inputsFrom = [ idxPackage ];
