@@ -20,6 +20,7 @@ export default defineConfig({
 				'@fontsource/jetbrains-mono/400.css',
 				'./src/styles/theme.css',
 			],
+			routeMiddleware: './src/routeData.ts',
 			components: {
 				PageTitle: './src/components/PageTitle.astro',
 			},

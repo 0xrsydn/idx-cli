@@ -122,6 +122,7 @@ stack.
 | `/mcp/tools` | `crates/idx-mcp/tests/golden/tools.json` | rendered at build time from the golden |
 | Terminal panels, BBCA table | real `idx` runs | copied by hand and labelled with their date; refresh after a new month |
 | Install, guides | hand-written | reviewed when the README changes |
+| Open Graph cards (`/og.png`, `/og/<page>.png`) | `src/og/cards.ts` | rendered at build time (satori + sharp); the site card's BBCA split is refreshed with the terminal panels |
 
 The README shrinks to a pitch, one install line per channel, and a link to the
 site. The site becomes the one place for user docs.

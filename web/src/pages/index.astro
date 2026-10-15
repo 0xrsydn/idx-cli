@@ -25,7 +25,8 @@ const installs = [
 const agents = mcpClients;
 
 // Captured by hand from `idx ownership ticker BBCA` on the 2026-09-30 snapshot;
-// the section shows that date. Refresh it (and the terminal panel) after a new month.
+// the section shows that date. Refresh it (and the terminal panel, and the
+// og.png spotlight in src/og/cards.ts) after a new month.
 const holders = [
 	{ name: 'DWIMURIA INVESTAMA ANDALAN', type: 'Corporate', shares: '67,729,950,000', pct: 54.94 },
 	{ name: 'ANTHONI SALIM', type: 'Individual', shares: '1,416,306,835', pct: 1.15 },
@@ -51,6 +52,11 @@ const copyIcon =
 		<meta property="og:description" content="A Rust CLI and MCP server for IDX market data and KSEI shareholder ownership." />
 		<meta property="og:url" content="https://idx.rasyidanaf.com/" />
 		<meta property="og:type" content="website" />
+		<meta property="og:image" content="https://idx.rasyidanaf.com/og.png" />
+		<meta property="og:image:width" content="1200" />
+		<meta property="og:image:height" content="630" />
+		<meta property="og:image:alt" content="idx: Indonesian stocks and ownership, in your terminal and your agent. BBCA's KSEI ownership split." />
+		<meta name="twitter:card" content="summary_large_image" />
 	</head>
 	<body>
 		<header class="bar">
