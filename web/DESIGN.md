@@ -40,6 +40,7 @@ Non-goals: a blog, a hosted API, live market data on the site, user accounts.
 /mcp/setup                one tab per client (see below)
 /mcp/tools                generated: the 11 tools (plus opt-in ownership_sync)
 /agents                   using idx from an agent: contract, recipes, skill file
+/agents/install.md        instructions an agent follows to install and register idx
 /about                    data sources, freshness, disclaimer, license
 /llms.txt, /llms-full.txt generated
 ```
@@ -124,6 +125,23 @@ The README shrinks to a pitch, one install line per channel, and a link to the
 site. The site becomes the one place for user docs.
 
 ## Agent features
+
+- **Agent-led install.** The landing install tabs end with "Ask your agent",
+  and the MCP setup page opens with the same box: a one-line prompt to paste
+  into any coding agent:
+
+  > Install idx-cli and its MCP server for me by following
+  > https://idx.rasyidanaf.com/agents/install.md, then show me that it works.
+
+  The prompt stays short and stable; the instructions live in
+  `/agents/install.md`, served as plain Markdown. That file tells the agent
+  to: detect OS and architecture; pick npm, the install script or Cargo
+  (no sudo); confirm with `idx --version`; work out which harness it is
+  running in and register `idx-mcp` with that harness's config from the
+  setup tabs; ask before editing global config; run `idx ownership sync`;
+  and finish with a test call (`get_shareholders BBCA`) reported back to the
+  user. `tests/agents/agent-smoke.sh` gains a case that runs this prompt
+  against each agent in a throwaway home, so the instructions stay working.
 
 - `/llms.txt` (index) and `/llms-full.txt` (all docs in one file), from the
   `starlight-llms-txt` plugin.
