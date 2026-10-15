@@ -120,7 +120,7 @@ stack.
 | --- | --- | --- |
 | `/cli/reference` | `idx --help` per command | a script runs the built binary and writes Markdown |
 | `/mcp/tools` | `crates/idx-mcp/tests/golden/tools.json` | rendered at build time from the golden |
-| Terminal panels | real `idx` runs | `web/scripts/capture.sh` saves output with a date; refreshed by hand |
+| Terminal panels, BBCA table | real `idx` runs | copied by hand and labelled with their date; refresh after a new month |
 | Install, guides | hand-written | reviewed when the README changes |
 
 The README shrinks to a pitch, one install line per channel, and a link to the
@@ -167,7 +167,7 @@ lives:
 - **Hermes:** `config.yaml`, `mcp_servers.idx`.
 - **Other:** the `idx-mcp` command over stdio.
 
-These configs are the ones `tests/agents/agent-smoke.sh` already runs, so the
+The Claude Code, Codex, opencode, pi and Hermes configs are the ones `tests/agents/agent-smoke.sh` already runs, so the
 site can link that script as proof they work.
 
 ## Stack

@@ -3,6 +3,8 @@ title: Agent-led install
 description: Instructions for a coding agent to install idx and register idx-mcp with itself.
 ---
 
+import McpClientTabs from '../../../components/McpClientTabs.astro';
+
 This page is written for a coding agent. A user sent you here to install
 **idx** (a CLI for Indonesian stock market and KSEI ownership data) and
 register its MCP server, **idx-mcp**, with the agent harness you are running
@@ -44,22 +46,14 @@ Confirm with `idx version` (or `npx -y idx-cli version`).
 
 ## 3. Register idx-mcp with yourself
 
-Work out which harness you are, then apply its setup. Use `npx` and
-`["-y", "idx-mcp"]` as command and arguments, or `idx-mcp` with no arguments
-if you installed the binary.
+Work out which harness you are, then apply its setup below. If you installed
+the `idx-mcp` binary instead of using Node.js, use the command `idx-mcp` with
+no arguments in place of `npx -y idx-mcp`. For any other harness, find how it
+registers a stdio MCP server, and ask the user if unsure.
 
-| Harness | How |
-| --- | --- |
-| Claude Code | run `claude mcp add idx -- npx -y idx-mcp` |
-| Codex | add to `~/.codex/config.toml`: `[mcp_servers.idx]` with `command = "npx"`, `args = ["-y", "idx-mcp"]` |
-| Cursor | add to `~/.cursor/mcp.json` under `mcpServers`: `"idx": {"command": "npx", "args": ["-y", "idx-mcp"]}` |
-| opencode | add to `~/.config/opencode/opencode.json` under `mcp`: `"idx": {"type": "local", "command": ["npx", "-y", "idx-mcp"], "enabled": true}` |
-| pi | add to `~/.pi/agent/mcp.json` under `mcpServers`: `"idx": {"command": "npx", "args": ["-y", "idx-mcp"], "exposure": "direct"}` |
-| Hermes | add to `~/.hermes/config.yaml` under `mcp_servers`: `idx` with `command: npx`, `args: ["-y", "idx-mcp"]`, `enabled: true` |
-| anything else | find how your harness registers a stdio MCP server, and ask the user if unsure |
+<McpClientTabs />
 
-Merge into existing files; never overwrite other servers or settings. Full
-examples: [MCP setup](/mcp/setup/).
+Merge into existing files; never overwrite other servers or settings.
 
 ## 4. Download ownership data
 

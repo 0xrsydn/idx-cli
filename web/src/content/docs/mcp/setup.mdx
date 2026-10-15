@@ -5,7 +5,7 @@ sidebar:
   label: Setup
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import McpClientTabs from '../../../components/McpClientTabs.astro';
 
 :::tip[Quickest: let your agent do it]
 Paste this into your coding agent. It follows
@@ -33,91 +33,10 @@ nix profile install github:0xrsydn/idx-cli#idx-mcp
 
 ## 2. Add it to your client
 
-<Tabs syncKey="agent">
-<TabItem label="Claude Code">
+<McpClientTabs />
 
-```bash
-claude mcp add idx -- npx -y idx-mcp
-```
-
-</TabItem>
-<TabItem label="Codex">
-
-`~/.codex/config.toml`:
-
-```toml
-[mcp_servers.idx]
-command = "npx"
-args = ["-y", "idx-mcp"]
-```
-
-</TabItem>
-<TabItem label="Cursor">
-
-`~/.cursor/mcp.json` (or `.cursor/mcp.json` in a project):
-
-```json
-{
-  "mcpServers": {
-    "idx": { "command": "npx", "args": ["-y", "idx-mcp"] }
-  }
-}
-```
-
-</TabItem>
-<TabItem label="opencode">
-
-`opencode.json` in a project, or `~/.config/opencode/opencode.json`:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "idx": { "type": "local", "command": ["npx", "-y", "idx-mcp"], "enabled": true }
-  }
-}
-```
-
-</TabItem>
-<TabItem label="pi">
-
-`~/.pi/agent/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "idx": { "command": "npx", "args": ["-y", "idx-mcp"], "exposure": "direct" }
-  }
-}
-```
-
-`"exposure": "direct"` gives the agent each tool by name.
-
-</TabItem>
-<TabItem label="Hermes">
-
-`~/.hermes/config.yaml`:
-
-```yaml
-mcp_servers:
-  idx:
-    command: npx
-    args: ["-y", "idx-mcp"]
-    enabled: true
-```
-
-</TabItem>
-<TabItem label="Other">
-
-Any MCP client that runs stdio servers: command `npx`, arguments
-`-y idx-mcp` (or the command `idx-mcp` if installed). Add `--allow-sync` to
-the arguments to expose `ownership_sync`.
-
-</TabItem>
-</Tabs>
-
-These are the setups that `tests/agents/agent-smoke.sh` drives with real
-agents.
+The Claude Code, Codex, opencode, pi and Hermes setups are the ones
+`tests/agents/agent-smoke.sh` drives with the real agents.
 
 ## 3. Get ownership data
 

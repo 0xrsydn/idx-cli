@@ -4,6 +4,11 @@ import '@fontsource/ibm-plex-sans/600.css';
 import '@fontsource/ibm-plex-sans/700.css';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/700.css';
+import { readFileSync } from 'node:fs';
+import { mcpClients, smokeTestedLabels } from '../data/mcp-clients';
+
+// The released version, from the workspace Cargo.toml (builds run in web/).
+const version = readFileSync('../Cargo.toml', 'utf8').match(/^version = "([^"]+)"/m)?.[1] ?? '';
 
 const agentPrompt =
 	'Install idx-cli and its MCP server for me by following https://idx.rasyidanaf.com/agents/install.md, then show me that it works.';
@@ -16,17 +21,10 @@ const installs = [
 	{ id: 'agent', label: 'Ask your agent', cmd: agentPrompt, prompt: true, note: 'Paste into Claude Code, Codex, Cursor or any coding agent. It installs idx, registers idx-mcp with itself, and asks before changing global config.' },
 ];
 
-const agents = [
-	{ id: 'claude', label: 'Claude Code', file: 'terminal', code: 'claude mcp add idx -- npx -y idx-mcp' },
-	{ id: 'codex', label: 'Codex', file: '~/.codex/config.toml', code: '[mcp_servers.idx]\ncommand = "npx"\nargs = ["-y", "idx-mcp"]' },
-	{ id: 'cursor', label: 'Cursor', file: '~/.cursor/mcp.json', code: '{\n  "mcpServers": {\n    "idx": { "command": "npx", "args": ["-y", "idx-mcp"] }\n  }\n}' },
-	{ id: 'opencode', label: 'opencode', file: 'opencode.json', code: '{\n  "mcp": {\n    "idx": { "type": "local", "command": ["npx", "-y", "idx-mcp"] }\n  }\n}' },
-	{ id: 'pi', label: 'pi', file: '~/.pi/agent/mcp.json', code: '{\n  "mcpServers": {\n    "idx": { "command": "npx", "args": ["-y", "idx-mcp"], "exposure": "direct" }\n  }\n}' },
-	{ id: 'hermes', label: 'Hermes', file: '~/.hermes/config.yaml', code: 'mcp_servers:\n  idx:\n    command: npx\n    args: ["-y", "idx-mcp"]\n    enabled: true' },
-	{ id: 'other', label: 'Other', file: 'any MCP client (stdio)', code: 'command: npx\nargs: -y idx-mcp\n# add --allow-sync to expose ownership_sync' },
-];
+const agents = mcpClients;
 
-// Captured from `idx ownership ticker BBCA` on the 2026-09-30 snapshot.
+// Captured by hand from `idx ownership ticker BBCA` on the 2026-09-30 snapshot;
+// the section shows that date. Refresh it (and the terminal panel) after a new month.
 const holders = [
 	{ name: 'DWIMURIA INVESTAMA ANDALAN', type: 'Corporate', shares: '67,729,950,000', pct: 54.94 },
 	{ name: 'ANTHONI SALIM', type: 'Individual', shares: '1,416,306,835', pct: 1.15 },
@@ -69,7 +67,7 @@ const copyIcon =
 		<main>
 			<section class="wrap hero">
 				<div class="hero-text">
-					<div class="eyebrow">v0.3.1 · Rust · MIT</div>
+					<div class="eyebrow">v{version} · Rust · MIT</div>
 					<h1>Indonesian stocks and ownership, in your terminal and your agent.</h1>
 					<p class="lede">Quotes, fundamentals, technicals and KSEI shareholder data for every IDX stock. Tables for you, JSON for scripts, and an MCP server for AI agents.</p>
 
@@ -143,7 +141,7 @@ TLKM.JK   2,250   <span class="up">+0.45%</span>   87,159,900
 			<section id="agents" class="wrap split">
 				<div class="side">
 					<h2 class="h2">Add idx to your agent</h2>
-					<p class="muted-p">idx-mcp serves the same data over stdio. Each setup below is the one our agent smoke test runs against real agents.</p>
+					<p class="muted-p">idx-mcp serves the same data over stdio. Our agent smoke test runs the {new Intl.ListFormat("en", { type: "conjunction" }).format(smokeTestedLabels)} setups against the real agents.</p>
 					<div class="card">
 						<div class="label">Ask it</div>
 						<div class="ask">"Who are BBCA's largest holders, and what changed last month?"</div>
@@ -156,7 +154,7 @@ TLKM.JK   2,250   <span class="up">+0.45%</span>   87,159,900
 							<button type="button" class="copy" data-copy={agentPrompt} aria-label="Copy agent prompt" set:html={copyIcon} />
 						</div>
 					</div>
-					<a class="more" href="/mcp/tools/">See all 11 tools →</a>
+					<a class="more" href="/mcp/tools/">See all tools →</a>
 				</div>
 
 				<div class="main-col tabs" data-tabs>

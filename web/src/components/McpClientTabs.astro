@@ -1,0 +1,15 @@
+---
+import { Code, TabItem, Tabs } from '@astrojs/starlight/components';
+import { mcpClients } from '../data/mcp-clients';
+---
+
+<Tabs syncKey="agent">
+	{
+		mcpClients.map((c) => (
+			<TabItem label={c.label}>
+				<p>{/[~/]/.test(c.file) ? <code>{c.file}</code> : c.file}</p>
+				<Code code={c.code} lang={c.lang} />
+			</TabItem>
+		))
+	}
+</Tabs>
