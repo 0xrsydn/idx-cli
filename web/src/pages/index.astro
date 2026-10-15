@@ -4,11 +4,12 @@ import '@fontsource/ibm-plex-sans/600.css';
 import '@fontsource/ibm-plex-sans/700.css';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/700.css';
-import { readFileSync } from 'node:fs';
+import cargoToml from '../../../Cargo.toml?raw';
 import { mcpClients, smokeTestedLabels } from '../data/mcp-clients';
 
-// The released version, from the workspace Cargo.toml (builds run in web/).
-const version = readFileSync('../Cargo.toml', 'utf8').match(/^version = "([^"]+)"/m)?.[1] ?? '';
+// The released version, from the workspace Cargo.toml (resolved at bundle time,
+// relative to this file, so the build's working directory doesn't matter).
+const version = cargoToml.match(/^\[workspace\.package\][\s\S]*?^version = "([^"]+)"/m)?.[1] ?? '';
 
 const agentPrompt =
 	'Install idx-cli and its MCP server for me by following https://idx.rasyidanaf.com/agents/install.md, then show me that it works.';
