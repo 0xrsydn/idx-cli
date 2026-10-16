@@ -357,6 +357,8 @@ fn ownership_tools_read_the_local_database() {
             json!({"from": "2026-01-30", "to": "2026-02-27", "limit": 2, "offset": next}),
         );
         paged.extend(page["changes"].as_array().unwrap().iter().cloned());
+        // The summary covers all rows, so every page carries the same one.
+        assert_eq!(page["summary"], all["summary"], "offset {next}");
         offset = page["next_offset"].as_u64();
     }
     assert_eq!(paged.len() as u64, total);
@@ -376,6 +378,21 @@ fn ownership_tools_read_the_local_database() {
         total
     );
     assert!(all["summary"]["tickers"].as_u64().unwrap() >= 1, "{all}");
+
+    // Past the end: an empty last page, not an error.
+    for past in [total, total + 5] {
+        let page = client.ok(
+            "get_ownership_changes",
+            json!({"from": "2026-01-30", "to": "2026-02-27", "offset": past}),
+        );
+        assert_eq!(page["total"], total, "offset {past}");
+        assert_eq!(
+            page["changes"].as_array().unwrap().len(),
+            0,
+            "offset {past}"
+        );
+        assert!(page["next_offset"].is_null(), "offset {past}: {page}");
+    }
 
     let (is_error, body) = client.call(
         "get_ownership_changes",
