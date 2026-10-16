@@ -2,12 +2,15 @@
 //! `Idx` (as one CLI invocation would), so tools share the CLI's on-disk
 //! cache and ownership database.
 
+use std::collections::BTreeMap;
+
 use idx_core::analysis::fundamental::FundamentalReport;
 use idx_core::config::CoreConfig;
 use idx_core::error::IdxError;
 use idx_core::financial::{EarningsFilter, StatementFilter};
 use idx_core::investor::{HolderSource, Investor};
 use idx_core::market::{ScreenFilter, ScreenQuery, ScreenRegion};
+use idx_core::ownership::types::ChangeRow;
 use idx_core::{CachePolicy, Fetched, Idx};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -32,7 +35,9 @@ const CHANGES_LIMIT: usize = 200;
 const MAX_SYMBOLS: usize = 20;
 const MAX_SCREEN_LIMIT: usize = 200;
 const MAX_SEARCH_LIMIT: usize = 100;
-const MAX_CHANGES_LIMIT: usize = 2000;
+// Pages above a few hundred rows (~40 KB) overflow some agents' tool output.
+const MAX_CHANGES_LIMIT: usize = 300;
+const CHANGES_TOP_TICKERS: usize = 10;
 
 /// Tool calls running at once; the rest wait their turn.
 static CALL_SLOTS: Semaphore = Semaphore::const_new(4);
@@ -294,8 +299,10 @@ with concentration metrics (top1, top3, HHI, free float)."
     }
 
     #[tool(
-        description = "Holder changes (new, exit, increase, decrease) between two KSEI \
-release dates, optionally for one ticker."
+        description = "Holder changes (new, exited, increased, decreased) between two KSEI \
+release dates, optionally for one ticker. Rows come largest change first, one page at a time: \
+`summary` covers all of them (counts by type, tickers with the most changes), and \
+`next_offset` is the `offset` for the next page, or null after the last."
     )]
     async fn get_ownership_changes(&self, params: Parameters<ChangesParams>) -> ToolResult {
         let ChangesParams {
@@ -303,13 +310,39 @@ release dates, optionally for one ticker."
             to,
             ticker,
             limit,
+            offset,
         } = params.0;
         self.local(move |investor| {
-            let limit = bounded_limit("limit", limit, CHANGES_LIMIT, MAX_CHANGES_LIMIT)?;
+            let limit = bounded_limit("limit", limit, CHANGES_LIMIT, MAX_CHANGES_LIMIT).map_err(
+                |error| match error {
+                    IdxError::InvalidInput(message) => IdxError::InvalidInput(format!(
+                        "{message}; page with `offset`, or use `summary` for an overview"
+                    )),
+                    other => other,
+                },
+            )?;
+            let offset = offset.unwrap_or(0);
             let mut changes = investor.changes(&from, &to, ticker.as_deref())?;
+            changes.sort_by(|a, b| {
+                b.delta_bps
+                    .abs()
+                    .cmp(&a.delta_bps.abs())
+                    .then_with(|| a.ticker_code.cmp(&b.ticker_code))
+                    .then_with(|| a.entity_name.cmp(&b.entity_name))
+            });
             let total = changes.len();
-            changes.truncate(limit);
-            Ok(json!({ "from": from, "to": to, "total": total, "changes": changes }))
+            let summary = changes_summary(&changes);
+            let page: Vec<_> = changes.into_iter().skip(offset).take(limit).collect();
+            let next_offset = (offset + page.len() < total).then_some(offset + page.len());
+            Ok(json!({
+                "from": from,
+                "to": to,
+                "total": total,
+                "summary": summary,
+                "offset": offset,
+                "next_offset": next_offset,
+                "changes": page,
+            }))
         })
         .await
     }
@@ -453,6 +486,33 @@ fn dedup_in_order<T: PartialEq + Copy>(values: &mut Vec<T>) {
         }
         new
     });
+}
+
+/// Counts by change type and the tickers with the most changes, so an agent
+/// can answer an overview question without paging through every row.
+fn changes_summary(changes: &[ChangeRow]) -> Value {
+    let mut by_type: BTreeMap<String, usize> = BTreeMap::new();
+    let mut by_ticker: BTreeMap<&str, usize> = BTreeMap::new();
+    for row in changes {
+        let kind = serde_json::to_value(row.change_type)
+            .ok()
+            .and_then(|value| value.as_str().map(str::to_string))
+            .unwrap_or_default();
+        *by_type.entry(kind).or_default() += 1;
+        *by_ticker.entry(row.ticker_code.as_str()).or_default() += 1;
+    }
+    let tickers = by_ticker.len();
+    let mut top: Vec<_> = by_ticker.into_iter().collect();
+    top.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    top.truncate(CHANGES_TOP_TICKERS);
+    json!({
+        "by_type": by_type,
+        "tickers": tickers,
+        "top_tickers": top
+            .into_iter()
+            .map(|(ticker, changes)| json!({ "ticker": ticker, "changes": changes }))
+            .collect::<Vec<_>>(),
+    })
 }
 
 fn bounded_limit(

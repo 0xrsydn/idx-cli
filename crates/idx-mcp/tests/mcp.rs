@@ -346,6 +346,44 @@ fn ownership_tools_read_the_local_database() {
     );
     assert_eq!(limited["total"], total);
     assert_eq!(limited["changes"].as_array().unwrap().len(), 1);
+    assert_eq!(limited["next_offset"], 1);
+
+    // Pages cover every row exactly once, largest change first.
+    let mut paged = Vec::new();
+    let mut offset = Some(0);
+    while let Some(next) = offset {
+        let page = client.ok(
+            "get_ownership_changes",
+            json!({"from": "2026-01-30", "to": "2026-02-27", "limit": 2, "offset": next}),
+        );
+        paged.extend(page["changes"].as_array().unwrap().iter().cloned());
+        offset = page["next_offset"].as_u64();
+    }
+    assert_eq!(paged.len() as u64, total);
+    assert_eq!(&paged, all["changes"].as_array().unwrap());
+    let deltas: Vec<_> = paged
+        .iter()
+        .map(|row| row["delta_bps"].as_i64().unwrap().abs())
+        .collect();
+    assert!(
+        deltas.windows(2).all(|pair| pair[0] >= pair[1]),
+        "{deltas:?}"
+    );
+
+    let by_type = all["summary"]["by_type"].as_object().unwrap();
+    assert_eq!(
+        by_type.values().map(|n| n.as_u64().unwrap()).sum::<u64>(),
+        total
+    );
+    assert!(all["summary"]["tickers"].as_u64().unwrap() >= 1, "{all}");
+
+    let (is_error, body) = client.call(
+        "get_ownership_changes",
+        json!({"from": "2026-01-30", "to": "2026-02-27", "limit": 301}),
+    );
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "INVALIDINPUT");
+    assert!(body.to_string().contains("offset"), "{body}");
 
     let one = client.ok(
         "get_ownership_changes",
