@@ -1,6 +1,6 @@
 {
   "name": "idx-mcp",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "MCP server for Indonesian stock market (IDX) market, financial, and ownership data",
   "license": "MIT",
   "repository": {

@@ -11,7 +11,7 @@ Each release also carries a copy of the script as a release asset, so a
 versioned URL stays stable:
 
 ```bash
-curl -fsSL https://github.com/0xrsydn/idx-cli/releases/download/v0.3.1/install.sh | sh
+curl -fsSL https://github.com/0xrsydn/idx-cli/releases/download/v0.3.2/install.sh | sh
 ```
 
 ## What it does
@@ -45,7 +45,7 @@ them yourself.
 Pass flags through the pipe with `sh -s --`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/0xrsydn/idx-cli/main/install.sh | sh -s -- --version v0.3.1 --dir ~/bin
+curl -fsSL https://raw.githubusercontent.com/0xrsydn/idx-cli/main/install.sh | sh -s -- --version v0.3.2 --dir ~/bin
 ```
 
 ## Supported platforms

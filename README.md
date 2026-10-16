@@ -13,7 +13,7 @@ curl -fsSL https://raw.githubusercontent.com/0xrsydn/idx-cli/main/install.sh | s
 Downloads the prebuilt `idx` binary for your platform from GitHub Releases,
 verifies it against the release `SHA256SUMS`, and installs it into
 `~/.local/bin` without sudo. Pin a version or change the directory with
-`sh -s -- --version v0.3.1 --dir ~/bin`. See [docs/INSTALL.md](docs/INSTALL.md).
+`sh -s -- --version v0.3.2 --dir ~/bin`. See [docs/INSTALL.md](docs/INSTALL.md).
 
 ### npm / npx
 

@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "idx-cli"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "assert_cmd",
  "chrono",
@@ -921,7 +921,7 @@ dependencies = [
 
 [[package]]
 name = "idx-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "chrono",
  "clap",
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "idx-mcp"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "clap",
  "idx-core",
