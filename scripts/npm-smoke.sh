@@ -109,10 +109,13 @@ XDG_CACHE_HOME="${smoke_dir}/user-cache" IDX_BINARY_URL="${repo_root}/target/rel
 # Without an absolute cache root (empty HOME) there is no cache fallback, so a
 # binary planted under the current directory is never run.
 planted_dir="${smoke_dir}/planted"
-planted="${planted_dir}/.cache/idx-mcp/$(node -p 'require("./npm/idx-mcp/package.json").version')/$(node -p 'process.platform + "-" + process.arch')/idx-mcp"
-mkdir -p "$(dirname "$planted")"
-printf '#!/bin/sh\necho PLANTED\n' > "$planted"
-chmod +x "$planted"
+planted_rel="idx-mcp/$(node -p 'require("./npm/idx-mcp/package.json").version')/$(node -p 'process.platform + "-" + process.arch')/idx-mcp"
+# Both cache layouts: ~/.cache (Linux) and ~/Library/Caches (macOS).
+for planted in "${planted_dir}/.cache/${planted_rel}" "${planted_dir}/Library/Caches/${planted_rel}"; do
+  mkdir -p "$(dirname "$planted")"
+  printf '#!/bin/sh\necho PLANTED\n' > "$planted"
+  chmod +x "$planted"
+done
 if (cd "$planted_dir" && HOME='' XDG_CACHE_HOME='' "${read_only_dir}/node_modules/.bin/idx-mcp" --help 2>&1) | grep -q PLANTED; then
   echo "npm smoke: the launcher ran a binary from the current directory" >&2
   exit 1
