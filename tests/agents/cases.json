@@ -38,5 +38,29 @@
       "prompt": "Which shareholders changed between the two most recent KSEI releases?",
       "expect_tools": [{"name": "get_ownership_changes", "args": {"from": "{previous_release}", "to": "{latest_release}"}}]
     }
+  },
+  {
+    "id": "news",
+    "prompt": "What is the latest news about BBCA?",
+    "expect_tools": [{"name": "get_company", "args": {"symbol": "BBCA"}}],
+    "expect_text": []
+  },
+  {
+    "id": "history",
+    "prompt": "Show BBCA's daily closing prices for the past month.",
+    "expect_tools": [{"name": "get_price_history", "args": {"symbol": "BBCA"}}],
+    "expect_text": []
+  },
+  {
+    "id": "screen",
+    "prompt": "Which IDX stocks are the top performers today?",
+    "expect_tools": [{"name": "screen_stocks"}],
+    "expect_text": []
+  },
+  {
+    "id": "search",
+    "prompt": "Search the KSEI ownership database for investors named Salim.",
+    "expect_tools": [{"name": "search_investors"}],
+    "expect_text": []
   }
 ]
