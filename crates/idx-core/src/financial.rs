@@ -122,7 +122,8 @@ impl Financial<'_> {
         policy: CachePolicy,
     ) -> Result<Fetched<Vec<NewsItem>>, IdxError> {
         let resolved = self.idx.resolve(symbol)?;
-        let key = format!("{resolved}-{limit}");
+        // "ranked": entries cached before relevance ranking lack the field.
+        let key = format!("{resolved}-{limit}-ranked");
         let provider = self.idx.provider.news_provider(&resolved)?;
         let ttl = self.idx.config.quote_ttl;
         let fetched = self.fetch("news", &key, &resolved, ttl, policy, || {

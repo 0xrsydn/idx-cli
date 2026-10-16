@@ -837,10 +837,11 @@ pub fn print_news(items: &[NewsItem]) -> Result<(), IdxError> {
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
-        .set_header(vec!["TITLE", "PROVIDER", "DATE", "URL"]);
+        .set_header(vec!["TITLE", "ABOUT", "PROVIDER", "DATE", "URL"]);
     for item in items {
         table.add_row(vec![
             Cell::new(&item.title),
+            Cell::new(item.relevance.as_str()),
             Cell::new(&item.provider),
             Cell::new(&item.published_at),
             Cell::new(truncate_url(&item.url)),

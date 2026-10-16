@@ -58,7 +58,7 @@
     "name": "compare_stocks"
   },
   {
-    "description": "Company data for one IDX ticker: profile, financial statements, earnings, analyst sentiment, insights, and news. Sections that fail are listed under `errors`; the call fails only if every section fails.",
+    "description": "Company data for one IDX ticker: profile, financial statements, earnings, analyst sentiment, insights, and news. News items carry `relevance`: `company` (about this ticker) first, then `market` (general market news). Sections that fail are listed under `errors`; the call fails only if every section fails.",
     "inputSchema": {
       "$defs": {
         "CompanySection": {

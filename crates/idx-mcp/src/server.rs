@@ -162,8 +162,9 @@ for one or more IDX tickers."
 
     #[tool(
         description = "Company data for one IDX ticker: profile, financial statements, \
-earnings, analyst sentiment, insights, and news. Sections that fail are listed under \
-`errors`; the call fails only if every section fails."
+earnings, analyst sentiment, insights, and news. News items carry `relevance`: \
+`company` (about this ticker) first, then `market` (general market news). Sections \
+that fail are listed under `errors`; the call fails only if every section fails."
     )]
     async fn get_company(&self, params: Parameters<CompanyParams>) -> ToolResult {
         let CompanyParams { symbol, sections } = params.0;

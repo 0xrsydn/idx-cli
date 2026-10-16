@@ -29,7 +29,7 @@ Compare fundamental reports (growth, valuation, risk) across IDX tickers. Ticker
 
 ## `get_company`
 
-Company data for one IDX ticker: profile, financial statements, earnings, analyst sentiment, insights, and news. Sections that fail are listed under `errors`; the call fails only if every section fails.
+Company data for one IDX ticker: profile, financial statements, earnings, analyst sentiment, insights, and news. News items carry `relevance`: `company` (about this ticker) first, then `market` (general market news). Sections that fail are listed under `errors`; the call fails only if every section fails.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
