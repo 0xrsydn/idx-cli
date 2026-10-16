@@ -33,6 +33,10 @@
     "id": "changes",
     "prompt": "Which shareholders changed between the 2026-01-30 and 2026-02-27 KSEI releases?",
     "expect_tools": [{"name": "get_ownership_changes", "args": {"from": "2026-01-30", "to": "2026-02-27"}}],
-    "expect_text": []
+    "expect_text": [],
+    "live": {
+      "prompt": "Which shareholders changed between the two most recent KSEI releases?",
+      "expect_tools": [{"name": "get_ownership_changes"}]
+    }
   }
 ]

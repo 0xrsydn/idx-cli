@@ -111,6 +111,8 @@ each run keeps a copy next to its output as `<case>.<run>.mcp-stderr`.
 - `IDX_AGENT_MODEL_<AGENT>` picks a model (for example
   `IDX_AGENT_MODEL_CLAUDE=sonnet`). `IDX_AGENT_EXEC_PREFIX` prefixes every
   agent command, for hosts that inject API keys through a wrapper.
+- With `--live` (and `--npx`), a case's `live` fields replace its mock ones,
+  for prompts that name data only the fixtures have, such as release dates.
 - The run fails only when an agent fails a case in every run; use `--runs` to
   measure pass rates. `--keep` keeps raw agent output and `results.jsonl`.
 - `nix develop .#agents` adds Claude Code, Codex, and opencode from nixpkgs

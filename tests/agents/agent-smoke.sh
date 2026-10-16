@@ -339,7 +339,9 @@ for agent in "${agents[@]}"; do
     fi
     "setup_$agent"
     for id in "${case_ids[@]}"; do
-        case_json="$(jq -c --arg id "$id" '.[] | select(.id == $id)' "$cases_file")"
+        # A case's "live" fields replace the mock ones, e.g. release dates.
+        case_json="$(jq -c --arg id "$id" --argjson live "$live" '.[] | select(.id == $id)
+            | if $live == 1 then . + (.live // {}) else . end | del(.live)' "$cases_file")"
         prompt="$(jq -r '.prompt' <<< "$case_json") Use the idx MCP tools."
         for ((run = 1; run <= runs; run++)); do
             out="$work/runs/$agent/$id.$run"
