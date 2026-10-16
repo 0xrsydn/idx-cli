@@ -106,9 +106,14 @@ each run keeps a copy next to its output as `<case>.<run>.mcp-stderr`.
   output but still deletes every copied agent config.
 - Tools are auto-approved for the run (Claude `dontAsk` with
   `mcp__idx__*`, Codex `default_tools_approval_mode="approve"`); Claude and pi
-  also get no built-in tools, Hermes only the `idx` toolset, and opencode a
-  permission that denies everything but `idx_*`, so they can only answer
-  through MCP.
+  also get no built-in tools, Hermes only the `idx` toolset, and opencode
+  permissions that deny its shell, file, and web tools, so they can only
+  answer through MCP.
+- opencode 1 (`opencode-ai`) and 2 (`@opencode/cli`) are both supported; the
+  harness reads `opencode --version` and writes the matching config. Version
+  2 runs with `--standalone`, off the shared background service. A wrapper
+  that pins `XDG_*` paths (such as a Nix `opencode2` wrapper) defeats the
+  isolated config dirs; put the plain binary first on PATH.
 - `IDX_AGENT_MODEL_<AGENT>` picks a model (for example
   `IDX_AGENT_MODEL_CLAUDE=sonnet`). `IDX_AGENT_EXEC_PREFIX` prefixes every
   agent command, for hosts that inject API keys through a wrapper.
@@ -118,4 +123,5 @@ each run keeps a copy next to its output as `<case>.<run>.mcp-stderr`.
   measure pass rates. `--keep` keeps raw agent output and `results.jsonl`.
 - `nix develop .#agents` adds Claude Code, Codex, and opencode from nixpkgs
   after your PATH, so installed versions win. pi and Hermes Agent must be
-  installed on the host.
+  installed on the host. The nixpkgs opencode (1.2.17) lacks `run --pure`;
+  use a current opencode 1 or 2.

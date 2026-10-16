@@ -273,19 +273,39 @@ run_hermes() {
 }
 
 setup_opencode() {
+    local version
     mkdir -p "$work/opencode/cwd"
-    jq -n --argjson s "$server_json" \
-        '{"$schema": "https://opencode.ai/config.json",
-          mcp: {idx: {type: "local", command: ([$s.command] + $s.args), environment: $s.env, enabled: true}},
-          permission: {"*": "deny", "idx_*": "allow"}}' \
-        > "$work/opencode/cwd/opencode.json"
+    version="$("${exec_prefix[@]}" opencode --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
+    if [[ "${version%%.*}" -ge 2 ]]; then
+        # OpenCode 2 (@opencode/cli). A denied call ends the run, and models
+        # use Code Mode's `execute` while the server connects, so deny only
+        # the tools that could route around it. --standalone keeps the run
+        # off the shared background service.
+        jq -n --argjson s "$server_json" \
+            '{mcp: {servers: {idx: {type: "local", command: ([$s.command] + $s.args),
+                                    environment: $s.env, codemode: false}}},
+              permissions: ((["read", "edit", "glob", "grep", "shell", "subagent", "skill",
+                              "question", "webfetch", "websearch", "external_directory"]
+                             | map({action: ., resource: "*", effect: "deny"}))
+                            + [{action: "idx_*", resource: "*", effect: "allow"}])}' \
+            > "$work/opencode/cwd/opencode.json"
+        echo --standalone > "$work/opencode/run-flag"
+    else
+        jq -n --argjson s "$server_json" \
+            '{"$schema": "https://opencode.ai/config.json",
+              mcp: {idx: {type: "local", command: ([$s.command] + $s.args), environment: $s.env, enabled: true}},
+              permission: {"*": "deny", "idx_*": "allow"}}' \
+            > "$work/opencode/cwd/opencode.json"
+        echo --pure > "$work/opencode/run-flag"
+    fi
 }
 run_opencode() {
-    local prompt="$1" out="$2" model=() home="$work/opencode"
+    local prompt="$1" out="$2" model=() home="$work/opencode" flag
     [[ -n "${IDX_AGENT_MODEL_OPENCODE:-}" ]] && model=(-m "$IDX_AGENT_MODEL_OPENCODE")
+    flag="$(< "$home/run-flag")"
     (cd "$home/cwd" && XDG_CONFIG_HOME="$home/config" XDG_DATA_HOME="$home/data" \
         XDG_CACHE_HOME="$home/cache" XDG_STATE_HOME="$home/state" \
-        "${exec_prefix[@]}" opencode run --pure --format json "${model[@]}" "$prompt" < /dev/null > "$out.raw")
+        "${exec_prefix[@]}" opencode run "$flag" --format json "${model[@]}" "$prompt" < /dev/null > "$out.raw")
     jq -c 'select(.type=="tool_use") | .part | select(.tool | startswith("idx_"))
            | select(.state.status=="completed") | {name: (.tool | ltrimstr("idx_")), args: .state.input}' "$out.raw" > "$out.calls"
     jq -r 'select(.type=="text") | .part.text' "$out.raw" > "$out.answer"
