@@ -604,11 +604,13 @@ pub(super) fn parse_news(
             }
         })
         .collect();
-    // ISO 8601 UTC timestamps sort as strings; missing dates sort last.
+    // Compare instants, not strings (fractional seconds and offsets vary);
+    // missing or unparseable dates sort last.
+    let instant = |item: &NewsItem| DateTime::parse_from_rfc3339(&item.published_at).ok();
     items.sort_by(|a, b| {
         a.relevance
             .cmp(&b.relevance)
-            .then_with(|| b.published_at.cmp(&a.published_at))
+            .then_with(|| instant(b).cmp(&instant(a)))
     });
     items.truncate(limit);
     Ok(items)
@@ -943,6 +945,24 @@ mod tests {
         let limited = parse_news("TLKM.JK", "bn9o8m", &names, &raw, 2).expect("news");
         assert_eq!(limited.len(), 2);
         assert_eq!(limited[1].id, "tagged");
+    }
+
+    #[test]
+    fn parse_news_orders_by_instant_with_undated_items_last() {
+        let raw = news_feed(serde_json::json!([
+            {"id": "undated", "title": "No date"},
+            {"id": "whole", "title": "A", "publishedDateTime": "2026-10-16T10:00:00Z"},
+            {"id": "fraction", "title": "B", "publishedDateTime": "2026-10-16T10:00:00.500Z"},
+            {"id": "offset", "title": "C", "publishedDateTime": "2026-10-16T16:30:00+07:00"},
+            {"id": "garbage", "title": "D", "publishedDateTime": "yesterday"}
+        ]));
+
+        let items = parse_news("BBCA.JK", "bn91jc", &[], &raw, 10).expect("news");
+
+        let order: Vec<_> = items.iter().map(|i| i.id.as_str()).collect();
+        // 16:30+07:00 is 09:30Z, the oldest dated item.
+        assert_eq!(&order[..3], ["fraction", "whole", "offset"]);
+        assert!(order[3..].contains(&"undated") && order[3..].contains(&"garbage"));
     }
 
     #[test]
