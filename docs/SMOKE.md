@@ -86,7 +86,18 @@ and agent behavior varies between runs, so it is never part of the gate.
 nix develop .#agents --command tests/agents/agent-smoke.sh            # every agent found
 nix develop .#agents --command tests/agents/agent-smoke.sh --agents claude,codex --runs 3
 tests/agents/agent-smoke.sh --live --case shareholders --keep          # real data
+tests/agents/agent-smoke.sh --npx idx-mcp                              # the published npm package
+tests/agents/agent-smoke.sh --npx "$(cd npm/idx-mcp && realpath "$(npm pack --silent)")"  # this checkout's wrapper
 ```
+
+`--npx <spec>` registers `npx -y <spec>` the way users configure it, so each
+agent's own `npx` handling and a cold npm install are part of the test. It
+runs the release binary, so it implies `--live`; `IDX_BINARY_URL` swaps in a
+local one. Hermes Agent replaces a bare `npx` with its own generic-Linux
+Node, which NixOS cannot load; on NixOS use `nix develop .#agents-fhs`, which
+runs every agent in an FHS sandbox (and `agent-fhs hermes` for an interactive
+session). Hermes logs a server's stderr to `$HERMES_HOME/logs/mcp-stderr.log`;
+each run keeps a copy next to its output as `<case>.<run>.mcp-stderr`.
 
 - Each agent gets an isolated config that registers only the local server;
   your own agent settings and MCP servers are not loaded or changed. Logins
@@ -95,7 +106,8 @@ tests/agents/agent-smoke.sh --live --case shareholders --keep          # real da
   output but still deletes every copied agent config.
 - Tools are auto-approved for the run (Claude `dontAsk` with
   `mcp__idx__*`, Codex `default_tools_approval_mode="approve"`); Claude and pi
-  also get no built-in tools, so they can only answer through MCP.
+  also get no built-in tools, and Hermes only the `idx` toolset, so they
+  can only answer through MCP.
 - `IDX_AGENT_MODEL_<AGENT>` picks a model (for example
   `IDX_AGENT_MODEL_CLAUDE=sonnet`). `IDX_AGENT_EXEC_PREFIX` prefixes every
   agent command, for hosts that inject API keys through a wrapper.

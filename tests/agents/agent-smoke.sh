@@ -20,6 +20,9 @@ Options:
   --runs <n>        Runs per agent and case (default: 1)
   --live            Real upstream data and the published ownership snapshot
                     instead of mock fixtures; answer text is not checked
+  --npx <spec>      Register `npx -y <spec>` as users do, instead of the local
+                    build: `idx-mcp` (published) or an `npm pack` tarball.
+                    Runs the release binary, so it implies --live
   --keep            Keep the work directory (raw agent output, results.jsonl)
   --help            Show this help
 
@@ -29,6 +32,8 @@ Environment:
   IDX_AGENT_MODEL_<AGENT> Model override, e.g. IDX_AGENT_MODEL_CLAUDE=sonnet,
                           IDX_AGENT_MODEL_OPENCODE=opencode-go/glm-5.3
   IDX_AGENT_TIMEOUT       Seconds per agent run (default: 300)
+  IDX_BINARY_URL          With --npx: binary the npm package installs instead
+                          of the release download (see docs/NPM_DISTRIBUTION.md)
 
 Exit status: 0 when every agent passed every case at least once, 1 when some
 agent failed a case in all runs, 2 on usage or setup errors.
@@ -43,6 +48,7 @@ only_cases=()
 runs=1
 live=0
 keep=0
+npx_spec=
 timeout_secs="${IDX_AGENT_TIMEOUT:-300}"
 read -r -a exec_prefix <<< "${IDX_AGENT_EXEC_PREFIX:-}"
 
@@ -52,6 +58,7 @@ while [[ $# -gt 0 ]]; do
         --case) only_cases+=("${2:?}"); shift 2 ;;
         --runs) runs="${2:?}"; shift 2 ;;
         --live) live=1; shift ;;
+        --npx) npx_spec="${2:?}"; live=1; shift 2 ;;
         --keep) keep=1; shift ;;
         --help|-h) usage; exit 0 ;;
         *) usage >&2; exit 2 ;;
@@ -63,7 +70,7 @@ if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); 
     echo "agent-smoke: bash 4.4+ is required (run it inside nix develop)" >&2
     exit 2
 fi
-for tool in jq cargo timeout; do
+for tool in jq cargo timeout ${npx_spec:+npx}; do
     command -v "$tool" >/dev/null || { echo "agent-smoke: $tool is required" >&2; exit 2; }
 done
 
@@ -118,16 +125,36 @@ else
     done
 fi
 
-# One launcher for every agent: isolated data dirs, and the idx-core crate
-# as working directory (the mock provider reads tests/fixtures from there).
-launcher="$work/idx-mcp"
-{
-    echo '#!/usr/bin/env bash'
-    printf 'export %q\n' "${data_env[@]}"
-    printf 'cd %q\n' "$repo_root/crates/idx-core"
-    printf 'exec %q "$@"\n' "$repo_root/target/debug/idx-mcp"
-} > "$launcher"
-chmod +x "$launcher"
+# One server definition for every agent, as {command, args, env}.
+if [[ -n "$npx_spec" ]]; then
+    # What users configure, so each agent's own npx handling is exercised
+    # (Hermes swaps in its managed Node). A fresh npm cache makes the first
+    # agent run a cold install; agents may filter env, so pass it explicitly.
+    export npm_config_cache="$work/npm-cache"
+    server_env=("${data_env[@]}" "npm_config_cache=$npm_config_cache")
+    [[ -z "${IDX_BINARY_URL:-}" ]] || server_env+=("IDX_BINARY_URL=$IDX_BINARY_URL")
+    # npx runs a tarball only as a package to install: `npx -y -p file:<tgz> idx-mcp`.
+    if [[ "$npx_spec" == *.tgz && ! -f "$npx_spec" ]]; then
+        echo "agent-smoke: tarball not found: $npx_spec" >&2; exit 2
+    fi
+    npx_args=(-y "$npx_spec")
+    [[ ! -f "$npx_spec" ]] || npx_args=(-y -p "file:$(realpath "$npx_spec")" idx-mcp)
+    server_json="$(jq -nc --argjson args "$(printf '%s\n' "${npx_args[@]}" | jq -Rnc '[inputs]')" '{command: "npx", args: $args,
+        env: ($ARGS.positional | map(capture("^(?<key>[^=]+)=(?<value>.*)$")) | from_entries)}' \
+        --args "${server_env[@]}")"
+else
+    # A launcher with isolated data dirs, and the idx-core crate as working
+    # directory (the mock provider reads tests/fixtures from there).
+    launcher="$work/idx-mcp"
+    {
+        echo '#!/usr/bin/env bash'
+        printf 'export %q\n' "${data_env[@]}"
+        printf 'cd %q\n' "$repo_root/crates/idx-core"
+        printf 'exec %q "$@"\n' "$repo_root/target/debug/idx-mcp"
+    } > "$launcher"
+    chmod +x "$launcher"
+    server_json="$(jq -nc --arg cmd "$launcher" '{command: $cmd, args: [], env: {}}')"
+fi
 
 # --- per-agent setup, run, and tool-call extraction ---------------------------
 # Each run_<agent> writes raw output to $out.raw, the answer to $out.answer, and
@@ -137,7 +164,7 @@ chmod +x "$launcher"
 copy_if_present() { [[ -f "$1" ]] && cp "$1" "$2/"; return 0; }
 
 setup_claude() {
-    printf '{"mcpServers":{"idx":{"type":"stdio","command":"%s","args":[]}}}\n' "$launcher" > "$work/claude-mcp.json"
+    jq -n --argjson s "$server_json" '{mcpServers: {idx: ({type: "stdio"} + $s)}}' > "$work/claude-mcp.json"
 }
 run_claude() {
     local prompt="$1" out="$2" model=()
@@ -158,11 +185,15 @@ setup_codex() {
     copy_if_present "${CODEX_HOME:-$HOME/.codex}/auth.json" "$work/codex"
 }
 run_codex() {
-    local prompt="$1" out="$2" model=()
+    local prompt="$1" out="$2" model=() server=()
     [[ -n "${IDX_AGENT_MODEL_CODEX:-}" ]] && model=(-m "$IDX_AGENT_MODEL_CODEX")
+    # -c values are TOML; JSON strings and arrays of them are valid TOML.
+    mapfile -t server < <(jq -r '"mcp_servers.idx.command=\(.command | tojson)",
+        "mcp_servers.idx.args=\(.args | tojson)",
+        "mcp_servers.idx.env={\(.env | to_entries | map("\(.key)=\(.value | tojson)") | join(","))}"' <<< "$server_json")
     CODEX_HOME="$work/codex" "${exec_prefix[@]}" codex exec --json --ephemeral \
         --skip-git-repo-check -s read-only "${model[@]}" \
-        -c "mcp_servers.idx.command=\"$launcher\"" -c 'mcp_servers.idx.args=[]' \
+        -c "${server[0]}" -c "${server[1]}" -c "${server[2]}" \
         -c 'mcp_servers.idx.default_tools_approval_mode="approve"' \
         "$prompt" < /dev/null > "$out.raw"
     jq -c 'select(.type=="item.completed" and .item.type=="mcp_tool_call" and .item.server=="idx")
@@ -175,7 +206,7 @@ setup_pi() {
     mkdir -p "$work/pi"
     for file in auth.json models.json settings.json; do copy_if_present "$src/$file" "$work/pi"; done
     # "direct" exposes each MCP tool by name (the default "codemode" wraps them).
-    jq -n --arg cmd "$launcher" '{mcpServers: {idx: {command: $cmd, exposure: "direct"}}}' > "$work/pi/mcp.json"
+    jq -n --argjson s "$server_json" '{mcpServers: {idx: ($s + {exposure: "direct"})}}' > "$work/pi/mcp.json"
 }
 run_pi() {
     local prompt="$1" out="$2" model=()
@@ -193,17 +224,42 @@ setup_hermes() {
     mkdir -p "$work/hermes"
     copy_if_present "$src/auth.json" "$work/hermes"
     copy_if_present "$src/.env" "$work/hermes"
-    {
-        # The top-level `model:` block, up to the next top-level key.
-        [[ -f "$src/config.yaml" ]] && awk '/^[^[:space:]#]/ { in_model = /^model:/ } in_model' "$src/config.yaml"
-        printf 'mcp_servers:\n  idx:\n    command: %s\n    enabled: true\n' "$launcher"
-    } > "$work/hermes/config.yaml"
+    # Model providers can be user plugins. A symlink: cleanup removes only the link.
+    [[ ! -d "$src/plugins" ]] || ln -s "$src/plugins" "$work/hermes/plugins"
+    local server
+    server="$(jq -c '. + {enabled: true}' <<< "$server_json")"
+    if jq -e 'type == "object"' "$src/config.yaml" >/dev/null 2>&1; then
+        # Hermes also writes config.yaml as JSON (e.g. in profiles).
+        jq --argjson s "$server" '{model, mcp_servers: {idx: $s}} | del(.. | nulls)' \
+            "$src/config.yaml" > "$work/hermes/config.yaml"
+    else
+        {
+            # The top-level `model:` block, up to the next top-level key.
+            [[ -f "$src/config.yaml" ]] && awk '/^[^[:space:]#]/ { in_model = /^model:/ } in_model' "$src/config.yaml"
+            # JSON is valid YAML.
+            printf 'mcp_servers:\n  idx: %s\n' "$server"
+        } > "$work/hermes/config.yaml"
+    fi
+    # A bare `npx` runs on Hermes' own Node, fetched into a fresh HERMES_HOME
+    # on first use (~20s); `hermes -z` waits only ~15s for MCP tools, so fetch
+    # it first or the first case runs without them.
+    if [[ -n "$npx_spec" ]]; then
+        HERMES_HOME="$work/hermes" "${exec_prefix[@]}" hermes pm install npm >/dev/null \
+            || { echo "agent-smoke: hermes pm install npm failed" >&2; exit 2; }
+    fi
 }
 run_hermes() {
-    local prompt="$1" out="$2" model=() session
+    local prompt="$1" out="$2" model=() session status=0
     [[ -n "${IDX_AGENT_MODEL_HERMES:-}" ]] && model=(-m "$IDX_AGENT_MODEL_HERMES")
-    HERMES_HOME="$work/hermes" "${exec_prefix[@]}" hermes -z "$prompt" "${model[@]}" \
-        --usage-file "$out.usage.json" < /dev/null > "$out.answer"
+    # Only the idx toolset: with its terminal, Hermes can debug and repair a
+    # broken server mid-run and pass for the wrong reason.
+    HERMES_HOME="$work/hermes" "${exec_prefix[@]}" hermes -z "$prompt" "${model[@]}" -t idx \
+        --usage-file "$out.usage.json" < /dev/null > "$out.answer" || status=$?
+    # Hermes reports a dead server only as "Connection closed"; its stderr is here.
+    if [[ -f "$work/hermes/logs/mcp-stderr.log" ]]; then
+        cp "$work/hermes/logs/mcp-stderr.log" "$out.mcp-stderr"
+    fi
+    ((status == 0)) || return "$status"
     # -z prints only the answer; tool calls come from the session export.
     session="$(jq -r '.session_id // empty' "$out.usage.json")"
     [[ -n "$session" ]] || return 1
@@ -219,8 +275,9 @@ run_hermes() {
 
 setup_opencode() {
     mkdir -p "$work/opencode/cwd"
-    jq -n --arg cmd "$launcher" \
-        '{"$schema": "https://opencode.ai/config.json", mcp: {idx: {type: "local", command: [$cmd], enabled: true}}}' \
+    jq -n --argjson s "$server_json" \
+        '{"$schema": "https://opencode.ai/config.json",
+          mcp: {idx: {type: "local", command: ([$s.command] + $s.args), environment: $s.env, enabled: true}}}' \
         > "$work/opencode/cwd/opencode.json"
 }
 run_opencode() {
@@ -284,12 +341,15 @@ for agent in "${agents[@]}"; do
             mkdir -p "$(dirname "$out")"
             : > "$out.calls"; : > "$out.answer"
             started=$SECONDS
-            if timeout "$timeout_secs" bash -c "set -eo pipefail; $(declare -f "run_$agent"); $(declare -p work launcher exec_prefix); run_$agent \"\$1\" \"\$2\"" _ "$prompt" "$out" 2> "$out.stderr"; then
+            if timeout "$timeout_secs" bash -c "set -eo pipefail; $(declare -f "run_$agent"); $(declare -p work server_json exec_prefix); run_$agent \"\$1\" \"\$2\"" _ "$prompt" "$out" 2> "$out.stderr"; then
                 # Malformed agent output fails this run, not the whole matrix.
                 failures="$(check_run "$case_json" "$out")" \
                     || failures="${failures:+$failures$'\n'}could not check the agent output (see $out.raw)"
             else
-                failures="agent exited with status $? (see $out.stderr)"
+                status=$?
+                # Name the cause here: without --keep the output is deleted.
+                reason="$(grep -m1 -v '^[[:space:]]*$' "$out.answer" || tail -n1 "$out.stderr" || true)"
+                failures="agent exited with status $status${reason:+: ${reason:0:300}}"
             fi
             status=pass
             [[ -z "$failures" ]] || status=fail

@@ -160,8 +160,27 @@
             ./scripts/build-ownership-snapshot.sh
           ];
         };
+        # `nix develop .#agents-fhs` (Linux): the agents shell, with every agent
+        # run inside an FHS sandbox. Hermes runs a bare `npx` with its own
+        # generic-Linux Node, which NixOS cannot load, so testing the
+        # `npx -y idx-mcp` setup users have needs this on NixOS.
+        # `agent-fhs <cmd>` runs any command (e.g. an interactive `hermes`) inside it.
+        agentsFhsShell =
+          let
+            agentFhs = pkgs.buildFHSEnv {
+              name = "agent-fhs";
+              targetPkgs = p: [ p.stdenv.cc.cc.lib p.zlib p.openssl ];
+              runScript = pkgs.writeShellScript "agent-fhs-run" ''exec "''${@:-bash}"'';
+            };
+          in
+          self.devShells.${system}.agents.overrideAttrs (old: {
+            shellHook = (old.shellHook or "") + ''
+              export PATH="${agentFhs}/bin:$PATH"
+              export IDX_AGENT_EXEC_PREFIX="''${IDX_AGENT_EXEC_PREFIX:+$IDX_AGENT_EXEC_PREFIX }agent-fhs"
+            '';
+          });
       in
-      {
+      lib.recursiveUpdate {
         packages.default = idxPackage;
         packages.idx-mcp = mcpPackage;
         packages.ownership-publisher = ownershipPublisher;
@@ -352,6 +371,6 @@
             RUST_BACKTRACE = "1";
           };
         };
-      }
+      } (lib.optionalAttrs pkgs.stdenv.isLinux { devShells.agents-fhs = agentsFhsShell; })
     );
 }
