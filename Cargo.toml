@@ -20,4 +20,4 @@ chrono = { version = "0.4", features = ["serde"] }
 ureq = { version = "3", features = ["json", "cookies"] }
 rusqlite = { version = "0.32", features = ["bundled-full"] }
 sha2 = "0.10"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
