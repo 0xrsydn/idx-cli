@@ -410,7 +410,8 @@ for agent in "${agents[@]}"; do
         # Proof that this agent's own npx installed the package binary, rather
         # than the server coming from somewhere else on PATH.
         status=pass failures=
-        if ! compgen -G "$npm_config_cache/_npx/*/node_modules/idx-mcp/bin/idx-mcp" > /dev/null; then
+        installed=("$npm_config_cache"/_npx/*/node_modules/idx-mcp/bin/idx-mcp)
+        if [[ ! -x "${installed[0]}" ]]; then
             status=fail failures="no idx-mcp binary under $npm_config_cache/_npx"
         fi
         jq -nc --arg agent "$agent" --arg status "$status" --arg failures "$failures" \
