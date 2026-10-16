@@ -95,4 +95,19 @@ if ! head -n 1 "${smoke_dir}/no-scripts-help.txt" | grep -q "MCP server"; then
   cat "${smoke_dir}/no-scripts-help.txt" >&2
   exit 1
 fi
-echo "npm smoke: PASS (idx-cli and idx-mcp: pack, install, --help; idx-mcp without postinstall)"
+# A read-only package (root-owned global install) falls back to the user cache.
+echo "npm smoke: idx-mcp without postinstall, read-only package directory"
+read_only_dir="${smoke_dir}/idx-mcp-read-only"
+npm_config_cache="$npm_cache" npm install --prefix "$read_only_dir" "${smoke_dir}"/idx-mcp/idx-mcp-*.tgz \
+  --no-save --no-package-lock --no-audit --no-fund --ignore-scripts
+chmod -R a-w "${read_only_dir}/node_modules/idx-mcp"
+XDG_CACHE_HOME="${smoke_dir}/user-cache" IDX_BINARY_URL="${repo_root}/target/release/idx-mcp" \
+  "${read_only_dir}/node_modules/.bin/idx-mcp" --help > "${smoke_dir}/read-only-help.txt"
+chmod -R u+w "${read_only_dir}/node_modules/idx-mcp"
+cached=("${smoke_dir}"/user-cache/idx-mcp/*/idx-mcp)
+if ! head -n 1 "${smoke_dir}/read-only-help.txt" | grep -q "MCP server" || [[ ! -x "${cached[0]}" ]]; then
+  echo "npm smoke: idx-mcp with a read-only package did not install to the user cache:" >&2
+  cat "${smoke_dir}/read-only-help.txt" >&2
+  exit 1
+fi
+echo "npm smoke: PASS (idx-cli and idx-mcp: pack, install, --help; idx-mcp without postinstall, also read-only)"

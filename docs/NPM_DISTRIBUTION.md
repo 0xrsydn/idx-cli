@@ -52,6 +52,13 @@ itself on first start, logging to stderr so the `idx-mcp` stdout channel stays
 clean; it fails only when that download fails too. Hermes Agent runs `npx` with
 its own npm 12, which is how 0.3.1 broke there (issue #41).
 
+The binary goes in the package's `bin/`, or, when that is not writable (a
+root-owned `sudo npm install -g` whose postinstall npm 12 skipped), in a
+per-user cache: `$XDG_CACHE_HOME`, else `~/.cache` (`~/Library/Caches` on
+macOS), under `<package>/<version>/`. The launcher looks in both. A
+termination signal during that first-run download stops the installer too,
+and it removes its partial file.
+
 To install the binary up front instead, allow the script explicitly:
 
 ```bash
@@ -70,7 +77,8 @@ npm install --global --allow-scripts=idx-cli idx-cli
 The smoke script builds or reuses `target/release/idx`, packs the npm wrapper,
 installs the tarball into a new temporary directory, and runs the installed
 `idx` command, then installs `idx-mcp` again with `--ignore-scripts` to check
-the launcher's first-run install. It uses `IDX_BINARY_URL` with a local `file:` URL, so the test
+the launcher's first-run install, also with a read-only package directory
+(the per-user cache fallback). It uses `IDX_BINARY_URL` with a local `file:` URL, so the test
 does not need a registry publish or a network download.
 
 ```bash

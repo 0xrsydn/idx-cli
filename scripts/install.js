@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
+const os = require("node:os");
 const path = require("node:path");
 const { pipeline } = require("node:stream");
 const { URL, fileURLToPath } = require("node:url");
@@ -18,8 +19,21 @@ const packageManifest = JSON.parse(
 const nativeBinary = packageManifest.nativeBinary || "idx";
 const packageName = packageManifest.name;
 const binaryName = process.platform === "win32" ? `${nativeBinary}.exe` : nativeBinary;
-const binaryDirectory = path.join(packageRoot, "bin");
-const binaryPath = path.join(binaryDirectory, binaryName);
+// The binary goes in the package's own bin/, or, when that is not writable
+// (a root-owned global install whose postinstall npm 12 skipped), in a
+// per-user cache. scripts/idx.js looks in both, in this order.
+const packageBinaryPath = path.join(packageRoot, "bin", binaryName);
+const cacheBinaryPath = path.join(
+  process.env.XDG_CACHE_HOME ||
+    (process.platform === "darwin"
+      ? path.join(os.homedir(), "Library", "Caches")
+      : path.join(os.homedir(), ".cache")),
+  packageName,
+  packageManifest.version,
+  binaryName,
+);
+const binaryLocations = [packageBinaryPath, cacheBinaryPath];
+let binaryPath = packageBinaryPath;
 const githubRepository = "0xrsydn/idx-cli";
 const maxRedirects = 5;
 const requestTimeoutMs = 60_000;
@@ -65,15 +79,43 @@ function releaseAssetUrl(assetName) {
   return `https://github.com/${githubRepository}/releases/download/v${packageManifest.version}/${assetName}`;
 }
 
+// Picks the first writable location and points binaryPath at it.
 function ensureBinaryDirectory() {
-  fs.mkdirSync(binaryDirectory, { recursive: true });
+  for (const candidate of binaryLocations) {
+    const directory = path.dirname(candidate);
+    try {
+      fs.mkdirSync(directory, { recursive: true });
+      fs.accessSync(directory, fs.constants.W_OK);
+      binaryPath = candidate;
+      return;
+    } catch (error) {
+      if (!["EACCES", "EPERM", "EROFS"].includes(error.code)) {
+        throw error;
+      }
+    }
+  }
+  throw new Error(`no writable location for the binary: ${binaryLocations.join(", ")}`);
 }
 
+let activeTemporaryPath = null;
+
+function removeActiveTemporary() {
+  if (activeTemporaryPath && fs.existsSync(activeTemporaryPath)) {
+    fs.unlinkSync(activeTemporaryPath);
+  }
+  activeTemporaryPath = null;
+}
+
+// Each install writes its own temporary file and renames it into place, so
+// concurrent first runs never expose a partial binary.
 function temporaryBinaryPath() {
-  return `${binaryPath}.${process.pid}.tmp`;
+  activeTemporaryPath = `${binaryPath}.${process.pid}.tmp`;
+  return activeTemporaryPath;
 }
 
-function replaceWithLocalBinary(sourcePath) {
+// Verifies the copy rather than the source, so the installed bytes are the
+// checked ones even if the source changes meanwhile.
+function replaceWithLocalBinary(sourcePath, expectedSha256) {
   const resolvedSource = path.resolve(sourcePath);
   const sourceStat = fs.statSync(resolvedSource, { throwIfNoEntry: false });
   if (!sourceStat || !sourceStat.isFile()) {
@@ -83,12 +125,13 @@ function replaceWithLocalBinary(sourcePath) {
   const temporaryPath = temporaryBinaryPath();
   try {
     fs.copyFileSync(resolvedSource, temporaryPath);
+    if (expectedSha256) {
+      verifyChecksum(temporaryPath, expectedSha256, resolvedSource);
+    }
     fs.chmodSync(temporaryPath, 0o755);
     fs.renameSync(temporaryPath, binaryPath);
   } finally {
-    if (fs.existsSync(temporaryPath)) {
-      fs.unlinkSync(temporaryPath);
-    }
+    removeActiveTemporary();
   }
 }
 
@@ -199,9 +242,7 @@ async function replaceWithDownloadedBinary(url, expectedSha256) {
     fs.chmodSync(temporaryPath, 0o755);
     fs.renameSync(temporaryPath, binaryPath);
   } finally {
-    if (fs.existsSync(temporaryPath)) {
-      fs.unlinkSync(temporaryPath);
-    }
+    removeActiveTemporary();
   }
 }
 
@@ -241,10 +282,7 @@ async function main() {
   if (override) {
     const localPath = localPathFromOverride(override);
     if (localPath) {
-      if (overrideSha256) {
-        verifyChecksum(localPath, overrideSha256, localPath);
-      }
-      replaceWithLocalBinary(localPath);
+      replaceWithLocalBinary(localPath, overrideSha256);
       console.log(`${packageName}: installed local binary from ${path.resolve(localPath)}`);
       return;
     }
@@ -260,7 +298,19 @@ async function main() {
   console.log(`${packageName}: installed binary at ${binaryPath}`);
 }
 
-main().catch((error) => {
-  console.error(`${packageName}: ${error.message}`);
-  process.exit(1);
-});
+module.exports = { binaryLocations };
+
+if (require.main === module) {
+  // A supervisor stopping the launcher mid-download stops this too; leave no
+  // temporary file behind.
+  for (const [signal, number] of [["SIGTERM", 15], ["SIGHUP", 1], ["SIGINT", 2]]) {
+    process.on(signal, () => {
+      removeActiveTemporary();
+      process.exit(128 + number);
+    });
+  }
+  main().catch((error) => {
+    console.error(`${packageName}: ${error.message}`);
+    process.exit(1);
+  });
+}
