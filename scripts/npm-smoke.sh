@@ -80,4 +80,19 @@ mkdir -p "$npm_cache"
 smoke_package "$repo_root" idx "Usage: idx"
 "${smoke_dir}/idx/install/node_modules/.bin/idx" config --help >/dev/null
 smoke_package "${repo_root}/npm/idx-mcp" idx-mcp "Usage: idx-mcp"
-echo "npm smoke: PASS (idx-cli and idx-mcp: pack, install, --help)"
+
+# Without postinstall (ignore-scripts, or a failed download) the wrapper
+# installs the binary on first run, logging only to stderr: stdout is the MCP
+# channel, and a client sees an early exit as "Connection closed".
+echo "npm smoke: installing idx-mcp with --ignore-scripts"
+no_scripts_dir="${smoke_dir}/idx-mcp-no-scripts"
+npm_config_cache="$npm_cache" npm install --prefix "$no_scripts_dir" "${smoke_dir}"/idx-mcp/idx-mcp-*.tgz \
+  --no-save --no-package-lock --no-audit --no-fund --ignore-scripts
+IDX_BINARY_URL="${repo_root}/target/release/idx-mcp" \
+  "${no_scripts_dir}/node_modules/.bin/idx-mcp" --help > "${smoke_dir}/no-scripts-help.txt"
+if ! head -n 1 "${smoke_dir}/no-scripts-help.txt" | grep -q "MCP server"; then
+  echo "npm smoke: idx-mcp without postinstall did not start cleanly:" >&2
+  cat "${smoke_dir}/no-scripts-help.txt" >&2
+  exit 1
+fi
+echo "npm smoke: PASS (idx-cli and idx-mcp: pack, install, --help; idx-mcp without postinstall)"

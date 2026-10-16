@@ -23,9 +23,8 @@ npm install --global idx-cli
 ```
 
 The npm package downloads the same checksum-verified release binary during
-`postinstall`. pnpm 10+ and bun skip install scripts by default; allow them
-with `pnpm add --global --allow-build=idx-cli idx-cli` or
-`bun add --global --trust idx-cli`. See
+`postinstall`, or on first run when the package manager skips install scripts
+(npm 12 under `npx`, pnpm 10+, bun). See
 [docs/NPM_DISTRIBUTION.md](docs/NPM_DISTRIBUTION.md).
 
 Prebuilt binaries cover Linux x64/arm64 (static musl) and macOS arm64/x64.

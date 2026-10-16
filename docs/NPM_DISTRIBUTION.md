@@ -43,11 +43,16 @@ version `0.3.1` downloads assets from the `v0.3.1` GitHub Release.
 The postinstall script downloads `SHA256SUMS` from the same release and
 refuses to install a binary whose checksum does not match.
 
-### pnpm and bun
+### When postinstall does not run
 
-pnpm 10+ and bun do not run dependency lifecycle scripts by default, so the
-binary is never downloaded and `idx` reports that it is missing. Allow the
-postinstall script explicitly:
+npm 12 blocks install scripts of unapproved packages under `npx` and
+`npm install -g` (its `allow-scripts` policy), and pnpm 10+ and bun skip
+dependency lifecycle scripts by default. The launcher then runs the installer
+itself on first start, logging to stderr so the `idx-mcp` stdout channel stays
+clean; it fails only when that download fails too. Hermes Agent runs `npx` with
+its own npm 12, which is how 0.3.1 broke there (issue #41).
+
+To install the binary up front instead, allow the script explicitly:
 
 ```bash
 # pnpm
@@ -55,15 +60,17 @@ pnpm add --global --allow-build=idx-cli idx-cli
 
 # bun
 bun add --global --trust idx-cli
-```
 
-Plain `npm install` and `npx` run the postinstall script normally.
+# npm 12
+npm install --global --allow-scripts=idx-cli idx-cli
+```
 
 ## Local smoke test
 
 The smoke script builds or reuses `target/release/idx`, packs the npm wrapper,
 installs the tarball into a new temporary directory, and runs the installed
-`idx` command. It uses `IDX_BINARY_URL` with a local `file:` URL, so the test
+`idx` command, then installs `idx-mcp` again with `--ignore-scripts` to check
+the launcher's first-run install. It uses `IDX_BINARY_URL` with a local `file:` URL, so the test
 does not need a registry publish or a network download.
 
 ```bash

@@ -3,7 +3,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 
 const packageManifest = JSON.parse(
   fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"),
@@ -12,6 +12,15 @@ const nativeBinary = packageManifest.nativeBinary || "idx";
 const packageName = packageManifest.name;
 const binaryName = process.platform === "win32" ? `${nativeBinary}.exe` : nativeBinary;
 const binaryPath = path.join(__dirname, "..", "bin", binaryName);
+
+// postinstall never ran (ignore-scripts) or its download failed: install now.
+// Its log goes to stderr, since stdout is the MCP channel for idx-mcp.
+if (!fs.existsSync(binaryPath)) {
+  console.error(`${packageName}: binary not installed; running the installer`);
+  spawnSync(process.execPath, [path.join(__dirname, "install.js")], {
+    stdio: ["ignore", 2, 2],
+  });
+}
 
 if (!fs.existsSync(binaryPath)) {
   console.error(`${packageName}: installed binary not found at ${binaryPath}`);
