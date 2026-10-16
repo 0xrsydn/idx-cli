@@ -23,22 +23,37 @@ const binaryName = process.platform === "win32" ? `${nativeBinary}.exe` : native
 // (a root-owned global install whose postinstall npm 12 skipped), in a
 // per-user cache. scripts/idx.js looks in both, in this order.
 const packageBinaryPath = path.join(packageRoot, "bin", binaryName);
-// A relative XDG_CACHE_HOME is invalid per the XDG spec, and would make the
-// launcher run a binary from the current directory: ignore it.
-const xdgCacheHome = process.env.XDG_CACHE_HOME;
-const cacheBinaryPath = path.join(
-  xdgCacheHome && path.isAbsolute(xdgCacheHome)
-    ? xdgCacheHome
-    : process.platform === "darwin"
-      ? path.join(os.homedir(), "Library", "Caches")
-      : path.join(os.homedir(), ".cache"),
-  packageName,
-  packageManifest.version,
-  // A home directory shared across machines must not mix architectures.
-  `${process.platform}-${process.arch}`,
-  binaryName,
-);
-const binaryLocations = [packageBinaryPath, cacheBinaryPath];
+// The cache root must be absolute: a relative one (an XDG_CACHE_HOME that the
+// XDG spec calls invalid, or an empty or relative HOME) would make the
+// launcher run a binary from the current directory. Without one there is no
+// cache fallback.
+function cacheRoot() {
+  const xdgCacheHome = process.env.XDG_CACHE_HOME;
+  if (xdgCacheHome && path.isAbsolute(xdgCacheHome)) {
+    return xdgCacheHome;
+  }
+  const home = os.homedir();
+  if (!home || !path.isAbsolute(home)) {
+    return null;
+  }
+  return process.platform === "darwin"
+    ? path.join(home, "Library", "Caches")
+    : path.join(home, ".cache");
+}
+const cacheDirectory = cacheRoot();
+const binaryLocations = [packageBinaryPath];
+if (cacheDirectory) {
+  binaryLocations.push(
+    path.join(
+      cacheDirectory,
+      packageName,
+      packageManifest.version,
+      // A home directory shared across machines must not mix architectures.
+      `${process.platform}-${process.arch}`,
+      binaryName,
+    ),
+  );
+}
 let binaryPath = packageBinaryPath;
 const githubRepository = "0xrsydn/idx-cli";
 const maxRedirects = 5;

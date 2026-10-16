@@ -56,7 +56,8 @@ The binary goes in the package's `bin/`, or, when that is not writable (a
 root-owned `sudo npm install -g` whose postinstall npm 12 skipped), in a
 per-user cache: `$XDG_CACHE_HOME` (if absolute), else `~/.cache`
 (`~/Library/Caches` on macOS), under `<package>/<version>/<platform>-<arch>/`.
-The launcher looks in both. A
+The launcher looks in both. With no absolute cache root (an empty or relative
+`HOME`) there is no fallback, so nothing under the current directory is run. A
 termination signal during that first-run download stops the installer too,
 and it removes its partial file.
 

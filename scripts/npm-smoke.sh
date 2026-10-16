@@ -106,6 +106,17 @@ npm_config_cache="$npm_cache" npm install --prefix "$read_only_dir" "${smoke_dir
 chmod -R a-w "${read_only_dir}/node_modules/idx-mcp"
 XDG_CACHE_HOME="${smoke_dir}/user-cache" IDX_BINARY_URL="${repo_root}/target/release/idx-mcp" \
   "${read_only_dir}/node_modules/.bin/idx-mcp" --help > "${smoke_dir}/read-only-help.txt"
+# Without an absolute cache root (empty HOME) there is no cache fallback, so a
+# binary planted under the current directory is never run.
+planted_dir="${smoke_dir}/planted"
+planted="${planted_dir}/.cache/idx-mcp/$(node -p 'require("./npm/idx-mcp/package.json").version')/$(node -p 'process.platform + "-" + process.arch')/idx-mcp"
+mkdir -p "$(dirname "$planted")"
+printf '#!/bin/sh\necho PLANTED\n' > "$planted"
+chmod +x "$planted"
+if (cd "$planted_dir" && HOME='' XDG_CACHE_HOME='' "${read_only_dir}/node_modules/.bin/idx-mcp" --help 2>&1) | grep -q PLANTED; then
+  echo "npm smoke: the launcher ran a binary from the current directory" >&2
+  exit 1
+fi
 chmod -R u+w "${read_only_dir}/node_modules/idx-mcp"
 cached=("${smoke_dir}"/user-cache/idx-mcp/*/*/idx-mcp)
 if ! head -n 1 "${smoke_dir}/read-only-help.txt" | grep -q "MCP server" || [[ ! -x "${cached[0]}" ]]; then
