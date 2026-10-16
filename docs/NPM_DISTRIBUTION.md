@@ -119,7 +119,14 @@ Release order:
 2. Push the tag, or run the workflow for an existing tag.
 3. Publish the crates from the tagged commit, dependency first:
    `cargo publish -p idx-core`, then `-p idx-cli` and `-p idx-mcp`.
-4. Confirm the release has all eight binaries plus `SHA256SUMS`.
+4. Confirm the release has all eight binaries plus `SHA256SUMS`, then write
+   its notes (`gh release edit vX.Y.Z --notes-file <file>`; the workflow
+   creates the release without them). Open with a one-line upgrade note when
+   a fix is urgent, then `## New Features`, `## Bug Fixes`, `## Improvements`
+   (and `## Testing` or `## Docs` when useful): one user-facing sentence per
+   item, ending with the PR or issue numbers, e.g. `(#46)`. Omit empty
+   sections, and end with
+   `**Full Changelog**: https://github.com/0xrsydn/idx-cli/compare/<previous>...<this>`.
 5. Run `npm publish` in the repo root and in `npm/idx-mcp/` from the tagged
    commit. The account has two-factor auth, so npm asks for a browser
    approval or `--otp=<code>`.
