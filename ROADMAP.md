@@ -11,6 +11,8 @@ history lives in git.
 - `screen presets` / `screen run <PRESET>`: built-in screener presets
   (graduate `screen` out of `stocks` only if these grow into a richer workflow)
 - Multi-period financial statements (today `financials` is single-period)
+- IDX company disclosures and exchange news in `news` / `get_company`, through
+  a maintainer-published feed (`docs/IDX_NEWS.md`)
 
 ## Workflow
 - `watchlist`: named symbol sets usable by other commands
