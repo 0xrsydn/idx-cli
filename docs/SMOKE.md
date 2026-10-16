@@ -106,8 +106,9 @@ each run keeps a copy next to its output as `<case>.<run>.mcp-stderr`.
   output but still deletes every copied agent config.
 - Tools are auto-approved for the run (Claude `dontAsk` with
   `mcp__idx__*`, Codex `default_tools_approval_mode="approve"`); Claude and pi
-  also get no built-in tools, and Hermes only the `idx` toolset, so they
-  can only answer through MCP.
+  also get no built-in tools, Hermes only the `idx` toolset, and opencode a
+  permission that denies everything but `idx_*`, so they can only answer
+  through MCP.
 - `IDX_AGENT_MODEL_<AGENT>` picks a model (for example
   `IDX_AGENT_MODEL_CLAUDE=sonnet`). `IDX_AGENT_EXEC_PREFIX` prefixes every
   agent command, for hosts that inject API keys through a wrapper.

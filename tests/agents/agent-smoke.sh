@@ -276,7 +276,8 @@ setup_opencode() {
     mkdir -p "$work/opencode/cwd"
     jq -n --argjson s "$server_json" \
         '{"$schema": "https://opencode.ai/config.json",
-          mcp: {idx: {type: "local", command: ([$s.command] + $s.args), environment: $s.env, enabled: true}}}' \
+          mcp: {idx: {type: "local", command: ([$s.command] + $s.args), environment: $s.env, enabled: true}},
+          permission: {"*": "deny", "idx_*": "allow"}}' \
         > "$work/opencode/cwd/opencode.json"
 }
 run_opencode() {
