@@ -128,10 +128,9 @@ fi
 # One server definition for every agent, as {command, args, env}.
 if [[ -n "$npx_spec" ]]; then
     # What users configure, so each agent's own npx handling is exercised
-    # (Hermes swaps in its managed Node). A fresh npm cache makes the first
-    # agent run a cold install; agents may filter env, so pass it explicitly.
-    export npm_config_cache="$work/npm-cache"
-    server_env=("${data_env[@]}" "npm_config_cache=$npm_config_cache")
+    # (Hermes swaps in its managed Node). Each agent gets a fresh npm cache
+    # below, so its first run is a cold install.
+    server_env=("${data_env[@]}")
     [[ -z "${IDX_BINARY_URL:-}" ]] || server_env+=("IDX_BINARY_URL=$IDX_BINARY_URL")
     # npx runs a tarball only as a package to install: `npx -y -p file:<tgz> idx-mcp`.
     if [[ "$npx_spec" == *.tgz && ! -f "$npx_spec" ]]; then
@@ -332,6 +331,12 @@ results="$work/results.jsonl"
 : > "$results"
 echo "agent-smoke: agents=${agents[*]} cases=${#case_ids[@]} runs=$runs"
 for agent in "${agents[@]}"; do
+    if [[ -n "$npx_spec" ]]; then
+        # A shared cache would let later agents reuse the first one's install.
+        # Agents may filter env, so pass it explicitly.
+        export npm_config_cache="$work/npm-cache/$agent"
+        server_json="$(jq -c --arg cache "$npm_config_cache" '.env.npm_config_cache = $cache' <<< "$server_json")"
+    fi
     "setup_$agent"
     for id in "${case_ids[@]}"; do
         case_json="$(jq -c --arg id "$id" '.[] | select(.id == $id)' "$cases_file")"
