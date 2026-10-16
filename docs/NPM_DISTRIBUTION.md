@@ -54,8 +54,9 @@ its own npm 12, which is how 0.3.1 broke there (issue #41).
 
 The binary goes in the package's `bin/`, or, when that is not writable (a
 root-owned `sudo npm install -g` whose postinstall npm 12 skipped), in a
-per-user cache: `$XDG_CACHE_HOME`, else `~/.cache` (`~/Library/Caches` on
-macOS), under `<package>/<version>/`. The launcher looks in both. A
+per-user cache: `$XDG_CACHE_HOME` (if absolute), else `~/.cache`
+(`~/Library/Caches` on macOS), under `<package>/<version>/<platform>-<arch>/`.
+The launcher looks in both. A
 termination signal during that first-run download stops the installer too,
 and it removes its partial file.
 

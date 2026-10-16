@@ -23,13 +23,19 @@ const binaryName = process.platform === "win32" ? `${nativeBinary}.exe` : native
 // (a root-owned global install whose postinstall npm 12 skipped), in a
 // per-user cache. scripts/idx.js looks in both, in this order.
 const packageBinaryPath = path.join(packageRoot, "bin", binaryName);
+// A relative XDG_CACHE_HOME is invalid per the XDG spec, and would make the
+// launcher run a binary from the current directory: ignore it.
+const xdgCacheHome = process.env.XDG_CACHE_HOME;
 const cacheBinaryPath = path.join(
-  process.env.XDG_CACHE_HOME ||
-    (process.platform === "darwin"
+  xdgCacheHome && path.isAbsolute(xdgCacheHome)
+    ? xdgCacheHome
+    : process.platform === "darwin"
       ? path.join(os.homedir(), "Library", "Caches")
-      : path.join(os.homedir(), ".cache")),
+      : path.join(os.homedir(), ".cache"),
   packageName,
   packageManifest.version,
+  // A home directory shared across machines must not mix architectures.
+  `${process.platform}-${process.arch}`,
   binaryName,
 );
 const binaryLocations = [packageBinaryPath, cacheBinaryPath];

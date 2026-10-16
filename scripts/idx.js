@@ -20,6 +20,7 @@ let child = null;
 // A termination signal received while installing; the installer cleans up
 // and exits, and the launcher then stops the same way.
 let stopping = null;
+let installing = false;
 
 // Pass termination signals from a supervisor (kill, docker stop) to the child.
 for (const signal of ["SIGTERM", "SIGHUP"]) {
@@ -32,8 +33,15 @@ for (const signal of ["SIGTERM", "SIGHUP"]) {
     }
   });
 }
-// Ctrl+C already reaches the child through the terminal's process group.
-process.on("SIGINT", () => {});
+// Ctrl+C already reaches the binary through the terminal's process group, so
+// the launcher ignores SIGINT then. During the first-run install, forward it
+// too: a supervisor may signal only the launcher's PID.
+process.on("SIGINT", () => {
+  if (installing) {
+    stopping = "SIGINT";
+    child.kill("SIGINT");
+  }
+});
 
 function exitLike(code, signal) {
   if (signal) {
@@ -61,6 +69,7 @@ if (installed) {
   // or its download failed: install now. Its log goes to stderr, since stdout
   // is the MCP channel for idx-mcp.
   console.error(`${packageName}: binary not installed; running the installer`);
+  installing = true;
   child = spawn(process.execPath, [installer], { stdio: ["ignore", 2, 2] });
   child.once("error", (error) => {
     console.error(`${packageName}: failed to run the installer: ${error.message}`);
@@ -68,6 +77,7 @@ if (installed) {
   });
   child.once("exit", (code, signal) => {
     child = null;
+    installing = false;
     if (signal || stopping) {
       exitLike(code, signal || stopping);
       return;
