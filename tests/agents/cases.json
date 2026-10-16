@@ -36,7 +36,7 @@
     "expect_text": [],
     "live": {
       "prompt": "Which shareholders changed between the two most recent KSEI releases?",
-      "expect_tools": [{"name": "get_ownership_changes"}]
+      "expect_tools": [{"name": "get_ownership_changes", "args": {"from": "{previous_release}", "to": "{latest_release}"}}]
     }
   }
 ]
