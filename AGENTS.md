@@ -33,6 +33,7 @@ Docs:
 - `docs/OWNERSHIP_SYNC.md` / `docs/OWNERSHIP_PUBLISH.md`: snapshot consumer contract / maintainer publishing
 - `docs/SMOKE.md`: Nix checks, test layout, and the live drift check
 - `docs/DESIGN.md`: idx-core / idx-mcp design and parity gates
+- `docs/IDX_NEWS.md`: news sources research (IDX disclosures, Google News, Yahoo) and a proposed publisher design
 - `ROADMAP.md`: open work
 
 ## Rules

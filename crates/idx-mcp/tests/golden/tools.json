@@ -58,7 +58,7 @@
     "name": "compare_stocks"
   },
   {
-    "description": "Company data for one IDX ticker: profile, financial statements, earnings, analyst sentiment, insights, and news. Sections that fail are listed under `errors`; the call fails only if every section fails.",
+    "description": "Company data for one IDX ticker: profile, financial statements, earnings, analyst sentiment, insights, and news. News items carry `relevance`: `company` (about this ticker) first, then `market` (general market news). Sections that fail are listed under `errors`; the call fails only if every section fails.",
     "inputSchema": {
       "$defs": {
         "CompanySection": {
@@ -115,7 +115,7 @@
     "name": "get_investor_holdings"
   },
   {
-    "description": "Holder changes (new, exit, increase, decrease) between two KSEI release dates, optionally for one ticker.",
+    "description": "Holder changes (new, exited, increased, decreased) between two KSEI release dates, optionally for one ticker. Rows come largest change first, one page at a time: `summary` covers all of them (counts by type, tickers with the most changes), and `next_offset` is the `offset` for the next page, or null after the last.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -125,7 +125,17 @@
         },
         "limit": {
           "default": null,
-          "description": "Maximum rows returned (default 200, at most 2000); `total` reports the full count.",
+          "description": "Rows per page (default 200, at most 300); `total` reports the full count.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "offset": {
+          "default": null,
+          "description": "Rows to skip, for the next page: the previous response's `next_offset`.",
           "format": "uint",
           "minimum": 0,
           "type": [

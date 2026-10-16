@@ -346,6 +346,61 @@ fn ownership_tools_read_the_local_database() {
     );
     assert_eq!(limited["total"], total);
     assert_eq!(limited["changes"].as_array().unwrap().len(), 1);
+    assert_eq!(limited["next_offset"], 1);
+
+    // Pages cover every row exactly once, largest change first.
+    let mut paged = Vec::new();
+    let mut offset = Some(0);
+    while let Some(next) = offset {
+        let page = client.ok(
+            "get_ownership_changes",
+            json!({"from": "2026-01-30", "to": "2026-02-27", "limit": 2, "offset": next}),
+        );
+        paged.extend(page["changes"].as_array().unwrap().iter().cloned());
+        // The summary covers all rows, so every page carries the same one.
+        assert_eq!(page["summary"], all["summary"], "offset {next}");
+        offset = page["next_offset"].as_u64();
+    }
+    assert_eq!(paged.len() as u64, total);
+    assert_eq!(&paged, all["changes"].as_array().unwrap());
+    let deltas: Vec<_> = paged
+        .iter()
+        .map(|row| row["delta_bps"].as_i64().unwrap().abs())
+        .collect();
+    assert!(
+        deltas.windows(2).all(|pair| pair[0] >= pair[1]),
+        "{deltas:?}"
+    );
+
+    let by_type = all["summary"]["by_type"].as_object().unwrap();
+    assert_eq!(
+        by_type.values().map(|n| n.as_u64().unwrap()).sum::<u64>(),
+        total
+    );
+    assert!(all["summary"]["tickers"].as_u64().unwrap() >= 1, "{all}");
+
+    // Past the end: an empty last page, not an error.
+    for past in [total, total + 5] {
+        let page = client.ok(
+            "get_ownership_changes",
+            json!({"from": "2026-01-30", "to": "2026-02-27", "offset": past}),
+        );
+        assert_eq!(page["total"], total, "offset {past}");
+        assert_eq!(
+            page["changes"].as_array().unwrap().len(),
+            0,
+            "offset {past}"
+        );
+        assert!(page["next_offset"].is_null(), "offset {past}: {page}");
+    }
+
+    let (is_error, body) = client.call(
+        "get_ownership_changes",
+        json!({"from": "2026-01-30", "to": "2026-02-27", "limit": 301}),
+    );
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "INVALIDINPUT");
+    assert!(body.to_string().contains("offset"), "{body}");
 
     let one = client.ok(
         "get_ownership_changes",

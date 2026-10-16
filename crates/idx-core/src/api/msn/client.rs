@@ -18,6 +18,8 @@ const MSN_ASSETS_BASE_URL: &str = "https://assets.msn.com/service/";
 const MSN_API_BASE_URL: &str = "https://api.msn.com/msn/v0/pages/finance/";
 // Public API key from MSN Money website (embedded in frontend JS)
 const MSN_API_KEY: &str = "0QfOX3Vn51YCzitbLaRkTTBadtWpgTN8NZLW0C1SEM";
+/// Items requested from a stock's news feed, at least; MSN returns ~40-50.
+const NEWS_FETCH_MIN: usize = 50;
 
 pub(super) struct MsnClient {
     agent: ureq::Agent,
@@ -272,8 +274,11 @@ impl MsnClient {
     pub(super) fn fetch_news(&self, symbol: &str, limit: usize) -> Result<RawNewsFeed, IdxError> {
         let id =
             resolve_msn_id(symbol).ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
+        // Company items can sit below general market news in a stock's feed;
+        // fetch wider and let parse_news rank and trim to `limit`.
+        let top = limit.max(NEWS_FETCH_MIN);
         let url = format!(
-            "{MSN_ASSETS_BASE_URL}MSN/Feed/me?$top={limit}&apikey={MSN_API_KEY}&cm=id-id&contentType=article,video,slideshow&it=web&query=ef_stock_{id}&queryType=entityfeed&responseSchema=cardview&scn=ANON&wrapodata=false"
+            "{MSN_ASSETS_BASE_URL}MSN/Feed/me?$top={top}&apikey={MSN_API_KEY}&cm=id-id&contentType=article,video,slideshow&it=web&query=ef_stock_{id}&queryType=entityfeed&responseSchema=cardview&scn=ANON&wrapodata=false"
         );
         self.get_json(&url, symbol, "news")
     }

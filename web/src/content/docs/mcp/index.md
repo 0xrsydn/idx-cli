@@ -45,7 +45,7 @@ body, so the agent can decide whether to retry:
 | tickers per call (`get_quotes`, `compare_stocks`) | 20, duplicates removed |
 | `screen_stocks` `limit` | 200 |
 | `search_investors` `limit` | 100 |
-| `get_ownership_changes` `limit` | 2000 (default 200) |
+| `get_ownership_changes` `limit` | 300 per page (default 200); page with `offset` |
 | concurrent tool calls | 4 |
 
 ## Ownership data

@@ -38,7 +38,7 @@ npx idx-cli --help
 ```
 
 The package version and the release tag must match. For example, package
-version `0.3.1` downloads assets from the `v0.3.1` GitHub Release.
+version `0.3.2` downloads assets from the `v0.3.2` GitHub Release.
 
 The postinstall script downloads `SHA256SUMS` from the same release and
 refuses to install a binary whose checksum does not match.
@@ -51,6 +51,15 @@ dependency lifecycle scripts by default. The launcher then runs the installer
 itself on first start, logging to stderr so the `idx-mcp` stdout channel stays
 clean; it fails only when that download fails too. Hermes Agent runs `npx` with
 its own npm 12, which is how 0.3.1 broke there (issue #41).
+
+The binary goes in the package's `bin/`, or, when that is not writable (a
+root-owned `sudo npm install -g` whose postinstall npm 12 skipped), in a
+per-user cache: `$XDG_CACHE_HOME` (if absolute), else `~/.cache`
+(`~/Library/Caches` on macOS), under `<package>/<version>/<platform>-<arch>/`.
+The launcher looks in both. With no absolute cache root (an empty or relative
+`HOME`) there is no fallback, so nothing under the current directory is run. A
+termination signal during that first-run download stops the installer too,
+and it removes its partial file.
 
 To install the binary up front instead, allow the script explicitly:
 
@@ -70,7 +79,8 @@ npm install --global --allow-scripts=idx-cli idx-cli
 The smoke script builds or reuses `target/release/idx`, packs the npm wrapper,
 installs the tarball into a new temporary directory, and runs the installed
 `idx` command, then installs `idx-mcp` again with `--ignore-scripts` to check
-the launcher's first-run install. It uses `IDX_BINARY_URL` with a local `file:` URL, so the test
+the launcher's first-run install, also with a read-only package directory
+(the per-user cache fallback). It uses `IDX_BINARY_URL` with a local `file:` URL, so the test
 does not need a registry publish or a network download.
 
 ```bash
@@ -95,7 +105,7 @@ URLs must stay aligned with `scripts/install.js`.
 To attach binaries to a tag that already exists, run the workflow manually:
 
 ```bash
-gh workflow run release.yml -f tag=v0.3.1
+gh workflow run release.yml -f tag=v0.3.2
 ```
 
 Pull requests that touch the workflow or the installer run the build jobs
@@ -109,7 +119,14 @@ Release order:
 2. Push the tag, or run the workflow for an existing tag.
 3. Publish the crates from the tagged commit, dependency first:
    `cargo publish -p idx-core`, then `-p idx-cli` and `-p idx-mcp`.
-4. Confirm the release has all eight binaries plus `SHA256SUMS`.
+4. Confirm the release has all eight binaries plus `SHA256SUMS`, then write
+   its notes (`gh release edit vX.Y.Z --notes-file <file>`; the workflow
+   creates the release without them). Open with a one-line upgrade note when
+   a fix is urgent, then `## New Features`, `## Bug Fixes`, `## Improvements`
+   (and `## Testing` or `## Docs` when useful): one user-facing sentence per
+   item, ending with the PR or issue numbers, e.g. `(#46)`. Omit empty
+   sections, and end with
+   `**Full Changelog**: https://github.com/0xrsydn/idx-cli/compare/<previous>...<this>`.
 5. Run `npm publish` in the repo root and in `npm/idx-mcp/` from the tagged
    commit. The account has two-factor auth, so npm asks for a browser
    approval or `--otp=<code>`.

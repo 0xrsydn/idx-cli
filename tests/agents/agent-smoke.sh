@@ -111,8 +111,12 @@ data_env=(
     "XDG_CACHE_HOME=$work/idx/cache"
     "XDG_DATA_HOME=$work/idx/data"
 )
+latest_release='' previous_release=''
 if [[ "$live" == 1 ]]; then
     env "${data_env[@]}" "$idx" -o json ownership sync >/dev/null
+    # Live cases name releases as {latest_release} and {previous_release}.
+    mapfile -t releases < <(env "${data_env[@]}" "$idx" -o json ownership releases | jq -r '.[].as_of_date')
+    latest_release="${releases[0]:-}" previous_release="${releases[1]:-}"
 else
     data_env+=(IDX_USE_MOCK_PROVIDER=1)
     fixtures="$repo_root/crates/idx-core/tests/fixtures"
@@ -128,15 +132,17 @@ fi
 # One server definition for every agent, as {command, args, env}.
 if [[ -n "$npx_spec" ]]; then
     # What users configure, so each agent's own npx handling is exercised
-    # (Hermes swaps in its managed Node). A fresh npm cache makes the first
-    # agent run a cold install; agents may filter env, so pass it explicitly.
-    export npm_config_cache="$work/npm-cache"
-    server_env=("${data_env[@]}" "npm_config_cache=$npm_config_cache")
+    # (Hermes swaps in its managed Node). Each agent gets a fresh npm cache
+    # below, so its first run is a cold install.
+    server_env=("${data_env[@]}")
     [[ -z "${IDX_BINARY_URL:-}" ]] || server_env+=("IDX_BINARY_URL=$IDX_BINARY_URL")
     # npx runs a tarball only as a package to install: `npx -y -p file:<tgz> idx-mcp`.
     if [[ "$npx_spec" == *.tgz && ! -f "$npx_spec" ]]; then
         echo "agent-smoke: tarball not found: $npx_spec" >&2; exit 2
     fi
+    # In the dev shell target/debug is on PATH; drop it so a missing package
+    # bin cannot fall through to the local build.
+    PATH="$(tr ':' '\n' <<< "$PATH" | grep -vxF "$repo_root/target/debug" | paste -sd: -)"
     npx_args=(-y "$npx_spec")
     [[ ! -f "$npx_spec" ]] || npx_args=(-y -p "file:$(realpath "$npx_spec")" idx-mcp)
     server_json="$(jq -nc --argjson args "$(printf '%s\n' "${npx_args[@]}" | jq -Rnc '[inputs]')" '{command: "npx", args: $args,
@@ -227,7 +233,8 @@ setup_hermes() {
     # Model providers can be user plugins. A symlink: cleanup removes only the link.
     [[ ! -d "$src/plugins" ]] || ln -s "$src/plugins" "$work/hermes/plugins"
     local server
-    server="$(jq -c '. + {enabled: true}' <<< "$server_json")"
+    # A cold `npx` install can outlast the default connect timeout.
+    server="$(jq -c '. + {enabled: true, connect_timeout: 300}' <<< "$server_json")"
     if jq -e 'type == "object"' "$src/config.yaml" >/dev/null 2>&1; then
         # Hermes also writes config.yaml as JSON (e.g. in profiles).
         jq --argjson s "$server" '{model, mcp_servers: {idx: $s}} | del(.. | nulls)' \
@@ -241,11 +248,15 @@ setup_hermes() {
         } > "$work/hermes/config.yaml"
     fi
     # A bare `npx` runs on Hermes' own Node, fetched into a fresh HERMES_HOME
-    # on first use (~20s); `hermes -z` waits only ~15s for MCP tools, so fetch
-    # it first or the first case runs without them.
+    # on first use (~20s), and the cold package install and binary download
+    # come on top. `hermes -z` waits only ~15s for MCP tools whatever
+    # connect_timeout says, so fetch Node and install the server first: `mcp
+    # test` starts it through Hermes' own npx and waits for connect_timeout.
     if [[ -n "$npx_spec" ]]; then
         HERMES_HOME="$work/hermes" "${exec_prefix[@]}" hermes pm install npm >/dev/null \
             || { echo "agent-smoke: hermes pm install npm failed" >&2; exit 2; }
+        HERMES_HOME="$work/hermes" "${exec_prefix[@]}" hermes mcp test idx < /dev/null > "$work/hermes-warmup.log" 2>&1 \
+            || echo "agent-smoke: hermes mcp test idx failed (see $work/hermes-warmup.log)" >&2
     fi
 }
 run_hermes() {
@@ -274,18 +285,39 @@ run_hermes() {
 }
 
 setup_opencode() {
+    local version
     mkdir -p "$work/opencode/cwd"
-    jq -n --argjson s "$server_json" \
-        '{"$schema": "https://opencode.ai/config.json",
-          mcp: {idx: {type: "local", command: ([$s.command] + $s.args), environment: $s.env, enabled: true}}}' \
-        > "$work/opencode/cwd/opencode.json"
+    version="$("${exec_prefix[@]}" opencode --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
+    if [[ "${version%%.*}" -ge 2 ]]; then
+        # OpenCode 2 (@opencode/cli). A denied call ends the run, and models
+        # use Code Mode's `execute` while the server connects, so deny only
+        # the tools that could route around it. --standalone keeps the run
+        # off the shared background service.
+        jq -n --argjson s "$server_json" \
+            '{mcp: {servers: {idx: {type: "local", command: ([$s.command] + $s.args),
+                                    environment: $s.env, codemode: false}}},
+              permissions: ((["read", "edit", "glob", "grep", "shell", "subagent", "skill",
+                              "question", "webfetch", "websearch", "external_directory"]
+                             | map({action: ., resource: "*", effect: "deny"}))
+                            + [{action: "idx_*", resource: "*", effect: "allow"}])}' \
+            > "$work/opencode/cwd/opencode.json"
+        echo --standalone > "$work/opencode/run-flag"
+    else
+        jq -n --argjson s "$server_json" \
+            '{"$schema": "https://opencode.ai/config.json",
+              mcp: {idx: {type: "local", command: ([$s.command] + $s.args), environment: $s.env, enabled: true}},
+              permission: {"*": "deny", "idx_*": "allow"}}' \
+            > "$work/opencode/cwd/opencode.json"
+        echo --pure > "$work/opencode/run-flag"
+    fi
 }
 run_opencode() {
-    local prompt="$1" out="$2" model=() home="$work/opencode"
+    local prompt="$1" out="$2" model=() home="$work/opencode" flag
     [[ -n "${IDX_AGENT_MODEL_OPENCODE:-}" ]] && model=(-m "$IDX_AGENT_MODEL_OPENCODE")
+    flag="$(< "$home/run-flag")"
     (cd "$home/cwd" && XDG_CONFIG_HOME="$home/config" XDG_DATA_HOME="$home/data" \
         XDG_CACHE_HOME="$home/cache" XDG_STATE_HOME="$home/state" \
-        "${exec_prefix[@]}" opencode run --pure --format json "${model[@]}" "$prompt" < /dev/null > "$out.raw")
+        "${exec_prefix[@]}" opencode run "$flag" --format json "${model[@]}" "$prompt" < /dev/null > "$out.raw")
     jq -c 'select(.type=="tool_use") | .part | select(.tool | startswith("idx_"))
            | select(.state.status=="completed") | {name: (.tool | ltrimstr("idx_")), args: .state.input}' "$out.raw" > "$out.calls"
     jq -r 'select(.type=="text") | .part.text' "$out.raw" > "$out.answer"
@@ -328,13 +360,30 @@ if [[ ${#only_cases[@]} -gt 0 ]]; then
     case_ids=("${only_cases[@]}")
 fi
 
+# Run agents from an empty directory: from the checkout, agents read its
+# AGENTS.md and docs (Hermes concluded from docs/IDX_NEWS.md that news "is not
+# implemented"), which users' agents never see.
+mkdir -p "$work/cwd"
+cd "$work/cwd"
+
 results="$work/results.jsonl"
 : > "$results"
 echo "agent-smoke: agents=${agents[*]} cases=${#case_ids[@]} runs=$runs"
 for agent in "${agents[@]}"; do
+    if [[ -n "$npx_spec" ]]; then
+        # A shared cache would let later agents reuse the first one's install.
+        # Agents may filter env, so pass it explicitly.
+        export npm_config_cache="$work/npm-cache/$agent"
+        server_json="$(jq -c --arg cache "$npm_config_cache" '.env.npm_config_cache = $cache' <<< "$server_json")"
+    fi
     "setup_$agent"
     for id in "${case_ids[@]}"; do
-        case_json="$(jq -c --arg id "$id" '.[] | select(.id == $id)' "$cases_file")"
+        # A case's "live" fields replace the mock ones, e.g. release dates.
+        case_json="$(jq -c --arg id "$id" --argjson live "$live" '.[] | select(.id == $id)
+            | if $live == 1 then . + (.live // {}) else . end | del(.live)
+            | walk(if type == "string" then gsub("\\{latest_release\\}"; $latest)
+                   | gsub("\\{previous_release\\}"; $previous) else . end)' \
+            --arg latest "$latest_release" --arg previous "$previous_release" "$cases_file")"
         prompt="$(jq -r '.prompt' <<< "$case_json") Use the idx MCP tools."
         for ((run = 1; run <= runs; run++)); do
             out="$work/runs/$agent/$id.$run"
@@ -363,6 +412,20 @@ for agent in "${agents[@]}"; do
             [[ -z "$failures" ]] || printf '      - %s\n' "${failures//$'\n'/$'\n      - '}"
         done
     done
+    if [[ -n "$npx_spec" ]]; then
+        # Proof that this agent's own npx installed the package binary, rather
+        # than the server coming from somewhere else on PATH.
+        status=pass failures=
+        installed=("$npm_config_cache"/_npx/*/node_modules/idx-mcp/bin/idx-mcp)
+        if [[ ! -x "${installed[0]}" ]]; then
+            status=fail failures="no idx-mcp binary under $npm_config_cache/_npx"
+        fi
+        jq -nc --arg agent "$agent" --arg status "$status" --arg failures "$failures" \
+            '{agent: $agent, case: "npx-install", run: 1, status: $status, secs: 0, tools: [],
+              failures: ([$failures] | map(select(. != "")))}' >> "$results"
+        printf '  %-9s %-13s        %s\n' "$agent" npx-install "$status"
+        [[ -z "$failures" ]] || printf '      - %s\n' "$failures"
+    fi
 done
 
 echo

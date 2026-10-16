@@ -26,7 +26,7 @@ them from stdin. `history` takes `--period` (`1d` to `5y`) and `--interval`
 | `earnings` | reported and estimated earnings |
 | `sentiment` | crowd sentiment |
 | `insights` | AI insights from the provider |
-| `news` | recent news |
+| `news` | recent news, this company's first (`ABOUT` = `company`), then general market news (`market`) |
 
 ## Analysis
 

@@ -19,9 +19,11 @@ use crate::error::IdxError;
 
 use client::MsnClient;
 use map::{
-    parse_earnings, parse_financial_statements, parse_fundamentals, parse_history, parse_insights,
-    parse_news, parse_profile, parse_quote, parse_screener_results, parse_sentiment,
+    company_names, parse_earnings, parse_financial_statements, parse_fundamentals, parse_history,
+    parse_insights, parse_news, parse_profile, parse_quote, parse_screener_results,
+    parse_sentiment,
 };
+use symbols::resolve_msn_id;
 
 #[cfg(feature = "testing")]
 pub(crate) use parse::{parse_fundamentals_from_str, parse_history_from_str, parse_quote_from_str};
@@ -102,8 +104,19 @@ impl InsightsProvider for MsnProvider {
 
 impl NewsProvider for MsnProvider {
     fn news(&self, symbol: &str, limit: usize) -> Result<Vec<NewsItem>, IdxError> {
+        let id =
+            resolve_msn_id(symbol).ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
         let raw = self.client.fetch_news(symbol, limit)?;
-        parse_news(symbol, &raw)
+        // Company names catch articles MSN did not tag; without them (quote
+        // unavailable) the ticker and tags still classify.
+        let names = self
+            .client
+            .fetch_quotes(symbol)
+            .ok()
+            .and_then(|quotes| quotes.into_iter().next())
+            .map(|quote| company_names(quote.short_name.as_deref(), quote.display_name.as_deref()))
+            .unwrap_or_default();
+        parse_news(symbol, id, &names, &raw, limit)
     }
 }
 

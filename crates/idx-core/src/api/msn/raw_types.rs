@@ -11,6 +11,8 @@ pub(crate) struct MsnQuote {
     pub(crate) symbol: Option<String>,
     #[serde(default)]
     pub(crate) short_name: Option<String>,
+    #[serde(default)]
+    pub(crate) display_name: Option<String>,
     pub(crate) price: Option<f64>,
     #[serde(default)]
     pub(crate) price_change: Option<f64>,
@@ -281,6 +283,21 @@ pub(super) struct RawNewsItem {
     pub(super) provider: Option<RawNewsProvider>,
     pub(super) published_date_time: Option<String>,
     pub(super) read_time_min: Option<i32>,
+    #[serde(default)]
+    pub(super) finance_metadata: Option<RawNewsFinanceMetadata>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct RawNewsFinanceMetadata {
+    /// MSN instrument ids the article is tagged with.
+    #[serde(default)]
+    pub(super) stocks: Vec<RawNewsStock>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct RawNewsStock {
+    #[serde(rename = "stockId")]
+    pub(super) stock_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -144,9 +144,12 @@ pub struct ChangesParams {
     /// Only this ticker's changes.
     #[serde(default)]
     pub ticker: Option<String>,
-    /// Maximum rows returned (default 200, at most 2000); `total` reports the full count.
+    /// Rows per page (default 200, at most 300); `total` reports the full count.
     #[serde(default)]
     pub limit: Option<usize>,
+    /// Rows to skip, for the next page: the previous response's `next_offset`.
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

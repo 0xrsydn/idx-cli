@@ -214,6 +214,27 @@ pub struct NewsItem {
     pub provider: String,
     pub published_at: String,
     pub read_time_min: Option<i32>,
+    /// Whether the item is about this company or general market news; the
+    /// provider's feed for a stock can be mostly the latter.
+    #[serde(default)]
+    pub relevance: NewsRelevance,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NewsRelevance {
+    Company,
+    #[default]
+    Market,
+}
+
+impl NewsRelevance {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Company => "company",
+            Self::Market => "market",
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

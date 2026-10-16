@@ -29,7 +29,7 @@ Compare fundamental reports (growth, valuation, risk) across IDX tickers. Ticker
 
 ## `get_company`
 
-Company data for one IDX ticker: profile, financial statements, earnings, analyst sentiment, insights, and news. Sections that fail are listed under `errors`; the call fails only if every section fails.
+Company data for one IDX ticker: profile, financial statements, earnings, analyst sentiment, insights, and news. News items carry `relevance`: `company` (about this ticker) first, then `market` (general market news). Sections that fail are listed under `errors`; the call fails only if every section fails.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -46,12 +46,13 @@ Every IDX holding (above 1%) of one investor, matched by name.
 
 ## `get_ownership_changes`
 
-Holder changes (new, exit, increase, decrease) between two KSEI release dates, optionally for one ticker.
+Holder changes (new, exited, increased, decreased) between two KSEI release dates, optionally for one ticker. Rows come largest change first, one page at a time: `summary` covers all of them (counts by type, tickers with the most changes), and `next_offset` is the `offset` for the next page, or null after the last.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
 | `from` | string | yes | Earlier release date, YYYY-MM-DD (see ownership_status). |
-| `limit` | integer | no | Maximum rows returned (default 200, at most 2000); `total` reports the full count. |
+| `limit` | integer | no | Rows per page (default 200, at most 300); `total` reports the full count. |
+| `offset` | integer | no | Rows to skip, for the next page: the previous response's `next_offset`. |
 | `ticker` | string | no | Only this ticker's changes. |
 | `to` | string | yes | Later release date, YYYY-MM-DD. |
 

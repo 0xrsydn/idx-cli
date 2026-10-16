@@ -6,7 +6,7 @@ use super::raw_types::{
 use super::symbols::{normalized_symbol, ticker_from_symbol};
 use crate::api::types::{
     CompanyProfile, EarningsData, EarningsReport, FinancialStatements, Fundamentals, InsightData,
-    InstrumentInfo, NewsItem, Officer, Ohlc, Quote, SentimentData, SentimentPeriod,
+    InstrumentInfo, NewsItem, NewsRelevance, Officer, Ohlc, Quote, SentimentData, SentimentPeriod,
     StatementSection,
 };
 use crate::error::IdxError;
@@ -551,30 +551,110 @@ pub(super) fn parse_insights(symbol: &str, raw: &[RawInsight]) -> Result<Insight
     })
 }
 
-pub(super) fn parse_news(symbol: &str, raw: &RawNewsFeed) -> Result<Vec<NewsItem>, IdxError> {
+/// Parses a stock's news feed, ranks this company's items first and then the
+/// rest (general market news), newest first within each, and keeps `limit`.
+/// An item is about the company when MSN tags it with the stock's instrument
+/// id (`msn_id`), or its title or description names the ticker or one of
+/// `names`.
+pub(super) fn parse_news(
+    symbol: &str,
+    msn_id: &str,
+    names: &[String],
+    raw: &RawNewsFeed,
+    limit: usize,
+) -> Result<Vec<NewsItem>, IdxError> {
     let source = raw
         .sub_cards
         .as_ref()
         .or(raw.value.as_ref())
         .ok_or_else(|| IdxError::ParseError("no news data".into()))?;
+    let ticker = ticker_from_symbol(symbol).unwrap_or_default();
 
-    Ok(source
+    let mut items: Vec<NewsItem> = source
         .iter()
-        .map(|item| NewsItem {
-            id: item.id.clone().unwrap_or_default(),
-            symbol: symbol.to_string(),
-            title: item.title.clone().unwrap_or_default(),
-            url: item.url.clone().unwrap_or_default(),
-            description: item.description.clone().unwrap_or_default(),
-            provider: item
-                .provider
-                .as_ref()
-                .and_then(|p| p.name.clone())
-                .unwrap_or_default(),
-            published_at: item.published_date_time.clone().unwrap_or_default(),
-            read_time_min: item.read_time_min,
+        .map(|item| {
+            let title = item.title.clone().unwrap_or_default();
+            let description = item.description.clone().unwrap_or_default();
+            let tagged = item.finance_metadata.as_ref().is_some_and(|meta| {
+                meta.stocks
+                    .iter()
+                    .any(|stock| stock.stock_id.as_deref() == Some(msn_id))
+            });
+            let named = [&title, &description]
+                .iter()
+                .any(|text| mentions_company(text, &ticker, names));
+            NewsItem {
+                id: item.id.clone().unwrap_or_default(),
+                symbol: symbol.to_string(),
+                title,
+                url: item.url.clone().unwrap_or_default(),
+                description,
+                provider: item
+                    .provider
+                    .as_ref()
+                    .and_then(|p| p.name.clone())
+                    .unwrap_or_default(),
+                published_at: item.published_date_time.clone().unwrap_or_default(),
+                read_time_min: item.read_time_min,
+                relevance: if tagged || named {
+                    NewsRelevance::Company
+                } else {
+                    NewsRelevance::Market
+                },
+            }
         })
-        .collect())
+        .collect();
+    // Compare instants, not strings (fractional seconds and offsets vary);
+    // missing or unparseable dates sort last.
+    let instant = |item: &NewsItem| DateTime::parse_from_rfc3339(&item.published_at).ok();
+    items.sort_by(|a, b| {
+        a.relevance
+            .cmp(&b.relevance)
+            .then_with(|| instant(b).cmp(&instant(a)))
+    });
+    items.truncate(limit);
+    Ok(items)
+}
+
+/// Whether `text` names the ticker as a whole word (tickers are written in
+/// capitals) or contains one of the company `names`, ignoring case.
+fn mentions_company(text: &str, ticker: &str, names: &[String]) -> bool {
+    let whole_word = |at: usize| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + ticker.len()..].chars().next();
+        !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
+    };
+    if !ticker.is_empty() && text.match_indices(ticker).any(|(at, _)| whole_word(at)) {
+        return true;
+    }
+    let text = text.to_lowercase();
+    names.iter().any(|name| text.contains(&name.to_lowercase()))
+}
+
+/// Names an article may use for a company, from MSN's quote names: the short
+/// name ("Telkom Indonesia") and the display name without legal suffixes
+/// ("Telkom Indonesia (Persero) Tbk PT" -> "Telkom Indonesia"). Abbreviated
+/// short names ("Bank Cntrl Asia") never match and are harmless.
+pub(super) fn company_names(short_name: Option<&str>, display_name: Option<&str>) -> Vec<String> {
+    const SUFFIXES: [&str; 3] = ["(persero)", "tbk", "pt"];
+    let display = display_name.map(|name| {
+        name.split_whitespace()
+            .filter(|word| !SUFFIXES.contains(&word.to_lowercase().trim_end_matches('.')))
+            .collect::<Vec<_>>()
+            .join(" ")
+    });
+    let mut names: Vec<String> = Vec::new();
+    for name in [short_name.map(str::to_string), display]
+        .into_iter()
+        .flatten()
+    {
+        let name = name.trim().to_string();
+        // Short fragments ("PT", "BRI") would match unrelated text.
+        if name.len() >= 6 && !names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+            names.push(name);
+        }
+    }
+    names
 }
 
 pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Quote>, IdxError> {
@@ -785,9 +865,10 @@ fn collect_earnings(
 #[cfg(test)]
 mod tests {
     use super::{
-        KeyRatios, MsnQuote, RawChartResponse, RawFinancialStatement, RawNewsFeed,
-        RawScreenerResponse, RawSentiment, parse_financial_statements, parse_fundamentals,
-        parse_history, parse_news, parse_quote, parse_screener_results, parse_sentiment,
+        KeyRatios, MsnQuote, NewsRelevance, RawChartResponse, RawFinancialStatement, RawNewsFeed,
+        RawScreenerResponse, RawSentiment, company_names, parse_financial_statements,
+        parse_fundamentals, parse_history, parse_news, parse_quote, parse_screener_results,
+        parse_sentiment,
     };
     use crate::error::IdxError;
 
@@ -814,7 +895,7 @@ mod tests {
             serde_json::from_str(include_str!("../../../tests/fixtures/msn_news_bbca.json"))
                 .expect("news fixture should deserialize");
 
-        let items = parse_news("BBCA.JK", &raw).expect("news should parse");
+        let items = parse_news("BBCA.JK", "bn91jc", &[], &raw, 10).expect("news should parse");
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].id, "news-1");
@@ -823,6 +904,102 @@ mod tests {
         assert_eq!(items[0].provider, "Contoso News");
         assert_eq!(items[0].published_at, "2026-03-20T10:00:00Z");
         assert_eq!(items[0].read_time_min, Some(3));
+        assert_eq!(items[0].relevance, NewsRelevance::Market);
+    }
+
+    fn news_feed(items: serde_json::Value) -> RawNewsFeed {
+        serde_json::from_value(serde_json::json!({ "value": items })).expect("news feed")
+    }
+
+    #[test]
+    fn parse_news_ranks_company_items_first_then_newest() {
+        let raw = news_feed(serde_json::json!([
+            {"id": "market-new", "title": "IHSG anjlok usai pengumuman MSCI",
+             "publishedDateTime": "2026-10-16T08:00:00Z",
+             "financeMetadata": {"stocks": [{"stockId": "a1xz1h"}]}},
+            {"id": "tagged", "title": "Laba bersih naik",
+             "publishedDateTime": "2026-10-14T08:00:00Z",
+             "financeMetadata": {"stocks": [{"stockId": "bn9o8m"}]}},
+            {"id": "ticker", "title": "Saham TLKM menguat",
+             "publishedDateTime": "2026-10-15T08:00:00Z"},
+            {"id": "name", "title": "Dirut baru", "abstract": "Telkom Indonesia menunjuk direksi",
+             "publishedDateTime": "2026-10-13T08:00:00Z"},
+            {"id": "market-old", "title": "Rupiah melemah",
+             "publishedDateTime": "2026-10-12T08:00:00Z"}
+        ]));
+        let names = vec!["Telkom Indonesia".to_string()];
+
+        let items = parse_news("TLKM.JK", "bn9o8m", &names, &raw, 10).expect("news");
+
+        let order: Vec<_> = items.iter().map(|i| (i.id.as_str(), i.relevance)).collect();
+        assert_eq!(
+            order,
+            [
+                ("ticker", NewsRelevance::Company),
+                ("tagged", NewsRelevance::Company),
+                ("name", NewsRelevance::Company),
+                ("market-new", NewsRelevance::Market),
+                ("market-old", NewsRelevance::Market),
+            ]
+        );
+        let limited = parse_news("TLKM.JK", "bn9o8m", &names, &raw, 2).expect("news");
+        assert_eq!(limited.len(), 2);
+        assert_eq!(limited[1].id, "tagged");
+    }
+
+    #[test]
+    fn parse_news_orders_by_instant_with_undated_items_last() {
+        let raw = news_feed(serde_json::json!([
+            {"id": "undated", "title": "No date"},
+            {"id": "whole", "title": "A", "publishedDateTime": "2026-10-16T10:00:00Z"},
+            {"id": "fraction", "title": "B", "publishedDateTime": "2026-10-16T10:00:00.500Z"},
+            {"id": "offset", "title": "C", "publishedDateTime": "2026-10-16T16:30:00+07:00"},
+            {"id": "garbage", "title": "D", "publishedDateTime": "yesterday"}
+        ]));
+
+        let items = parse_news("BBCA.JK", "bn91jc", &[], &raw, 10).expect("news");
+
+        let order: Vec<_> = items.iter().map(|i| i.id.as_str()).collect();
+        // 16:30+07:00 is 09:30Z, the oldest dated item.
+        assert_eq!(&order[..3], ["fraction", "whole", "offset"]);
+        assert!(order[3..].contains(&"undated") && order[3..].contains(&"garbage"));
+    }
+
+    #[test]
+    fn ticker_match_requires_a_whole_word() {
+        let raw = news_feed(serde_json::json!([
+            {"id": "a", "title": "BBRI dan BMRI melemah"},
+            {"id": "b", "title": "Saham XBBRI dan BBRIX"},
+            {"id": "c", "title": "bbri lowercase is not a ticker"}
+        ]));
+
+        let items = parse_news("BBRI.JK", "bn91p2", &[], &raw, 10).expect("news");
+
+        let company: Vec<_> = items
+            .iter()
+            .filter(|i| i.relevance == NewsRelevance::Company)
+            .map(|i| i.id.as_str())
+            .collect();
+        assert_eq!(company, ["a"]);
+    }
+
+    #[test]
+    fn company_names_strip_legal_suffixes_and_skip_short_names() {
+        assert_eq!(
+            company_names(
+                Some("Telkom Indonesia"),
+                Some("Telkom Indonesia (Persero) Tbk PT")
+            ),
+            ["Telkom Indonesia"]
+        );
+        assert_eq!(
+            company_names(
+                Some("Bank BRI"),
+                Some("Bank Rakyat Indonesia (Persero) Tbk PT")
+            ),
+            ["Bank BRI", "Bank Rakyat Indonesia"]
+        );
+        assert!(company_names(Some("PT"), Some("Tbk PT")).is_empty());
     }
 
     #[test]
