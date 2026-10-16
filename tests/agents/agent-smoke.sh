@@ -360,6 +360,12 @@ if [[ ${#only_cases[@]} -gt 0 ]]; then
     case_ids=("${only_cases[@]}")
 fi
 
+# Run agents from an empty directory: from the checkout, agents read its
+# AGENTS.md and docs (Hermes concluded from docs/IDX_NEWS.md that news "is not
+# implemented"), which users' agents never see.
+mkdir -p "$work/cwd"
+cd "$work/cwd"
+
 results="$work/results.jsonl"
 : > "$results"
 echo "agent-smoke: agents=${agents[*]} cases=${#case_ids[@]} runs=$runs"
