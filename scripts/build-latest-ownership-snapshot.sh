@@ -163,8 +163,11 @@ DB_PATH="$XDG_DATA_HOME/idx/ownership.db"
 printf 'Discovering latest supported IDX/KSEI above-1%% report...\n'
 "$IDX_BIN" -o json ownership discover --family above1 --limit 50 > "$DISCOVERY_JSON"
 
-discovery_payload="$(
-    jq -r '
+# NUL-separated, so a field containing newlines (a report title) cannot
+# shift the fields after it. Written to a file: command substitution drops
+# NULs, and a jq failure must still stop the script under set -e.
+DISCOVERY_FIELDS="$WORKDIR/discovery-fields"
+jq --raw-output0 '
         if type != "array" or length == 0 then
             error("ownership discover returned no reports")
         else
@@ -184,9 +187,8 @@ discovery_payload="$(
               ]
             | .[]
         end
-    ' "$DISCOVERY_JSON"
-)"
-mapfile -t discovery_fields <<< "$discovery_payload"
+    ' "$DISCOVERY_JSON" > "$DISCOVERY_FIELDS"
+mapfile -d '' -t discovery_fields < "$DISCOVERY_FIELDS"
 
 DISCOVERED_FAMILY="${discovery_fields[0]:-}"
 DISCOVERED_LISTING_PAGE_URL="${discovery_fields[1]:-}"
@@ -308,6 +310,14 @@ jq \
             original_filename: ($original_filename | if . == "" then null else . end)
         }
     ' "$MANIFEST_PATH" > "$TMP_MANIFEST_PATH"
+# Clients reject a manifest missing any of these, so a bad one would block
+# every `idx ownership sync`; refuse to produce it.
+if ! jq -e '[.source.pdf_url, .source.title, .source.publish_date, .snapshot.version]
+        | all(type == "string" and (gsub("^\\s+|\\s+$"; "") | length > 0))' \
+        "$TMP_MANIFEST_PATH" > /dev/null; then
+    echo "built manifest is missing source.pdf_url, source.title, source.publish_date, or snapshot.version" >&2
+    exit 1
+fi
 mv "$TMP_MANIFEST_PATH" "$MANIFEST_PATH"
 
 printf 'Prepared release-ready snapshot from %s (%s)\n' \

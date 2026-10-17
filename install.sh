@@ -97,8 +97,11 @@ resolve_latest_version() {
     fetch "$api_url/repos/$REPO/releases?per_page=30" "$releases" ||
         err "could not list releases; pass --version <tag> to skip the lookup"
 
+    # One field per line first: on a single-line (compact) response the greedy
+    # match would otherwise pick the last tag, not the newest.
     tag="$(
-        sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' "$releases" |
+        tr ',' '\n' < "$releases" |
+            sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' |
             head -n 1
     )"
     [ -n "$tag" ] || err "no vX.Y.Z release found for $REPO"

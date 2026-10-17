@@ -130,7 +130,9 @@ resolve_tickers() {
         done
         IFS="$old_ifs"
     else
-        mapfile -t TICKER_LIST < <(cut -f1 "$ROOT_DIR/src/api/msn/symbol_ids.tsv")
+        symbol_map="$ROOT_DIR/crates/idx-core/src/api/msn/symbol_ids.tsv"
+        [[ -f "$symbol_map" ]] || { echo "symbol map not found: $symbol_map" >&2; exit 1; }
+        mapfile -t TICKER_LIST < <(cut -f1 "$symbol_map")
     fi
 
     if [[ ${#TICKER_LIST[@]} -eq 0 ]]; then
