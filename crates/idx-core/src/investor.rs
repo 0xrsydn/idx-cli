@@ -134,11 +134,23 @@ impl Investor {
     /// Holdings of the entity whose name best matches `name` (shortest
     /// canonical name containing it).
     pub fn entity(&self, name: &str) -> Result<EntityHoldings, IdxError> {
+        let name = name.trim();
+        // An empty pattern would match every investor and return an arbitrary one.
+        if name.is_empty() {
+            return Err(IdxError::InvalidInput(
+                "investor name must not be empty".into(),
+            ));
+        }
         let conn = self.connect()?;
-        let pattern = format!("%{}%", name.trim());
+        // `%` and `_` in the name are literal characters, not LIKE wildcards.
+        let escaped = name
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let pattern = format!("%{escaped}%");
         let entity_id = conn
             .query_row(
-                "SELECT id FROM entities WHERE canonical_name LIKE ?1 COLLATE NOCASE ORDER BY LENGTH(canonical_name) ASC LIMIT 1",
+                "SELECT id FROM entities WHERE canonical_name LIKE ?1 ESCAPE '\\' COLLATE NOCASE ORDER BY LENGTH(canonical_name) ASC LIMIT 1",
                 rusqlite::params![pattern],
                 |row| row.get::<_, i64>(0),
             )
@@ -147,7 +159,7 @@ impl Investor {
     }
 
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Entity>, IdxError> {
-        search::fts_search(&*self.connect()?, query, limit)
+        search::search_entities(&*self.connect()?, query, limit)
     }
 
     pub fn cross_holders(
@@ -175,14 +187,29 @@ impl Investor {
         db::query_bing_flow(&conn, ticker_id)
     }
 
-    /// Holder changes between two release dates, optionally for one ticker.
+    /// Holder changes between two release dates (`from` earlier than `to`,
+    /// both imported releases), optionally for one ticker.
     pub fn changes(
         &self,
         from: &str,
         to: &str,
         ticker: Option<&str>,
     ) -> Result<Vec<ChangeRow>, IdxError> {
-        let mut rows = db::query_changes(&*self.connect()?, from, to)?;
+        let date = |field: &str, value: &str| {
+            NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d").map_err(|_| {
+                IdxError::InvalidInput(format!(
+                    "{field} must be a release date as YYYY-MM-DD (got {value:?})"
+                ))
+            })
+        };
+        let (from_date, to_date) = (date("from", from)?, date("to", to)?);
+        if from_date >= to_date {
+            return Err(IdxError::InvalidInput(format!(
+                "from ({from_date}) must be earlier than to ({to_date})"
+            )));
+        }
+        let (from, to) = (from_date.to_string(), to_date.to_string());
+        let mut rows = db::query_changes(&*self.connect()?, &from, &to)?;
         if let Some(ticker) = ticker {
             let ticker = ticker.trim().to_uppercase();
             rows.retain(|row| row.ticker_code == ticker);

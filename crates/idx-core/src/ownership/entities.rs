@@ -109,34 +109,25 @@ pub fn normalize_name(raw: &str) -> String {
         return upper;
     }
 
-    let mut tokens: Vec<&str> = upper.split_whitespace().collect();
-
-    loop {
-        let mut changed = false;
-
-        if let Some(first) = tokens.first().copied()
-            && matches!(first, "PT" | "PT.")
-        {
-            tokens.remove(0);
-            changed = true;
-        }
-
-        if let Some(last) = tokens.last().copied()
-            && matches!(
-                last,
-                "TBK" | "Tbk" | "(PERSERO)" | "LIMITED" | "PTE" | "LTD"
-            )
-        {
-            let _ = tokens.pop();
-            changed = true;
-        }
-
-        if !changed {
-            break;
-        }
+    let tokens: Vec<&str> = upper.split_whitespace().collect();
+    // Trim prefix and suffix tokens by narrowing a slice: linear, where
+    // removing from the front of the Vec was quadratic in hostile names.
+    let mut kept = tokens.as_slice();
+    while let [first, rest @ ..] = kept
+        && matches!(*first, "PT" | "PT.")
+    {
+        kept = rest;
+    }
+    while let [rest @ .., last] = kept
+        && matches!(
+            *last,
+            "TBK" | "Tbk" | "(PERSERO)" | "LIMITED" | "PTE" | "LTD"
+        )
+    {
+        kept = rest;
     }
 
-    collapse_whitespace(&tokens.join(" "))
+    collapse_whitespace(&kept.join(" "))
 }
 
 /// Convert a KseiRawRow into a normalized KseiHoldingDraft.
@@ -355,6 +346,14 @@ mod tests {
             parse_ksei_date("27-Feb-2026").unwrap(),
             NaiveDate::from_ymd_opt(2026, 2, 27).unwrap()
         );
+    }
+
+    #[test]
+    fn normalize_name_strips_many_prefixes_in_linear_time() {
+        // Removing from the front of a Vec made this quadratic (~5e9 shifts).
+        let hostile = format!("{}ACME TBK", "PT ".repeat(100_000));
+        assert_eq!(normalize_name(&hostile), "ACME");
+        assert_eq!(normalize_name("PT TBK"), "");
     }
 
     #[test]

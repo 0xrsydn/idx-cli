@@ -7,7 +7,6 @@ use rusqlite::{Connection, params};
 
 use crate::config::get_config_value;
 use crate::error::IdxError;
-use crate::ownership::search;
 use crate::ownership::types::{
     BingHolding, ChangeRow, ChangeType, ConcentrationMetrics, CrossHolderRow, Entity,
     EntityHoldings, EntityTickerRow, FlowSignal, HolderRow, InstitutionalFlow, KseiHolding,
@@ -34,14 +33,6 @@ CREATE TABLE IF NOT EXISTS entities (
     country         TEXT,
     created_at      INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL
-);
-
-CREATE VIRTUAL TABLE IF NOT EXISTS entity_fts USING fts5(
-    canonical_name,
-    aliases,
-    content='entities',
-    content_rowid='id',
-    tokenize='trigram'
 );
 
 CREATE TABLE IF NOT EXISTS entity_aliases (
@@ -916,43 +907,73 @@ pub fn query_bing_flow(
     }))
 }
 
-/// Compare two KSEI snapshots by date and return ownership changes.
+/// The release used for a report date: the latest imported one, as
+/// `latest_ksei_release` picks, so a corrected file supersedes the original.
+fn release_for_date(conn: &Connection, date: &str) -> Result<Option<String>, IdxError> {
+    conn.query_row(
+        "SELECT sha256 FROM ownership_releases
+         WHERE as_of_date = ?1
+         ORDER BY imported_at DESC, id DESC
+         LIMIT 1",
+        params![date],
+        |row| row.get::<_, String>(0),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(IdxError::DatabaseError(other.to_string())),
+    })
+}
+
+/// Compare two KSEI releases by date and return ownership changes.
 /// Finds: new holders, exited holders, percentage increases/decreases.
+/// Each date reads one release, and a holder's accounts in a ticker are
+/// summed, so an investor with two accounts compares by its total stake.
 pub fn query_changes(
     conn: &Connection,
     from_date: &str,
     to_date: &str,
 ) -> Result<Vec<ChangeRow>, IdxError> {
+    let release = |date: &str| {
+        release_for_date(conn, date)?.ok_or_else(|| {
+            IdxError::InvalidInput(format!(
+                "no KSEI release imported for {date}; list the imported dates with `idx ownership releases` or the ownership_status tool"
+            ))
+        })
+    };
+    let (from_release, to_release) = (release(from_date)?, release(to_date)?);
     let mut stmt = conn
         .prepare(
             "WITH
                 from_snapshot AS (
                     SELECT
                         t.code AS ticker_code,
-                        COALESCE(e.canonical_name, k.raw_investor_name) AS entity_name,
+                        MIN(COALESCE(e.canonical_name, k.raw_investor_name)) AS entity_name,
                         CASE
                             WHEN k.entity_id IS NOT NULL THEN 'id:' || k.entity_id
                             ELSE 'raw:' || UPPER(TRIM(k.raw_investor_name))
                         END AS holder_key,
-                        k.percentage_bps AS old_bps
+                        SUM(k.percentage_bps) AS old_bps
                     FROM ksei_holdings k
                     JOIN tickers t ON t.id = k.ticker_id
                     LEFT JOIN entities e ON e.id = k.entity_id
-                    WHERE k.report_date = ?1
+                    WHERE k.release_sha256 = ?1
+                    GROUP BY t.code, holder_key
                 ),
                 to_snapshot AS (
                     SELECT
                         t.code AS ticker_code,
-                        COALESCE(e.canonical_name, k.raw_investor_name) AS entity_name,
+                        MIN(COALESCE(e.canonical_name, k.raw_investor_name)) AS entity_name,
                         CASE
                             WHEN k.entity_id IS NOT NULL THEN 'id:' || k.entity_id
                             ELSE 'raw:' || UPPER(TRIM(k.raw_investor_name))
                         END AS holder_key,
-                        k.percentage_bps AS new_bps
+                        SUM(k.percentage_bps) AS new_bps
                     FROM ksei_holdings k
                     JOIN tickers t ON t.id = k.ticker_id
                     LEFT JOIN entities e ON e.id = k.entity_id
-                    WHERE k.report_date = ?2
+                    WHERE k.release_sha256 = ?2
+                    GROUP BY t.code, holder_key
                 ),
                 keys AS (
                     SELECT ticker_code, holder_key FROM from_snapshot
@@ -978,7 +999,7 @@ pub fn query_changes(
         .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
     let rows = stmt
-        .query_map(params![from_date, to_date], |row| {
+        .query_map(params![from_release, to_release], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -1123,7 +1144,6 @@ pub fn manual_map(conn: &Connection, raw_name: &str, canonical_name: &str) -> Re
         )
         .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
-        let _ = search::rebuild_fts(conn);
         Ok(())
     })();
 
@@ -1194,7 +1214,6 @@ pub fn merge_entities(conn: &Connection, keep_id: i64, merge_id: i64) -> Result<
         conn.execute("DELETE FROM entities WHERE id = ?1", params![merge_id])
             .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
-        let _ = search::rebuild_fts(conn);
         Ok(())
     })();
 
@@ -1383,19 +1402,167 @@ mod tests {
     use chrono::NaiveDate;
     use rusqlite::{Connection, params};
 
+    use crate::error::IdxError;
     use crate::ownership::db::{
         compute_concentration, ensure_schema, get_ticker_id, insert_bing_holdings,
-        insert_ksei_holdings, insert_release, query_concentration, query_cross_holders,
-        query_ticker_holdings, release_exists, upsert_ticker, write_ksei_release,
+        insert_ksei_holdings, insert_release, query_changes, query_concentration,
+        query_cross_holders, query_ticker_holdings, release_exists, upsert_ticker,
+        write_ksei_release,
     };
     use crate::ownership::types::{
-        BingHolding, FlowSignal, KseiHolding, Locality, OwnershipRelease,
+        BingHolding, ChangeType, FlowSignal, KseiHolding, Locality, OwnershipRelease,
     };
 
     fn setup() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         ensure_schema(&conn).unwrap();
         conn
+    }
+
+    /// Writes one release of `(entity_id, raw_name, bps)` rows for ticker_id.
+    fn write_release(
+        conn: &Connection,
+        sha256: &str,
+        date: &str,
+        imported_at: i64,
+        ticker_id: i64,
+        rows: &[(Option<i64>, &str, i64)],
+    ) {
+        let as_of_date = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
+        let holdings: Vec<KseiHolding> = rows
+            .iter()
+            .map(|&(entity_id, raw, bps)| KseiHolding {
+                id: 0,
+                ticker_id,
+                entity_id,
+                raw_investor_name: raw.to_string(),
+                investor_type: None,
+                locality: None,
+                nationality: None,
+                domicile: None,
+                holdings_scripless: 1,
+                holdings_scrip: 0,
+                total_shares: 1,
+                percentage_bps: bps,
+                report_date: as_of_date,
+                release_sha256: sha256.to_string(),
+            })
+            .collect();
+        let release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: sha256.to_string(),
+            as_of_date,
+            row_count: holdings.len(),
+            imported_at,
+        };
+        write_ksei_release(conn, &release, &holdings, false).unwrap();
+    }
+
+    fn entity(conn: &Connection, name: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO entities (canonical_name, entity_type, country, created_at, updated_at)
+             VALUES (?1, NULL, NULL, 0, 0)",
+            params![name],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn changes_sum_an_investors_accounts_in_a_ticker() {
+        // KREN, 2026-09: a second account took KRESNA from 9.44% to 13.45%.
+        let conn = setup();
+        let kren = upsert_ticker(&conn, "KREN", None).unwrap();
+        let kresna = entity(&conn, "KRESNA PRIMA INVEST");
+        write_release(
+            &conn,
+            "aug",
+            "2026-08-31",
+            1,
+            kren,
+            &[(Some(kresna), "PT KRESNA PRIMA INVEST", 944)],
+        );
+        write_release(
+            &conn,
+            "sep",
+            "2026-09-30",
+            2,
+            kren,
+            &[
+                (Some(kresna), "PT KRESNA PRIMA INVEST", 944),
+                (Some(kresna), "PT. KRESNA PRIMA INVEST", 401),
+            ],
+        );
+
+        let rows = query_changes(&conn, "2026-08-31", "2026-09-30").unwrap();
+
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].change_type, ChangeType::Increased);
+        assert_eq!(
+            (rows[0].old_bps, rows[0].new_bps, rows[0].delta_bps),
+            (Some(944), Some(1345), 401)
+        );
+    }
+
+    #[test]
+    fn changes_read_the_latest_import_for_a_date() {
+        // A corrected January file supersedes the original, so Jan -> Feb at
+        // the corrected 12% shows no change, not a spurious increase.
+        let conn = setup();
+        let bbca = upsert_ticker(&conn, "BBCA", None).unwrap();
+        let alpha = entity(&conn, "ALPHA");
+        write_release(
+            &conn,
+            "jan",
+            "2026-01-30",
+            1,
+            bbca,
+            &[(Some(alpha), "ALPHA", 1000)],
+        );
+        write_release(
+            &conn,
+            "jan-fix",
+            "2026-01-30",
+            2,
+            bbca,
+            &[(Some(alpha), "ALPHA", 1200)],
+        );
+        write_release(
+            &conn,
+            "feb",
+            "2026-02-27",
+            3,
+            bbca,
+            &[(Some(alpha), "ALPHA", 1200)],
+        );
+
+        assert!(
+            query_changes(&conn, "2026-01-30", "2026-02-27")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn changes_reject_a_date_without_a_release() {
+        let conn = setup();
+        let bbca = upsert_ticker(&conn, "BBCA", None).unwrap();
+        write_release(
+            &conn,
+            "feb",
+            "2026-02-27",
+            1,
+            bbca,
+            &[(None, "ALPHA", 1200)],
+        );
+
+        let err = query_changes(&conn, "2026-01-30", "2026-02-27").unwrap_err();
+
+        assert!(
+            matches!(err, IdxError::InvalidInput(ref m) if m.contains("2026-01-30")),
+            "{err:?}"
+        );
     }
 
     #[test]
