@@ -91,11 +91,11 @@ fn run() -> Result<(), IdxError> {
 /// `--version` print as usual.
 fn argument_error(err: clap::Error) -> IdxError {
     use clap::error::ErrorKind;
+    // A missing subcommand prints help but is an error (exit 2), so in JSON
+    // mode it is a JSON error too.
     if matches!(
         err.kind(),
-        ErrorKind::DisplayHelp
-            | ErrorKind::DisplayVersion
-            | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
     ) || !requested_output_from_args().is_json()
     {
         err.exit();
@@ -114,7 +114,12 @@ fn argument_error(err: clap::Error) -> IdxError {
 /// The output format the raw arguments ask for, when they did not parse:
 /// `-o`/`--output` (any spelling), then `IDX_OUTPUT`, then auto.
 fn requested_output_from_args() -> OutputFormat {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // args_os: an argument that is not UTF-8 (itself the error being
+    // reported) must not panic here.
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
     let flag = args.iter().enumerate().find_map(|(i, arg)| {
         if arg == "-o" || arg == "--output" {
             args.get(i + 1).cloned()

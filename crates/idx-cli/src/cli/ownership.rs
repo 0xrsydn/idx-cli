@@ -8,7 +8,7 @@ use crate::config::IdxConfig;
 use crate::output::json;
 use crate::output::style::Paint;
 use crate::output::table::format_idr;
-use crate::output::text::{cell, terminal_safe};
+use crate::output::text::{cell, painted, terminal_safe};
 use idx_core::error::IdxError;
 use idx_core::investor::{
     ConcentrationRank, HolderSource, ImportSource, Investor, parse_report_family,
@@ -349,7 +349,7 @@ fn handle_ticker(
             }),
             cell(format_idr(h.shares)),
             cell(format_bps(h.percentage_bps)),
-            cell(format_signal(h.signal)),
+            painted(format_signal(h.signal)),
         ]);
     }
     println!("{table}");
@@ -381,7 +381,7 @@ fn handle_entity(
     println!(
         "{} {}",
         "Entity:".bold(),
-        data.entity.canonical_name.as_str().bold()
+        terminal_safe(&data.entity.canonical_name).bold()
     );
     let mut table = Table::new();
     table
@@ -561,7 +561,7 @@ fn print_flow_section(title: &str, rows: &[HolderRow]) {
             cell(&row.name),
             cell(format_idr(row.shares)),
             cell(format_bps(row.percentage_bps)),
-            cell(format_signal(row.signal)),
+            painted(format_signal(row.signal)),
         ]);
     }
     println!("{table}");
@@ -630,7 +630,7 @@ fn handle_changes(
         table.add_row(vec![
             cell(row.ticker_code),
             cell(row.entity_name),
-            cell(format_change_type(row.change_type)),
+            painted(format_change_type(row.change_type)),
             cell(
                 row.old_bps
                     .map(format_bps)

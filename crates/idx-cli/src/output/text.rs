@@ -25,6 +25,12 @@ pub fn cell(value: impl ToString) -> Cell {
     Cell::new(terminal_safe(&value.to_string()))
 }
 
+/// A cell for text idx produced itself (labels, numbers) that may carry its
+/// own color codes, which [`cell`] would strip. Never for provider text.
+pub fn painted(styled: String) -> Cell {
+    Cell::new(styled)
+}
+
 /// At most `max` characters of `text` (never splitting one), with `...`
 /// appended when it was cut.
 pub fn truncate_chars(text: &str, max: usize) -> String {
@@ -36,7 +42,7 @@ pub fn truncate_chars(text: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{terminal_safe, truncate_chars};
+    use super::{painted, terminal_safe, truncate_chars};
 
     #[test]
     fn escape_sequences_and_bidi_overrides_are_neutralized() {
@@ -55,6 +61,13 @@ mod tests {
             terminal_safe("Saham Grup Djarum’s 14,81%"),
             "Saham Grup Djarum’s 14,81%"
         );
+    }
+
+    #[test]
+    fn painted_cells_keep_idx_color_codes() {
+        // comfy-table appends a reset; the color codes themselves survive.
+        let green = "\u{1b}[32mBullish\u{1b}[39m".to_string();
+        assert!(painted(green.clone()).content().starts_with(&green));
     }
 
     #[test]

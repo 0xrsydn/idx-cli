@@ -1,5 +1,5 @@
 use crate::output::style::Paint;
-use crate::output::text::{cell, terminal_safe, truncate_chars};
+use crate::output::text::{cell, painted, terminal_safe, truncate_chars};
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 
 use idx_core::analysis::fundamental::{
@@ -166,7 +166,7 @@ pub fn print_technical(report: &TechnicalReport, no_color: bool) -> Result<(), I
     table.add_row(vec![
         cell("RSI (14)"),
         cell(format_float(report.rsi14, 2)),
-        cell(format_signal(report.signals.rsi, no_color, false)),
+        painted(format_signal(report.signals.rsi, no_color, false)),
     ]);
     table.add_row(vec![
         cell("MACD (12,26,9)"),
@@ -176,12 +176,12 @@ pub fn print_technical(report: &TechnicalReport, no_color: bool) -> Result<(), I
             format_float(report.macd.signal, 2),
             format_float(report.macd.histogram, 2)
         )),
-        cell(format_signal(report.signals.macd, no_color, false)),
+        painted(format_signal(report.signals.macd, no_color, false)),
     ]);
     table.add_row(vec![
         cell("Trend"),
         cell(trend_context(report)),
-        cell(format_signal(report.signals.trend, no_color, false)),
+        painted(format_signal(report.signals.trend, no_color, false)),
     ]);
     table.add_row(vec![
         cell("Volume Ratio (20)"),
@@ -191,7 +191,7 @@ pub fn print_technical(report: &TechnicalReport, no_color: bool) -> Result<(), I
     table.add_row(vec![
         cell("Overall Signal"),
         cell("-"),
-        cell(format_signal(report.signals.overall, no_color, true)),
+        painted(format_signal(report.signals.overall, no_color, true)),
     ]);
 
     println!("{table}");
@@ -210,17 +210,17 @@ pub fn print_growth(symbol: &str, report: &GrowthReport, no_color: bool) -> Resu
     table.add_row(vec![
         cell("Revenue Growth"),
         cell(format_pct(report.revenue_growth_pct)),
-        cell(format_growth_signal(&report.revenue_signal, no_color)),
+        painted(format_growth_signal(&report.revenue_signal, no_color)),
     ]);
     table.add_row(vec![
         cell("Earnings Growth"),
         cell(format_pct(report.earnings_growth_pct)),
-        cell(format_growth_signal(&report.earnings_signal, no_color)),
+        painted(format_growth_signal(&report.earnings_signal, no_color)),
     ]);
     table.add_row(vec![
         cell("Overall"),
         cell("-"),
-        cell(format_growth_signal(&report.overall_signal, no_color)),
+        painted(format_growth_signal(&report.overall_signal, no_color)),
     ]);
 
     println!("{table}");
@@ -243,7 +243,7 @@ pub fn print_valuation(
     table.add_row(vec![
         cell("P/E (Trailing)"),
         cell(format_opt_f64(report.pe_trailing, 2)),
-        cell(format_valuation_signal(&report.pe_signal, no_color)),
+        painted(format_valuation_signal(&report.pe_signal, no_color)),
     ]);
     table.add_row(vec![
         cell("P/E (Forward)"),
@@ -253,27 +253,27 @@ pub fn print_valuation(
     table.add_row(vec![
         cell("Price/Book"),
         cell(format_opt_f64(report.pb, 2)),
-        cell(format_valuation_signal(&report.pb_signal, no_color)),
+        painted(format_valuation_signal(&report.pb_signal, no_color)),
     ]);
     table.add_row(vec![
         cell("ROE"),
         cell(format_pct(report.roe_pct)),
-        cell(format_valuation_signal(&report.roe_signal, no_color)),
+        painted(format_valuation_signal(&report.roe_signal, no_color)),
     ]);
     table.add_row(vec![
         cell("Net Margin"),
         cell(format_pct(report.net_margin_pct)),
-        cell(format_valuation_signal(&report.margin_signal, no_color)),
+        painted(format_valuation_signal(&report.margin_signal, no_color)),
     ]);
     table.add_row(vec![
         cell("EV/EBITDA"),
         cell(format_opt_f64(report.ev_ebitda, 2)),
-        cell(format_valuation_signal(&report.ev_ebitda_signal, no_color)),
+        painted(format_valuation_signal(&report.ev_ebitda_signal, no_color)),
     ]);
     table.add_row(vec![
         cell("Overall"),
         cell("-"),
-        cell(format_valuation_signal(&report.overall_signal, no_color)),
+        painted(format_valuation_signal(&report.overall_signal, no_color)),
     ]);
 
     println!("{table}");
@@ -292,12 +292,12 @@ pub fn print_risk(symbol: &str, report: &RiskReport, no_color: bool) -> Result<(
     table.add_row(vec![
         cell("Debt/Equity"),
         cell(format_opt_f64(report.debt_to_equity, 2)),
-        cell(format_risk_signal(&report.de_signal, no_color)),
+        painted(format_risk_signal(&report.de_signal, no_color)),
     ]);
     table.add_row(vec![
         cell("Current Ratio"),
         cell(format_opt_f64(report.current_ratio, 2)),
-        cell(format_risk_signal(&report.current_ratio_signal, no_color)),
+        painted(format_risk_signal(&report.current_ratio_signal, no_color)),
     ]);
     table.add_row(vec![
         cell("ROA"),
@@ -307,7 +307,7 @@ pub fn print_risk(symbol: &str, report: &RiskReport, no_color: bool) -> Result<(
     table.add_row(vec![
         cell("Overall"),
         cell("-"),
-        cell(format_risk_signal(&report.overall_signal, no_color)),
+        painted(format_risk_signal(&report.overall_signal, no_color)),
     ]);
 
     println!("{table}");
@@ -632,16 +632,18 @@ fn format_text_signal(
     positive: &[&str],
     negative: &[&str],
 ) -> String {
+    // The label comes from the analysis report; make it safe before styling.
+    let label = terminal_safe(signal);
     if no_color {
-        return signal.to_string();
+        return label;
     }
 
     if positive.contains(&signal) {
-        signal.green().to_string()
+        label.green().to_string()
     } else if negative.contains(&signal) {
-        signal.red().to_string()
+        label.red().to_string()
     } else {
-        signal.yellow().to_string()
+        label.yellow().to_string()
     }
 }
 
@@ -706,9 +708,12 @@ pub fn print_profile(profile: &CompanyProfile) -> Result<(), IdxError> {
 
 pub fn print_financials(fin: &FinancialStatements) -> Result<(), IdxError> {
     let print_section = |label: &str, section: &idx_core::api::types::StatementSection| {
-        println!("\n── {label} ({}) ──", format_table_date(&section.end_date));
+        println!(
+            "\n── {label} ({}) ──",
+            terminal_safe(&format_table_date(&section.end_date))
+        );
         let mut t = Table::new();
-        let value_header = format!("VALUE ({})", section.currency);
+        let value_header = format!("VALUE ({})", terminal_safe(&section.currency));
         t.load_preset(UTF8_FULL)
             .set_content_arrangement(ContentArrangement::Dynamic)
             .set_header(vec!["LINE ITEM", value_header.as_str()]);
