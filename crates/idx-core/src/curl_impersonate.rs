@@ -142,16 +142,19 @@ fn run_binary_limited(
         stderr
     });
     let mut stdout = Vec::new();
-    let read = child
-        .stdout
-        .take()
-        .expect("stdout is piped")
+    let mut stdout_pipe = child.stdout.take().expect("stdout is piped");
+    let read = (&mut stdout_pipe)
         .take(limit as u64 + 1)
         .read_to_end(&mut stdout);
     if read.is_err() || stdout.len() > limit {
+        // The curl_* profiles are scripts that run curl without exec, so the
+        // kill reaches only the wrapper; curl itself still holds stderr. Do
+        // not wait for it: closing stdout ends it on its next write (or
+        // --max-time ends a stalled one), and the stderr thread exits with it.
+        drop(stdout_pipe);
         let _ = child.kill();
         let _ = child.wait();
-        let _ = stderr_reader.join();
+        drop(stderr_reader);
         return Err(match read {
             Err(e) => IdxError::Http(format!(
                 "failed to read {stage} response from {binary}: {e}"
@@ -191,19 +194,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn output_past_the_limit_is_cut_off_and_curl_is_reaped() {
-        // A stand-in curl that never stops writing, like a decompression bomb.
+    fn output_past_the_limit_fails_at_once_behind_a_profile_wrapper() {
+        // Like the curl_* profile scripts, the wrapper runs "curl" without
+        // exec; this one writes too much, then stalls holding stderr open.
         let dir = std::env::temp_dir().join(format!("idx-curl-{}", fastrand::u64(..)));
         std::fs::create_dir_all(&dir).unwrap();
         let fake = dir.join("curl");
-        std::fs::write(&fake, "#!/bin/sh\nexec yes\n").unwrap();
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\n( head -c 8192 /dev/zero; sleep 30 )\ntrue\n",
+        )
+        .unwrap();
         let mut perms = std::fs::metadata(&fake).unwrap().permissions();
         std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o755);
         std::fs::set_permissions(&fake, perms).unwrap();
 
+        let started = std::time::Instant::now();
         let err = run_binary_limited("test", fake.to_str().unwrap(), &[], 4096).unwrap_err();
 
         assert!(err.to_string().contains("exceeds 4096 bytes"), "{err}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
