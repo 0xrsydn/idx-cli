@@ -83,7 +83,7 @@ pub fn print_quotes(quotes: &[Quote], no_color: bool) -> Result<(), IdxError> {
 
     println!("{table}");
     for note in stale_quote_notes(quotes, chrono::Utc::now()) {
-        println!("{note}");
+        println!("{}", terminal_safe(&note));
     }
     Ok(())
 }
@@ -107,7 +107,10 @@ fn stale_quote_notes(quotes: &[Quote], now: chrono::DateTime<chrono::Utc>) -> Ve
 }
 
 pub fn print_history(symbol: &str, history: &[Ohlc]) -> Result<(), IdxError> {
-    println!("{}", format!("History for {symbol}").bold());
+    println!(
+        "{}",
+        format!("History for {}", terminal_safe(symbol)).bold()
+    );
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
@@ -199,7 +202,10 @@ pub fn print_technical(report: &TechnicalReport, no_color: bool) -> Result<(), I
 }
 
 pub fn print_growth(symbol: &str, report: &GrowthReport, no_color: bool) -> Result<(), IdxError> {
-    println!("{}", format!("Growth Analysis for {symbol}").bold());
+    println!(
+        "{}",
+        format!("Growth Analysis for {}", terminal_safe(symbol)).bold()
+    );
 
     let mut table = Table::new();
     table
@@ -232,7 +238,10 @@ pub fn print_valuation(
     report: &ValuationReport,
     no_color: bool,
 ) -> Result<(), IdxError> {
-    println!("{}", format!("Valuation Analysis for {symbol}").bold());
+    println!(
+        "{}",
+        format!("Valuation Analysis for {}", terminal_safe(symbol)).bold()
+    );
 
     let mut table = Table::new();
     table
@@ -281,7 +290,10 @@ pub fn print_valuation(
 }
 
 pub fn print_risk(symbol: &str, report: &RiskReport, no_color: bool) -> Result<(), IdxError> {
-    println!("{}", format!("Risk Analysis for {symbol}").bold());
+    println!(
+        "{}",
+        format!("Risk Analysis for {}", terminal_safe(symbol)).bold()
+    );
 
     let mut table = Table::new();
     table
@@ -317,7 +329,7 @@ pub fn print_risk(symbol: &str, report: &RiskReport, no_color: bool) -> Result<(
 pub fn print_fundamental(report: &FundamentalReport, no_color: bool) -> Result<(), IdxError> {
     println!(
         "{}",
-        format!("Fundamental Analysis for {}", report.symbol).bold()
+        format!("Fundamental Analysis for {}", terminal_safe(&report.symbol)).bold()
     );
     println!();
     print_growth(&report.symbol, &report.growth, no_color)?;
@@ -794,7 +806,7 @@ pub fn print_earnings(report: &EarningsReport) -> Result<(), IdxError> {
 
 pub fn print_sentiment(data: &SentimentData) -> Result<(), IdxError> {
     if data.statistics.is_empty() {
-        println!("No sentiment votes for {}.", data.symbol);
+        println!("No sentiment votes for {}.", terminal_safe(&data.symbol));
         return Ok(());
     }
     let mut table = Table::new();

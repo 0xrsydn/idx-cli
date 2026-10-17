@@ -250,7 +250,7 @@ fn handle_sync(investor: &Investor, args: &SyncArgs, config: &IdxConfig) -> Resu
         snapshot::OwnershipSyncAction::NoChange
         | snapshot::OwnershipSyncAction::SkippedNewer
         | snapshot::OwnershipSyncAction::SkippedDiverged => {
-            println!("{}", result.reason);
+            println!("{}", terminal_safe(&result.reason));
         }
     }
 
@@ -419,7 +419,10 @@ fn handle_search(
     }
 
     if entities.is_empty() {
-        println!("No entities found for query: {}", args.query);
+        println!(
+            "No entities found for query: {}",
+            terminal_safe(&args.query)
+        );
         return Ok(());
     }
 
@@ -526,7 +529,10 @@ fn handle_flow(investor: &Investor, args: &FlowArgs, config: &IdxConfig) -> Resu
                 &Option::<idx_core::ownership::types::InstitutionalFlow>::None,
             );
         }
-        println!("No institutional flow data available for {symbol}.");
+        println!(
+            "No institutional flow data available for {}.",
+            terminal_safe(&symbol)
+        );
         return Ok(());
     };
 
@@ -534,7 +540,12 @@ fn handle_flow(investor: &Investor, args: &FlowArgs, config: &IdxConfig) -> Resu
         return json::print_json(&flow);
     }
 
-    println!("{} {} ({})", "Flow:".bold(), symbol.bold(), flow.period);
+    println!(
+        "{} {} ({})",
+        "Flow:".bold(),
+        terminal_safe(&symbol).bold(),
+        terminal_safe(&flow.period)
+    );
     print_flow_section("TOP BUYERS", &flow.top_buyers);
     print_flow_section("TOP SELLERS", &flow.top_sellers);
     print_flow_section("NEW POSITIONS", &flow.new_positions);
@@ -591,7 +602,10 @@ fn handle_graph(investor: &Investor, args: &GraphArgs, config: &IdxConfig) -> Re
             Ok(())
         }
         "dot" => {
-            print!("{}", graph::format_graph_dot(&nodes, &edges));
+            print!(
+                "{}",
+                terminal_safe(&graph::format_graph_dot(&nodes, &edges))
+            );
             Ok(())
         }
         other => Err(IdxError::InvalidInput(format!(
@@ -704,7 +718,11 @@ fn handle_resolve(
                     "entity": entity,
                 }));
             }
-            println!("Mapped alias '{alias}' -> '{entity}'.");
+            println!(
+                "Mapped alias '{}' -> '{}'.",
+                terminal_safe(alias),
+                terminal_safe(entity)
+            );
             Ok(())
         }
         ResolveCommand::Merge { keep, merge } => {
