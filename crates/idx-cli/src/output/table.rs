@@ -135,7 +135,8 @@ pub fn print_technical(report: &TechnicalReport, no_color: bool) -> Result<(), I
         "{}",
         format!(
             "Technical Analysis for {} ({})",
-            report.symbol, report.as_of
+            terminal_safe(&report.symbol),
+            report.as_of
         )
         .bold()
     );
@@ -363,7 +364,7 @@ pub fn print_compare(reports: &[FundamentalReport], no_color: bool) -> Result<()
         "Symbol",
         reports
             .iter()
-            .map(|report| report.symbol.clone())
+            .map(|report| terminal_safe(&report.symbol))
             .collect::<Vec<_>>(),
     );
     add_compare_row(

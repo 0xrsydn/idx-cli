@@ -228,7 +228,7 @@ fn handle_sync(investor: &Investor, args: &SyncArgs, config: &IdxConfig) -> Resu
                 result.latest_as_of_date.format("%Y-%m-%d"),
                 result.release_count,
                 result.ticker_count,
-                result.db_path
+                terminal_safe(&result.db_path)
             );
         }
         snapshot::OwnershipSyncAction::Updated => {
@@ -237,14 +237,14 @@ fn handle_sync(investor: &Investor, args: &SyncArgs, config: &IdxConfig) -> Resu
                 result.latest_as_of_date.format("%Y-%m-%d"),
                 result.release_count,
                 result.ticker_count,
-                result.db_path
+                terminal_safe(&result.db_path)
             );
         }
         snapshot::OwnershipSyncAction::Refreshed => {
             println!(
                 "Refreshed ownership snapshot {} in {}.",
                 result.latest_as_of_date.format("%Y-%m-%d"),
-                result.db_path
+                terminal_safe(&result.db_path)
             );
         }
         snapshot::OwnershipSyncAction::NoChange
@@ -318,11 +318,11 @@ fn handle_ticker(
     println!(
         "{} {}  KSEI={}  Bing={}",
         "Ownership:".bold(),
-        data.ticker.code.bold(),
+        terminal_safe(&data.ticker.code).bold(),
         data.ksei_as_of
             .map(|d| d.format("%Y-%m-%d").to_string())
             .unwrap_or_else(|| "-".to_string()),
-        data.bing_as_of.unwrap_or_else(|| "-".to_string())
+        terminal_safe(&data.bing_as_of.unwrap_or_else(|| "-".to_string()))
     );
 
     let mut table = Table::new();

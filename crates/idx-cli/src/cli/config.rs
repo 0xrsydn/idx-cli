@@ -29,7 +29,7 @@ pub fn handle(cmd: &ConfigCmd, format: &OutputFormat) -> Result<(), IdxError> {
         if format.is_json() {
             json::print_json(&document)
         } else {
-            println!("{text}");
+            println!("{}", crate::output::text::terminal_safe(&text));
             Ok(())
         }
     };

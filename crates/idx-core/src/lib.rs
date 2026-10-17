@@ -15,6 +15,7 @@ pub mod investor;
 pub mod market;
 #[cfg(feature = "ownership")]
 pub mod ownership;
+pub mod text;
 
 pub use client::{CachePolicy, Fetched, Idx};
 
@@ -47,7 +48,10 @@ pub mod runtime {
             let line = serde_json::json!({ "level": level, "message": message.to_string() });
             eprintln!("{line}");
         } else {
-            eprintln!("{level}: {message}");
+            eprintln!(
+                "{level}: {}",
+                crate::text::terminal_safe(&message.to_string())
+            );
         }
     }
 
