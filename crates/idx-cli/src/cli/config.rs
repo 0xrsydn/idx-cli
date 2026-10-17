@@ -1,6 +1,7 @@
 use clap::{Args, Subcommand};
 
 use crate::config::{config_path, ensure_default_config, get_config_value, set_config_value};
+use crate::output::{OutputFormat, json};
 use idx_core::error::IdxError;
 
 #[derive(Debug, Args)]
@@ -22,24 +23,39 @@ pub enum ConfigSubcommand {
     Path,
 }
 
-pub fn handle(cmd: &ConfigCmd) -> Result<(), IdxError> {
+pub fn handle(cmd: &ConfigCmd, format: &OutputFormat) -> Result<(), IdxError> {
+    // Each result as plain text, or one JSON document with -o json.
+    let print = |text: String, document: serde_json::Value| {
+        if format.is_json() {
+            json::print_json(&document)
+        } else {
+            println!("{text}");
+            Ok(())
+        }
+    };
     match &cmd.command {
         ConfigSubcommand::Init => {
-            let path = ensure_default_config()?;
-            println!("{}", path.display());
+            let path = ensure_default_config()?.display().to_string();
+            print(path.clone(), serde_json::json!({ "path": path }))
         }
         ConfigSubcommand::Get { key } => {
             let value = get_config_value(key)?
                 .ok_or_else(|| IdxError::ConfigError(format!("key not found: {key}")))?;
-            println!("{value}");
+            print(
+                value.to_string(),
+                serde_json::json!({ "key": key, "value": value.to_string() }),
+            )
         }
         ConfigSubcommand::Set { key, value } => {
             set_config_value(key, value)?;
-            println!("ok");
+            print(
+                "ok".to_string(),
+                serde_json::json!({ "key": key, "value": value, "ok": true }),
+            )
         }
         ConfigSubcommand::Path => {
-            println!("{}", config_path()?.display());
+            let path = config_path()?.display().to_string();
+            print(path.clone(), serde_json::json!({ "path": path }))
         }
     }
-    Ok(())
 }

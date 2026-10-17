@@ -185,13 +185,11 @@ impl Cache {
         }
         let mut removed = 0usize;
         let mut failed = Vec::new();
-        Self::walk(&self.root, &mut |p| {
-            if p.is_file() {
-                match fs::remove_file(p) {
-                    Ok(_) => removed += 1,
-                    Err(_) => failed.push(p.to_path_buf()),
-                }
-            }
+        // `walk` yields files and symlinks, never entering a linked
+        // directory; remove_file on a symlink removes the link, not its target.
+        Self::walk(&self.root, &mut |p| match fs::remove_file(p) {
+            Ok(_) => removed += 1,
+            Err(_) => failed.push(p.to_path_buf()),
         })?;
         Ok((removed, failed))
     }
@@ -200,7 +198,10 @@ impl Cache {
         for entry in fs::read_dir(dir).map_err(|e| IdxError::Io(e.to_string()))? {
             let entry = entry.map_err(|e| IdxError::Io(e.to_string()))?;
             let path = entry.path();
-            if path.is_dir() {
+            // file_type() does not follow symlinks, so a link to a directory
+            // outside the cache is never walked (or emptied by `clear`).
+            let file_type = entry.file_type().map_err(|e| IdxError::Io(e.to_string()))?;
+            if file_type.is_dir() {
                 Self::walk(&path, f)?;
             } else {
                 f(&path);
@@ -297,6 +298,30 @@ pub fn cache_dir() -> Result<PathBuf, IdxError> {
 
 #[cfg(test)]
 mod tests {
+
+    #[cfg(unix)]
+    #[test]
+    fn clear_removes_symlinks_without_touching_their_targets() {
+        let base = std::env::temp_dir().join(format!("idx-cache-link-{}", fastrand::u64(..)));
+        let outside = base.join("documents");
+        let root = base.join("cache");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::create_dir_all(root.join("quote")).unwrap();
+        std::fs::write(outside.join("keep.txt"), b"mine").unwrap();
+        std::fs::write(root.join("quote").join("BBCA.json"), b"{}").unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+
+        let (removed, failed) = super::Cache::at(root.clone()).clear().unwrap();
+
+        assert!(failed.is_empty(), "{failed:?}");
+        assert_eq!(removed, 2, "the cache file and the link itself");
+        assert!(
+            outside.join("keep.txt").exists(),
+            "the link's target is left alone"
+        );
+        assert!(!root.join("link").exists());
+        std::fs::remove_dir_all(&base).unwrap();
+    }
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
 

@@ -1,4 +1,4 @@
 exit: 0
 --- stdout
-ok
+{"key":"general.output","ok":true,"value":"jsonl"}
 --- stderr

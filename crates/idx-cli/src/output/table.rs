@@ -1,4 +1,5 @@
 use crate::output::style::Paint;
+use crate::output::text::{cell, terminal_safe, truncate_chars};
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 
 use idx_core::analysis::fundamental::{
@@ -56,27 +57,27 @@ pub fn print_quotes(quotes: &[Quote], no_color: bool) -> Result<(), IdxError> {
 
     for q in quotes {
         let pct_cell = match q.change_pct {
-            None => Cell::new("-"),
-            Some(pct) if no_color => Cell::new(format!("{pct:+.2}%")),
-            Some(pct) if pct >= 0.0 => Cell::new(format!("{pct:+.2}%")).fg(Color::Green),
-            Some(pct) => Cell::new(format!("{pct:+.2}%")).fg(Color::Red),
+            None => cell("-"),
+            Some(pct) if no_color => cell(format!("{pct:+.2}%")),
+            Some(pct) if pct >= 0.0 => cell(format!("{pct:+.2}%")).fg(Color::Green),
+            Some(pct) => cell(format!("{pct:+.2}%")).fg(Color::Red),
         };
         table.add_row(vec![
-            Cell::new(&q.symbol),
-            Cell::new(format_idr(q.price)),
-            Cell::new(
+            cell(&q.symbol),
+            cell(format_idr(q.price)),
+            cell(
                 q.change
                     .map(|c| format!("{c:+}"))
                     .unwrap_or_else(|| "-".to_string()),
             ),
             pct_cell,
-            Cell::new(q.volume.map(format_u64).unwrap_or_else(|| "-".to_string())),
-            Cell::new(
+            cell(q.volume.map(format_u64).unwrap_or_else(|| "-".to_string())),
+            cell(
                 q.market_cap
                     .map(format_u64)
                     .unwrap_or_else(|| "-".to_string()),
             ),
-            Cell::new(format_52w_range_bar(q.week52_position)),
+            cell(format_52w_range_bar(q.week52_position)),
         ]);
     }
 
@@ -114,12 +115,12 @@ pub fn print_history(symbol: &str, history: &[Ohlc]) -> Result<(), IdxError> {
         .set_header(vec!["DATE", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]);
     for item in history {
         table.add_row(vec![
-            Cell::new(item.date),
-            Cell::new(format_idr(item.open)),
-            Cell::new(format_idr(item.high)),
-            Cell::new(format_idr(item.low)),
-            Cell::new(format_idr(item.close)),
-            Cell::new(format_u64(item.volume)),
+            cell(item.date),
+            cell(format_idr(item.open)),
+            cell(format_idr(item.high)),
+            cell(format_idr(item.low)),
+            cell(format_idr(item.close)),
+            cell(format_u64(item.volume)),
         ]);
     }
     println!("{table}");
@@ -143,54 +144,54 @@ pub fn print_technical(report: &TechnicalReport, no_color: bool) -> Result<(), I
         .set_header(vec!["METRIC", "VALUE", "SIGNAL"]);
 
     table.add_row(vec![
-        Cell::new("Current Price"),
-        Cell::new(format_idr(report.current_price)),
-        Cell::new("-"),
+        cell("Current Price"),
+        cell(format_idr(report.current_price)),
+        cell("-"),
     ]);
     table.add_row(vec![
-        Cell::new("SMA 20"),
-        Cell::new(format_idr_option(report.sma20)),
-        Cell::new("-"),
+        cell("SMA 20"),
+        cell(format_idr_option(report.sma20)),
+        cell("-"),
     ]);
     table.add_row(vec![
-        Cell::new("SMA 50"),
-        Cell::new(format_idr_option(report.sma50)),
-        Cell::new("-"),
+        cell("SMA 50"),
+        cell(format_idr_option(report.sma50)),
+        cell("-"),
     ]);
     table.add_row(vec![
-        Cell::new("SMA 200"),
-        Cell::new(format_idr_option(report.sma200)),
-        Cell::new("-"),
+        cell("SMA 200"),
+        cell(format_idr_option(report.sma200)),
+        cell("-"),
     ]);
     table.add_row(vec![
-        Cell::new("RSI (14)"),
-        Cell::new(format_float(report.rsi14, 2)),
-        Cell::new(format_signal(report.signals.rsi, no_color, false)),
+        cell("RSI (14)"),
+        cell(format_float(report.rsi14, 2)),
+        cell(format_signal(report.signals.rsi, no_color, false)),
     ]);
     table.add_row(vec![
-        Cell::new("MACD (12,26,9)"),
-        Cell::new(format!(
+        cell("MACD (12,26,9)"),
+        cell(format!(
             "{}/{}/{}",
             format_float(report.macd.line, 2),
             format_float(report.macd.signal, 2),
             format_float(report.macd.histogram, 2)
         )),
-        Cell::new(format_signal(report.signals.macd, no_color, false)),
+        cell(format_signal(report.signals.macd, no_color, false)),
     ]);
     table.add_row(vec![
-        Cell::new("Trend"),
-        Cell::new(trend_context(report)),
-        Cell::new(format_signal(report.signals.trend, no_color, false)),
+        cell("Trend"),
+        cell(trend_context(report)),
+        cell(format_signal(report.signals.trend, no_color, false)),
     ]);
     table.add_row(vec![
-        Cell::new("Volume Ratio (20)"),
-        Cell::new(format_volume_ratio(report)),
-        Cell::new("-"),
+        cell("Volume Ratio (20)"),
+        cell(format_volume_ratio(report)),
+        cell("-"),
     ]);
     table.add_row(vec![
-        Cell::new("Overall Signal"),
-        Cell::new("-"),
-        Cell::new(format_signal(report.signals.overall, no_color, true)),
+        cell("Overall Signal"),
+        cell("-"),
+        cell(format_signal(report.signals.overall, no_color, true)),
     ]);
 
     println!("{table}");
@@ -207,19 +208,19 @@ pub fn print_growth(symbol: &str, report: &GrowthReport, no_color: bool) -> Resu
         .set_header(vec!["METRIC", "VALUE", "SIGNAL"]);
 
     table.add_row(vec![
-        Cell::new("Revenue Growth"),
-        Cell::new(format_pct(report.revenue_growth_pct)),
-        Cell::new(format_growth_signal(&report.revenue_signal, no_color)),
+        cell("Revenue Growth"),
+        cell(format_pct(report.revenue_growth_pct)),
+        cell(format_growth_signal(&report.revenue_signal, no_color)),
     ]);
     table.add_row(vec![
-        Cell::new("Earnings Growth"),
-        Cell::new(format_pct(report.earnings_growth_pct)),
-        Cell::new(format_growth_signal(&report.earnings_signal, no_color)),
+        cell("Earnings Growth"),
+        cell(format_pct(report.earnings_growth_pct)),
+        cell(format_growth_signal(&report.earnings_signal, no_color)),
     ]);
     table.add_row(vec![
-        Cell::new("Overall"),
-        Cell::new("-"),
-        Cell::new(format_growth_signal(&report.overall_signal, no_color)),
+        cell("Overall"),
+        cell("-"),
+        cell(format_growth_signal(&report.overall_signal, no_color)),
     ]);
 
     println!("{table}");
@@ -240,39 +241,39 @@ pub fn print_valuation(
         .set_header(vec!["METRIC", "VALUE", "SIGNAL"]);
 
     table.add_row(vec![
-        Cell::new("P/E (Trailing)"),
-        Cell::new(format_opt_f64(report.pe_trailing, 2)),
-        Cell::new(format_valuation_signal(&report.pe_signal, no_color)),
+        cell("P/E (Trailing)"),
+        cell(format_opt_f64(report.pe_trailing, 2)),
+        cell(format_valuation_signal(&report.pe_signal, no_color)),
     ]);
     table.add_row(vec![
-        Cell::new("P/E (Forward)"),
-        Cell::new(format_opt_f64(report.pe_forward, 2)),
-        Cell::new("-"),
+        cell("P/E (Forward)"),
+        cell(format_opt_f64(report.pe_forward, 2)),
+        cell("-"),
     ]);
     table.add_row(vec![
-        Cell::new("Price/Book"),
-        Cell::new(format_opt_f64(report.pb, 2)),
-        Cell::new(format_valuation_signal(&report.pb_signal, no_color)),
+        cell("Price/Book"),
+        cell(format_opt_f64(report.pb, 2)),
+        cell(format_valuation_signal(&report.pb_signal, no_color)),
     ]);
     table.add_row(vec![
-        Cell::new("ROE"),
-        Cell::new(format_pct(report.roe_pct)),
-        Cell::new(format_valuation_signal(&report.roe_signal, no_color)),
+        cell("ROE"),
+        cell(format_pct(report.roe_pct)),
+        cell(format_valuation_signal(&report.roe_signal, no_color)),
     ]);
     table.add_row(vec![
-        Cell::new("Net Margin"),
-        Cell::new(format_pct(report.net_margin_pct)),
-        Cell::new(format_valuation_signal(&report.margin_signal, no_color)),
+        cell("Net Margin"),
+        cell(format_pct(report.net_margin_pct)),
+        cell(format_valuation_signal(&report.margin_signal, no_color)),
     ]);
     table.add_row(vec![
-        Cell::new("EV/EBITDA"),
-        Cell::new(format_opt_f64(report.ev_ebitda, 2)),
-        Cell::new(format_valuation_signal(&report.ev_ebitda_signal, no_color)),
+        cell("EV/EBITDA"),
+        cell(format_opt_f64(report.ev_ebitda, 2)),
+        cell(format_valuation_signal(&report.ev_ebitda_signal, no_color)),
     ]);
     table.add_row(vec![
-        Cell::new("Overall"),
-        Cell::new("-"),
-        Cell::new(format_valuation_signal(&report.overall_signal, no_color)),
+        cell("Overall"),
+        cell("-"),
+        cell(format_valuation_signal(&report.overall_signal, no_color)),
     ]);
 
     println!("{table}");
@@ -289,24 +290,24 @@ pub fn print_risk(symbol: &str, report: &RiskReport, no_color: bool) -> Result<(
         .set_header(vec!["METRIC", "VALUE", "SIGNAL"]);
 
     table.add_row(vec![
-        Cell::new("Debt/Equity"),
-        Cell::new(format_opt_f64(report.debt_to_equity, 2)),
-        Cell::new(format_risk_signal(&report.de_signal, no_color)),
+        cell("Debt/Equity"),
+        cell(format_opt_f64(report.debt_to_equity, 2)),
+        cell(format_risk_signal(&report.de_signal, no_color)),
     ]);
     table.add_row(vec![
-        Cell::new("Current Ratio"),
-        Cell::new(format_opt_f64(report.current_ratio, 2)),
-        Cell::new(format_risk_signal(&report.current_ratio_signal, no_color)),
+        cell("Current Ratio"),
+        cell(format_opt_f64(report.current_ratio, 2)),
+        cell(format_risk_signal(&report.current_ratio_signal, no_color)),
     ]);
     table.add_row(vec![
-        Cell::new("ROA"),
-        Cell::new(format_pct(report.roa_pct)),
-        Cell::new("-"),
+        cell("ROA"),
+        cell(format_pct(report.roa_pct)),
+        cell("-"),
     ]);
     table.add_row(vec![
-        Cell::new("Overall"),
-        Cell::new("-"),
-        Cell::new(format_risk_signal(&report.overall_signal, no_color)),
+        cell("Overall"),
+        cell("-"),
+        cell(format_risk_signal(&report.overall_signal, no_color)),
     ]);
 
     println!("{table}");
@@ -341,8 +342,8 @@ pub fn print_compare(reports: &[FundamentalReport], no_color: bool) -> Result<()
         .load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
-    let mut header = vec![Cell::new("METRIC")];
-    header.extend(reports.iter().map(|report| Cell::new(&report.symbol)));
+    let mut header = vec![cell("METRIC")];
+    header.extend(reports.iter().map(|report| cell(&report.symbol)));
     table.set_header(header);
 
     add_compare_row(
@@ -519,10 +520,11 @@ fn format_earnings_period(period: &str) -> String {
         return format!("FY{trimmed}");
     }
 
+    // ASCII only, so the byte slices below fall on character boundaries.
     if trimmed.len() == 6
+        && trimmed.is_ascii()
         && trimmed.starts_with('Q')
-        && trimmed[1..2].chars().all(|ch| ch.is_ascii_digit())
-        && trimmed[2..].chars().all(|ch| ch.is_ascii_digit())
+        && trimmed[1..].bytes().all(|byte| byte.is_ascii_digit())
     {
         return format!("{} {}", &trimmed[..2], &trimmed[2..]);
     }
@@ -644,7 +646,7 @@ fn format_text_signal(
 }
 
 fn add_compare_row(table: &mut Table, label: &str, values: Vec<String>) {
-    let mut row = vec![Cell::new(label)];
+    let mut row = vec![cell(label)];
     row.extend(values.into_iter().map(Cell::new));
     table.add_row(row);
 }
@@ -664,7 +666,7 @@ pub fn print_profile(profile: &CompanyProfile) -> Result<(), IdxError> {
 
     let add_if_present = |t: &mut Table, label: &str, value: &str| {
         if !value.is_empty() {
-            t.add_row(vec![Cell::new(label), Cell::new(value)]);
+            t.add_row(vec![cell(label), cell(value)]);
         }
     };
 
@@ -677,24 +679,17 @@ pub fn print_profile(profile: &CompanyProfile) -> Result<(), IdxError> {
     add_if_present(&mut table, "City", &profile.city);
     add_if_present(&mut table, "Phone", &profile.phone);
     if profile.employees > 0 {
-        table.add_row(vec![
-            Cell::new("Employees"),
-            Cell::new(profile.employees.to_string()),
-        ]);
+        table.add_row(vec![cell("Employees"), cell(profile.employees.to_string())]);
     }
     if !profile.description.is_empty() {
         // Truncate long descriptions for table display
-        let desc = if profile.description.len() > 200 {
-            format!("{}...", &profile.description[..200])
-        } else {
-            profile.description.clone()
-        };
-        table.add_row(vec![Cell::new("Description"), Cell::new(desc)]);
+        let desc = truncate_chars(&profile.description, 200);
+        table.add_row(vec![cell("Description"), cell(desc)]);
     }
     if !profile.officers.is_empty() {
         table.add_row(vec![
-            Cell::new("Executives"),
-            Cell::new(
+            cell("Executives"),
+            cell(
                 profile
                     .officers
                     .iter()
@@ -726,7 +721,7 @@ pub fn print_financials(fin: &FinancialStatements) -> Result<(), IdxError> {
         entries.sort_by(|(left, _), (right, _)| left.cmp(right));
 
         for (label, value) in entries {
-            t.add_row(vec![Cell::new(label), Cell::new(format_idr(*value as i64))]);
+            t.add_row(vec![cell(label), cell(format_idr(*value as i64))]);
         }
         println!("{t}");
     };
@@ -803,10 +798,10 @@ pub fn print_sentiment(data: &SentimentData) -> Result<(), IdxError> {
         .set_header(vec!["RANGE", "BULLISH", "BEARISH", "NEUTRAL"]);
     for row in &data.statistics {
         table.add_row(vec![
-            Cell::new(&row.time_range),
-            Cell::new(row.bullish),
-            Cell::new(row.bearish),
-            Cell::new(row.neutral),
+            cell(&row.time_range),
+            cell(row.bullish),
+            cell(row.bearish),
+            cell(row.neutral),
         ]);
     }
     println!("{table}");
@@ -814,20 +809,20 @@ pub fn print_sentiment(data: &SentimentData) -> Result<(), IdxError> {
 }
 
 pub fn print_insights(data: &InsightData) -> Result<(), IdxError> {
-    println!("{}", data.summary);
+    println!("{}", terminal_safe(&data.summary));
     if !data.last_updated.is_empty() {
-        println!("Last updated: {}", data.last_updated);
+        println!("Last updated: {}", terminal_safe(&data.last_updated));
     }
     if !data.highlights.is_empty() {
         println!("Highlights:");
         for h in &data.highlights {
-            println!("- {h}");
+            println!("- {}", terminal_safe(h));
         }
     }
     if !data.risks.is_empty() {
         println!("Risks:");
         for r in &data.risks {
-            println!("- {r}");
+            println!("- {}", terminal_safe(r));
         }
     }
     Ok(())
@@ -840,11 +835,11 @@ pub fn print_news(items: &[NewsItem]) -> Result<(), IdxError> {
         .set_header(vec!["TITLE", "ABOUT", "PROVIDER", "DATE", "URL"]);
     for item in items {
         table.add_row(vec![
-            Cell::new(&item.title),
-            Cell::new(item.relevance.as_str()),
-            Cell::new(&item.provider),
-            Cell::new(&item.published_at),
-            Cell::new(truncate_url(&item.url)),
+            cell(&item.title),
+            cell(item.relevance.as_str()),
+            cell(&item.provider),
+            cell(&item.published_at),
+            cell(truncate_url(&item.url)),
         ]);
     }
     println!("{table}");
@@ -853,13 +848,13 @@ pub fn print_news(items: &[NewsItem]) -> Result<(), IdxError> {
 
 fn add_earnings_history_row(table: &mut Table, row: &EarningsData) {
     table.add_row(vec![
-        Cell::new(format_earnings_period(&row.period_type)),
-        Cell::new(format_float(row.eps_actual, 2)),
-        Cell::new(format_float(row.eps_forecast, 2)),
-        Cell::new(format_float(row.eps_surprise, 2)),
-        Cell::new(format_float(row.eps_surprise_pct, 2)),
-        Cell::new(format_idr_option_from_f64(row.revenue_actual)),
-        Cell::new(format_table_date_option(
+        cell(format_earnings_period(&row.period_type)),
+        cell(format_float(row.eps_actual, 2)),
+        cell(format_float(row.eps_forecast, 2)),
+        cell(format_float(row.eps_surprise, 2)),
+        cell(format_float(row.eps_surprise_pct, 2)),
+        cell(format_idr_option_from_f64(row.revenue_actual)),
+        cell(format_table_date_option(
             row.earning_release_date.as_deref(),
         )),
     ]);
@@ -867,21 +862,17 @@ fn add_earnings_history_row(table: &mut Table, row: &EarningsData) {
 
 fn add_earnings_forecast_row(table: &mut Table, row: &EarningsData) {
     table.add_row(vec![
-        Cell::new(format_earnings_period(&row.period_type)),
-        Cell::new(format_float(row.eps_forecast, 2)),
-        Cell::new(format_idr_option_from_f64(row.revenue_forecast)),
-        Cell::new(format_table_date_option(
+        cell(format_earnings_period(&row.period_type)),
+        cell(format_float(row.eps_forecast, 2)),
+        cell(format_idr_option_from_f64(row.revenue_forecast)),
+        cell(format_table_date_option(
             row.earning_release_date.as_deref(),
         )),
     ]);
 }
 
 fn truncate_url(url: &str) -> String {
-    if url.len() > 72 {
-        format!("{}...", &url[..72])
-    } else {
-        url.to_string()
-    }
+    truncate_chars(url, 72)
 }
 
 #[cfg(test)]
