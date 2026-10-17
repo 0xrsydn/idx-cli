@@ -128,11 +128,21 @@ fn requested_output_from_args() -> OutputFormat {
 }
 
 /// clap stops at an unknown argument, so an `-o` after it would be missed;
-/// drop each unknown argument and parse again. What is left is read with
-/// ignore_errors, which keeps the matches made before any other error.
+/// drop each unknown argument and parse again. Each pass is read with
+/// ignore_errors, which keeps the matches made before any other error; the
+/// last pass that read an `-o` wins (a later pass can reach `--help`, which
+/// returns no matches at all).
 fn output_flag(mut args: Vec<std::ffi::OsString>) -> Option<OutputSetting> {
     use clap::CommandFactory;
     use clap::error::{ContextKind, ContextValue, ErrorKind};
+    let read = |args: &[std::ffi::OsString]| {
+        Cli::command()
+            .ignore_errors(true)
+            .try_get_matches_from(args)
+            .ok()
+            .and_then(|matches| matches.get_one::<OutputSetting>("output").copied())
+    };
+    let mut found = read(&args);
     for _ in 0..args.len() {
         let Err(err) = Cli::command().try_get_matches_from(&args) else {
             break;
@@ -150,12 +160,9 @@ fn output_flag(mut args: Vec<std::ffi::OsString>) -> Option<OutputSetting> {
             break;
         };
         args.remove(index + 1);
+        found = read(&args).or(found);
     }
-    Cli::command()
-        .ignore_errors(true)
-        .try_get_matches_from(args)
-        .ok()
-        .and_then(|matches| matches.get_one::<OutputSetting>("output").copied())
+    found
 }
 
 fn bootstrap_output_format(cli: &Cli) -> OutputFormat {

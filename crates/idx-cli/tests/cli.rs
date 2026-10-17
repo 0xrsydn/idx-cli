@@ -2134,6 +2134,25 @@ fn argument_errors_follow_the_output_format_clap_resolves() {
             .args(["config", "get", "--bogus", "-o", "json"]),
         "INVALIDINPUT",
     );
+    // ...and so does one before it when --help or --version follows.
+    for args in [
+        &["-o", "json", "config", "get", "--bogus", "--help"][..],
+        &["-o", "json", "--bogus", "--version"][..],
+    ] {
+        run_error_json(
+            test_bin("argument-error-json")
+                .env("IDX_OUTPUT", "table")
+                .args(args),
+            "INVALIDINPUT",
+        );
+    }
+    test_bin("argument-error-table")
+        .env("IDX_OUTPUT", "json")
+        .args(["-o", "table", "config", "get", "--bogus", "--help"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::starts_with("error: "));
     test_bin("argument-error-table")
         .args(["config", "get", "--bogus", "-o", "table"])
         .assert()
