@@ -1,4 +1,5 @@
-use std::process::{Command, Output};
+use std::io::Read;
+use std::process::{Command, Output, Stdio};
 
 use crate::error::IdxError;
 
@@ -104,11 +105,26 @@ const MAX_TIME_SECS: &str = "600";
 const MAX_RESPONSE_BYTES: usize = 256 * 1024 * 1024;
 
 fn run_binary(stage: &str, binary: &str, args: &[String]) -> Result<Output, IdxError> {
-    let max_filesize = MAX_RESPONSE_BYTES.to_string();
-    let output = Command::new(binary)
+    run_binary_limited(stage, binary, args, MAX_RESPONSE_BYTES)
+}
+
+/// `--max-filesize` cannot stop a response without a length, nor (before
+/// curl 8.20) a small compressed one that decodes to more, so stdout is
+/// also capped while it is read: past `limit`, curl is killed and reaped.
+fn run_binary_limited(
+    stage: &str,
+    binary: &str,
+    args: &[String],
+    limit: usize,
+) -> Result<Output, IdxError> {
+    let max_filesize = limit.to_string();
+    let mut child = Command::new(binary)
         .args(["--max-time", MAX_TIME_SECS, "--max-filesize", max_filesize.as_str()])
         .args(args)
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             return IdxError::Http(format!(
@@ -118,12 +134,41 @@ fn run_binary(stage: &str, binary: &str, args: &[String]) -> Result<Output, IdxE
         IdxError::Http(format!("failed to run {binary} for {stage}: {e}"))
     })?;
 
-    // --max-filesize cannot stop a response without a length; check here too.
-    if output.stdout.len() > MAX_RESPONSE_BYTES {
-        return Err(IdxError::Http(format!(
-            "{stage} response exceeds {MAX_RESPONSE_BYTES} bytes"
-        )));
+    // stderr drains on its own thread so a chatty curl cannot block on it.
+    let mut stderr_pipe = child.stderr.take().expect("stderr is piped");
+    let stderr_reader = std::thread::spawn(move || {
+        let mut stderr = Vec::new();
+        let _ = stderr_pipe.read_to_end(&mut stderr);
+        stderr
+    });
+    let mut stdout = Vec::new();
+    let read = child
+        .stdout
+        .take()
+        .expect("stdout is piped")
+        .take(limit as u64 + 1)
+        .read_to_end(&mut stdout);
+    if read.is_err() || stdout.len() > limit {
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = stderr_reader.join();
+        return Err(match read {
+            Err(e) => IdxError::Http(format!(
+                "failed to read {stage} response from {binary}: {e}"
+            )),
+            Ok(_) => IdxError::Http(format!("{stage} response exceeds {limit} bytes")),
+        });
     }
+    let status = child
+        .wait()
+        .map_err(|e| IdxError::Http(format!("failed to wait for {binary} for {stage}: {e}")))?;
+    let stderr = stderr_reader.join().unwrap_or_default();
+    let output = Output {
+        status,
+        stdout,
+        stderr,
+    };
+
     if output.status.success() {
         return Ok(output);
     }
@@ -139,4 +184,26 @@ fn run_binary(stage: &str, binary: &str, args: &[String]) -> Result<Output, IdxE
             detail
         }
     )))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_past_the_limit_is_cut_off_and_curl_is_reaped() {
+        // A stand-in curl that never stops writing, like a decompression bomb.
+        let dir = std::env::temp_dir().join(format!("idx-curl-{}", fastrand::u64(..)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("curl");
+        std::fs::write(&fake, "#!/bin/sh\nexec yes\n").unwrap();
+        let mut perms = std::fs::metadata(&fake).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o755);
+        std::fs::set_permissions(&fake, perms).unwrap();
+
+        let err = run_binary_limited("test", fake.to_str().unwrap(), &[], 4096).unwrap_err();
+
+        assert!(err.to_string().contains("exceeds 4096 bytes"), "{err}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
