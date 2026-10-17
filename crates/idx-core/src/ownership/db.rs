@@ -909,11 +909,17 @@ pub fn query_bing_flow(
 
 /// The release used for a report date: the latest imported one, as
 /// `latest_ksei_release` picks, so a corrected file supersedes the original.
+/// The latest import holding rows reported on `date`. A file can carry rows
+/// from several report dates, so a release is matched by its rows rather
+/// than by its `as_of_date` (the latest date in it).
 fn release_for_date(conn: &Connection, date: &str) -> Result<Option<String>, IdxError> {
     conn.query_row(
-        "SELECT sha256 FROM ownership_releases
-         WHERE as_of_date = ?1
-         ORDER BY imported_at DESC, id DESC
+        "SELECT r.sha256 FROM ownership_releases r
+         WHERE EXISTS (
+             SELECT 1 FROM ksei_holdings k
+             WHERE k.release_sha256 = r.sha256 AND k.report_date = ?1
+         )
+         ORDER BY r.imported_at DESC, r.id DESC
          LIMIT 1",
         params![date],
         |row| row.get::<_, String>(0),
@@ -927,7 +933,7 @@ fn release_for_date(conn: &Connection, date: &str) -> Result<Option<String>, Idx
 
 /// Compare two KSEI releases by date and return ownership changes.
 /// Finds: new holders, exited holders, percentage increases/decreases.
-/// Each date reads one release, and a holder's accounts in a ticker are
+/// Each date reads its rows from one release, and a holder's accounts in a ticker are
 /// summed, so an investor with two accounts compares by its total stake.
 pub fn query_changes(
     conn: &Connection,
@@ -957,7 +963,7 @@ pub fn query_changes(
                     FROM ksei_holdings k
                     JOIN tickers t ON t.id = k.ticker_id
                     LEFT JOIN entities e ON e.id = k.entity_id
-                    WHERE k.release_sha256 = ?1
+                    WHERE k.release_sha256 = ?1 AND k.report_date = ?3
                     GROUP BY t.code, holder_key
                 ),
                 to_snapshot AS (
@@ -972,7 +978,7 @@ pub fn query_changes(
                     FROM ksei_holdings k
                     JOIN tickers t ON t.id = k.ticker_id
                     LEFT JOIN entities e ON e.id = k.entity_id
-                    WHERE k.release_sha256 = ?2
+                    WHERE k.release_sha256 = ?2 AND k.report_date = ?4
                     GROUP BY t.code, holder_key
                 ),
                 keys AS (
@@ -999,14 +1005,17 @@ pub fn query_changes(
         .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
     let rows = stmt
-        .query_map(params![from_release, to_release], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<i64>>(2)?,
-                row.get::<_, Option<i64>>(3)?,
-            ))
-        })
+        .query_map(
+            params![from_release, to_release, from_date, to_date],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                ))
+            },
+        )
         .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
     let mut out = Vec::new();
@@ -1542,6 +1551,36 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn changes_keep_each_date_to_its_own_rows() {
+        // A file with a January ALPHA row and February BETA row is the
+        // February release; ALPHA was never held in February, so Feb -> Mar
+        // must not report it as exited.
+        let conn = setup();
+        let bbca = upsert_ticker(&conn, "BBCA", None).unwrap();
+        write_release(
+            &conn,
+            "mixed",
+            "2026-02-27",
+            1,
+            bbca,
+            &[(None, "ALPHA", 1000), (None, "BETA", 200)],
+        );
+        conn.execute(
+            "UPDATE ksei_holdings SET report_date = '2026-01-30' WHERE raw_investor_name = 'ALPHA'",
+            [],
+        )
+        .unwrap();
+        write_release(&conn, "mar", "2026-03-31", 2, bbca, &[(None, "BETA", 200)]);
+
+        let rows = query_changes(&conn, "2026-02-27", "2026-03-31").unwrap();
+        assert!(rows.is_empty(), "{rows:?}");
+
+        let rows = query_changes(&conn, "2026-01-30", "2026-03-31").unwrap();
+        let alpha = rows.iter().find(|r| r.entity_name == "ALPHA").unwrap();
+        assert_eq!(alpha.change_type, ChangeType::Exited);
     }
 
     #[test]
