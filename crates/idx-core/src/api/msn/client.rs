@@ -30,6 +30,9 @@ impl MsnClient {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_connect(Some(Duration::from_secs(5)))
             .timeout_recv_body(Some(Duration::from_secs(10)))
+            // A server that stalls before sending headers must not hold a
+            // call (and an MCP call slot) forever.
+            .timeout_global(Some(Duration::from_secs(30)))
             .build()
             .into();
 
