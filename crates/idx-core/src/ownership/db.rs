@@ -355,7 +355,13 @@ pub fn write_ksei_release(
         }
 
         let inserted = insert_ksei_holdings_rows(conn, holdings)?;
-        let _ = insert_release(conn, release)?;
+        // Record the rows stored, not parsed: INSERT OR IGNORE drops repeated
+        // ticker/investor rows, and snapshot validation counts what is stored.
+        let stored = OwnershipRelease {
+            row_count: inserted,
+            ..release.clone()
+        };
+        let _ = insert_release(conn, &stored)?;
         Ok(inserted)
     })();
 
@@ -1614,6 +1620,38 @@ mod tests {
             "{:?}",
             ticker.holders
         );
+    }
+
+    #[test]
+    fn a_release_records_the_rows_it_stored() {
+        // A file listing the same ticker/investor twice stores one row; the
+        // release metadata must say 1, or snapshot validation rejects it.
+        let conn = setup();
+        let bbca = upsert_ticker(&conn, "BBCA", None).unwrap();
+        write_release(
+            &conn,
+            "dup",
+            "2026-02-27",
+            1,
+            bbca,
+            &[(None, "ALPHA", 1000), (None, "ALPHA", 1000)],
+        );
+
+        let row_count: i64 = conn
+            .query_row(
+                "SELECT row_count FROM ownership_releases WHERE sha256 = 'dup'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let stored: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM ksei_holdings WHERE release_sha256 = 'dup'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!((row_count, stored), (1, 1));
     }
 
     #[test]

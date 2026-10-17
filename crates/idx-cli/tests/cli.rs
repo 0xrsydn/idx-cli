@@ -1924,12 +1924,24 @@ fn ownership_sync_installs_snapshot_and_preserves_query_behavior() {
     }
 
     let bytes = fs::read(&target_db).unwrap();
+    // A pre-0.3.3 install interrupted between its two renames left only a
+    // backup. Sync restores it before deciding, so it is kept like any local
+    // database (no_change, not a reinstall), and survives a failed download.
+    let backup = sync_root.join(".ownership.db.sync-backup");
+    fs::rename(&target_db, &backup).unwrap();
+    let result =
+        run_success_json(bin_with_root(&sync_root).args(["-o", "json", "ownership", "sync"]));
+    assert_eq!(result["action"], "no_change");
+    assert_eq!(fs::read(&target_db).unwrap(), bytes);
+    assert!(!backup.exists());
+
     // Both failures happen after a usable local snapshot has been installed.
     write_snapshot_manifest(
         &manifest_path,
         &source_db,
         Some("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"),
     );
+    fs::rename(&target_db, &backup).unwrap();
     run_error_json(
         bin_with_root(&sync_root).args(["-o", "json", "ownership", "sync", "--force"]),
         "PARSEERROR",
