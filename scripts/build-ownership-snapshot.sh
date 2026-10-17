@@ -79,9 +79,9 @@ fi
 
 mkdir -p "$OUTPUT_DIR"
 
-LATEST_AS_OF="$(sqlite3 "$DB_PATH" "SELECT as_of_date FROM ownership_releases ORDER BY as_of_date DESC, imported_at DESC LIMIT 1;")"
-LATEST_RELEASE_SHA="$(sqlite3 "$DB_PATH" "SELECT sha256 FROM ownership_releases ORDER BY as_of_date DESC, imported_at DESC LIMIT 1;")"
-LATEST_ROW_COUNT="$(sqlite3 "$DB_PATH" "SELECT row_count FROM ownership_releases ORDER BY as_of_date DESC, imported_at DESC LIMIT 1;")"
+LATEST_AS_OF="$(sqlite3 "$DB_PATH" "SELECT as_of_date FROM ownership_releases ORDER BY as_of_date DESC, imported_at DESC, id DESC LIMIT 1;")"
+LATEST_RELEASE_SHA="$(sqlite3 "$DB_PATH" "SELECT sha256 FROM ownership_releases ORDER BY as_of_date DESC, imported_at DESC, id DESC LIMIT 1;")"
+LATEST_ROW_COUNT="$(sqlite3 "$DB_PATH" "SELECT row_count FROM ownership_releases ORDER BY as_of_date DESC, imported_at DESC, id DESC LIMIT 1;")"
 RELEASE_COUNT="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM ownership_releases;")"
 TICKER_COUNT="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tickers;")"
 

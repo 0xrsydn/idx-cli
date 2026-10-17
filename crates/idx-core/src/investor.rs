@@ -555,7 +555,7 @@ impl FromStr for HolderSource {
             "all" => Ok(Self::All),
             "ksei" => Ok(Self::Ksei),
             "bing" => Ok(Self::Bing),
-            _ => Err(IdxError::ParseError(
+            _ => Err(IdxError::InvalidInput(
                 "invalid --source, expected: all|ksei|bing".to_string(),
             )),
         }
@@ -588,7 +588,7 @@ impl FromStr for ConcentrationRank {
             "top1" => Ok(Self::Top1),
             "top3" => Ok(Self::Top3),
             "hhi" => Ok(Self::Hhi),
-            _ => Err(IdxError::ParseError(
+            _ => Err(IdxError::InvalidInput(
                 "invalid --by, expected: top1|top3|hhi".to_string(),
             )),
         }

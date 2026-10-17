@@ -60,6 +60,19 @@ pub fn search_entities(
         .collect()
 }
 
+/// Former name of [`search_entities`], kept for library users.
+#[deprecated(since = "0.3.3", note = "use search_entities")]
+pub fn fts_search(conn: &Connection, query: &str, limit: usize) -> Result<Vec<Entity>, IdxError> {
+    search_entities(conn, query, limit)
+}
+
+/// Search no longer uses an FTS index, so there is nothing to rebuild; kept
+/// for library users.
+#[deprecated(since = "0.3.3", note = "search reads entities and aliases directly")]
+pub fn rebuild_fts(_conn: &Connection) -> Result<(), IdxError> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::{Connection, params};
@@ -122,6 +135,15 @@ mod tests {
             names(&conn, "salim"),
             ["SALIM", "SALIM GROUP HOLDINGS", "ANTHONI SALIM"]
         );
+    }
+
+    #[test]
+    fn a_name_prefix_ranks_above_a_mid_name_match() {
+        // Neither is an exact name or alias: only prefix vs substring differs,
+        // and the substring match is shorter, so length alone would flip them.
+        let conn = conn_with(&[("BANK MANDIRI TASPEN", &[]), ("PT BANK", &[])]);
+
+        assert_eq!(names(&conn, "bank"), ["BANK MANDIRI TASPEN", "PT BANK"]);
     }
 
     #[test]

@@ -182,7 +182,7 @@ fn query_all_edges(conn: &Connection) -> Result<Vec<GraphEdge>, IdxError> {
     if let Ok(release_sha) = conn.query_row(
         "SELECT sha256
              FROM ownership_releases
-             ORDER BY as_of_date DESC, imported_at DESC
+             ORDER BY as_of_date DESC, imported_at DESC, id DESC
              LIMIT 1",
         [],
         |row| row.get::<_, String>(0),

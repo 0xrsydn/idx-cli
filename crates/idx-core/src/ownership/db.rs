@@ -797,7 +797,7 @@ pub fn query_releases(conn: &Connection) -> Result<Vec<OwnershipRelease>, IdxErr
         .prepare(
             "SELECT id, source_url, sha256, as_of_date, row_count, imported_at
              FROM ownership_releases
-             ORDER BY as_of_date DESC, imported_at DESC",
+             ORDER BY as_of_date DESC, imported_at DESC, id DESC",
         )
         .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
@@ -1298,7 +1298,7 @@ fn latest_ksei_release(conn: &Connection) -> Result<Option<LatestKseiRelease>, I
     conn.query_row(
         "SELECT sha256, as_of_date
          FROM ownership_releases
-         ORDER BY as_of_date DESC, imported_at DESC
+         ORDER BY as_of_date DESC, imported_at DESC, id DESC
          LIMIT 1",
         [],
         |row| {
@@ -1541,6 +1541,39 @@ mod tests {
             query_changes(&conn, "2026-01-30", "2026-02-27")
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn same_second_imports_resolve_to_the_later_file_everywhere() {
+        // Original and corrected file for one date imported in the same
+        // second: the ticker view and `changes` must read the same one.
+        let conn = setup();
+        let bbca = upsert_ticker(&conn, "BBCA", None).unwrap();
+        let alpha = entity(&conn, "ALPHA");
+        write_release(
+            &conn,
+            "jan",
+            "2026-01-30",
+            7,
+            bbca,
+            &[(Some(alpha), "ALPHA", 1000)],
+        );
+        write_release(
+            &conn,
+            "jan-fix",
+            "2026-01-30",
+            7,
+            bbca,
+            &[(Some(alpha), "ALPHA", 1200)],
+        );
+
+        let ticker = query_ticker_holdings(&conn, "BBCA").unwrap();
+
+        assert_eq!(
+            ticker.holders[0].percentage_bps, 1200,
+            "{:?}",
+            ticker.holders
         );
     }
 
