@@ -74,7 +74,7 @@ pub struct Ohlc {
 }
 
 /// Fundamental metrics normalized from Yahoo Finance `/v10/finance/quoteSummary`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Fundamentals {
     pub trailing_pe: Option<f64>,
     pub forward_pe: Option<f64>,
