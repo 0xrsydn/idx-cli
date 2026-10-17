@@ -34,6 +34,3 @@ rusqlite = { workspace = true, optional = true }
 quick-xml = { version = "0.37", optional = true }
 sha2 = { workspace = true, optional = true }
 zip = { workspace = true, optional = true }
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"

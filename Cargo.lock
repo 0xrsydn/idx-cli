@@ -908,7 +908,6 @@ dependencies = [
  "clap",
  "directories",
  "fastrand",
- "libc",
  "quick-xml",
  "rusqlite",
  "serde",
