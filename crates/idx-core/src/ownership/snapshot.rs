@@ -161,6 +161,10 @@ pub fn sync_snapshot<L>(
     let resolved_db_path = db::resolve_db_path(db_path)?;
     let db_path = resolved_db_path.as_path();
     let manifest = fetch_manifest(manifest_source)?;
+    {
+        let _lock = lock(db_path, true)?;
+        recover_interrupted_install(db_path)?;
+    }
     let local_state = {
         let _shared = lock(db_path, false)?;
         inspect_local_db(db_path)?
@@ -691,24 +695,6 @@ fn install_snapshot_file(temp_path: &Path, db_path: &Path) -> Result<(), IdxErro
         })?;
     }
 
-    // Versions before 0.3.3 moved the database to a backup before installing;
-    // a crash between the two renames left only the backup. Restore it, or
-    // drop it when the database is there.
-    let backup_path = build_backup_path(db_path);
-    if backup_path.exists() {
-        let result = if db_path.exists() {
-            fs::remove_file(&backup_path)
-        } else {
-            fs::rename(&backup_path, db_path)
-        };
-        result.map_err(|e| {
-            IdxError::Io(format!(
-                "failed to resolve leftover backup {}: {e}",
-                backup_path.display()
-            ))
-        })?;
-    }
-
     // One rename replaces the old database atomically: a crash leaves either
     // the old file or the new one, never neither. Queries do not write to a
     // synced file, so its sidecars hold no data and go first.
@@ -722,6 +708,29 @@ fn install_snapshot_file(temp_path: &Path, db_path: &Path) -> Result<(), IdxErro
 
     remove_sqlite_sidecars(db_path)?;
     Ok(())
+}
+
+/// Versions before 0.3.3 moved the database to a backup before installing;
+/// a crash between the two renames left only the backup. Restore it, or drop
+/// it when the database is there. Runs before the local database is
+/// inspected, so the restored one gets the usual newer/modified safeguards
+/// and stays in place if the download then fails.
+fn recover_interrupted_install(db_path: &Path) -> Result<(), IdxError> {
+    let backup_path = build_backup_path(db_path);
+    if !backup_path.exists() {
+        return Ok(());
+    }
+    let result = if db_path.exists() {
+        fs::remove_file(&backup_path)
+    } else {
+        fs::rename(&backup_path, db_path)
+    };
+    result.map_err(|e| {
+        IdxError::Io(format!(
+            "failed to resolve leftover backup {}: {e}",
+            backup_path.display()
+        ))
+    })
 }
 
 fn build_backup_path(db_path: &Path) -> PathBuf {
@@ -882,8 +891,8 @@ mod tests {
     use super::{
         DEFAULT_SNAPSHOT_MANIFEST_URL, OwnershipSnapshotArtifact, OwnershipSnapshotManifest,
         OwnershipSnapshotSource, OwnershipSyncAction, SNAPSHOT_MANIFEST_SCHEMA_VERSION,
-        build_backup_path, build_sync_decision, check_download_source, install_snapshot_file,
-        parse_manifest, read_local_bounded, resolve_manifest_source_with, validate_snapshot_db,
+        build_sync_decision, check_download_source, parse_manifest, read_local_bounded,
+        resolve_manifest_source_with, validate_snapshot_db,
     };
     use crate::ownership::db::{ensure_schema, insert_release};
     use crate::ownership::types::OwnershipRelease;
@@ -1105,28 +1114,6 @@ mod tests {
         let err = read_local_bounded(std::path::Path::new("/dev/zero"), "snapshot", 16)
             .expect_err("a device is not a snapshot file");
         assert!(err.to_string().contains("not a regular file"), "{err}");
-    }
-
-    #[test]
-    fn install_restores_a_backup_left_by_an_interrupted_older_install() {
-        let dir = std::env::temp_dir().join(format!("idx-install-{}", fastrand::u64(..)));
-        std::fs::create_dir_all(&dir).unwrap();
-        let db = dir.join("ownership.db");
-        // An interrupted pre-0.3.3 install left only the backup. Even if this
-        // install then fails (its temp file is gone), the old data comes back
-        // instead of being deleted, as the old code did first.
-        std::fs::write(build_backup_path(&db), b"previous").unwrap();
-        let missing_temp = dir.join("incoming.tmp");
-
-        assert!(install_snapshot_file(&missing_temp, &db).is_err());
-        assert_eq!(std::fs::read(&db).unwrap(), b"previous");
-
-        let temp = dir.join("incoming-2.tmp");
-        std::fs::write(&temp, b"snapshot").unwrap();
-        install_snapshot_file(&temp, &db).unwrap();
-        assert_eq!(std::fs::read(&db).unwrap(), b"snapshot");
-        assert!(!build_backup_path(&db).exists());
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
