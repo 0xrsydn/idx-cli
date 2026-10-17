@@ -112,27 +112,19 @@ fn argument_error(err: clap::Error) -> IdxError {
 }
 
 /// The output format the raw arguments ask for, when they did not parse:
-/// `-o`/`--output` (any spelling), then `IDX_OUTPUT`, then auto.
+/// `-o`/`--output` as clap reads it (clustered short flags, the last one
+/// at any subcommand level), then `IDX_OUTPUT`, then auto.
 fn requested_output_from_args() -> OutputFormat {
-    // args_os: an argument that is not UTF-8 (itself the error being
-    // reported) must not panic here.
-    let args: Vec<String> = std::env::args_os()
-        .skip(1)
-        .map(|arg| arg.to_string_lossy().into_owned())
-        .collect();
-    let flag = args.iter().enumerate().find_map(|(i, arg)| {
-        if arg == "-o" || arg == "--output" {
-            args.get(i + 1).cloned()
-        } else if let Some(value) = arg.strip_prefix("--output=") {
-            Some(value.to_string())
-        } else if arg.starts_with("-o") && arg.len() > 2 {
-            Some(arg[2..].trim_start_matches('=').to_string())
-        } else {
-            None
-        }
-    });
+    use clap::CommandFactory;
+    // ignore_errors keeps every argument clap could read; args_os, because an
+    // argument that is not UTF-8 (itself the error being reported) must not
+    // panic here.
+    let flag = Cli::command()
+        .ignore_errors(true)
+        .try_get_matches_from(std::env::args_os())
+        .ok()
+        .and_then(|matches| matches.get_one::<OutputSetting>("output").copied());
     let setting = flag
-        .and_then(|value| OutputSetting::parse(&value))
         .or_else(|| {
             std::env::var("IDX_OUTPUT")
                 .ok()
