@@ -115,16 +115,9 @@ fn argument_error(err: clap::Error) -> IdxError {
 /// `-o`/`--output` as clap reads it (clustered short flags, the last one
 /// at any subcommand level), then `IDX_OUTPUT`, then auto.
 fn requested_output_from_args() -> OutputFormat {
-    use clap::CommandFactory;
-    // ignore_errors keeps every argument clap could read; args_os, because an
-    // argument that is not UTF-8 (itself the error being reported) must not
-    // panic here.
-    let flag = Cli::command()
-        .ignore_errors(true)
-        .try_get_matches_from(std::env::args_os())
-        .ok()
-        .and_then(|matches| matches.get_one::<OutputSetting>("output").copied());
-    let setting = flag
+    // args_os: an argument that is not UTF-8 (itself the error being
+    // reported) must not panic here.
+    let setting = output_flag(std::env::args_os().collect())
         .or_else(|| {
             std::env::var("IDX_OUTPUT")
                 .ok()
@@ -132,6 +125,37 @@ fn requested_output_from_args() -> OutputFormat {
         })
         .unwrap_or_default();
     setting.resolve(config::stdout_is_terminal())
+}
+
+/// clap stops at an unknown argument, so an `-o` after it would be missed;
+/// drop each unknown argument and parse again. What is left is read with
+/// ignore_errors, which keeps the matches made before any other error.
+fn output_flag(mut args: Vec<std::ffi::OsString>) -> Option<OutputSetting> {
+    use clap::CommandFactory;
+    use clap::error::{ContextKind, ContextValue, ErrorKind};
+    for _ in 0..args.len() {
+        let Err(err) = Cli::command().try_get_matches_from(&args) else {
+            break;
+        };
+        if err.kind() != ErrorKind::UnknownArgument {
+            break;
+        }
+        let Some(ContextValue::String(bad)) = err.get(ContextKind::InvalidArg) else {
+            break;
+        };
+        let Some(index) = args.iter().skip(1).position(|arg| {
+            let arg = arg.to_string_lossy();
+            arg == bad.as_str() || arg.starts_with(&format!("{bad}="))
+        }) else {
+            break;
+        };
+        args.remove(index + 1);
+    }
+    Cli::command()
+        .ignore_errors(true)
+        .try_get_matches_from(args)
+        .ok()
+        .and_then(|matches| matches.get_one::<OutputSetting>("output").copied())
 }
 
 fn bootstrap_output_format(cli: &Cli) -> OutputFormat {

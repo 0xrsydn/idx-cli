@@ -2127,6 +2127,19 @@ fn argument_errors_follow_the_output_format_clap_resolves() {
     ] {
         run_error_json(test_bin("argument-error-json").args(args), "INVALIDINPUT");
     }
+    // An -o after an unknown argument still counts, over IDX_OUTPUT too.
+    run_error_json(
+        test_bin("argument-error-json")
+            .env("IDX_OUTPUT", "table")
+            .args(["config", "get", "--bogus", "-o", "json"]),
+        "INVALIDINPUT",
+    );
+    test_bin("argument-error-table")
+        .args(["config", "get", "--bogus", "-o", "table"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::starts_with("error: "));
     for args in [
         &["-o", "json", "config", "-o", "table", "get"][..],
         &["-qotable", "config", "get"][..],
