@@ -33,7 +33,7 @@ pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, Id
     })?;
     let change = prev_close
         .map(|previous| price - previous)
-        .or_else(|| quote.price_change.and_then(round_price));
+        .or_else(|| quote.price_change.and_then(round_change));
 
     let ticker = quote
         .symbol
@@ -206,6 +206,11 @@ const MAX_PRICE: f64 = 1e12;
 
 fn round_price(value: f64) -> Option<i64> {
     (value.is_finite() && (0.0..=MAX_PRICE).contains(&value)).then(|| value.round() as i64)
+}
+
+/// A price change can be negative; same bound on its size.
+fn round_change(value: f64) -> Option<i64> {
+    (value.is_finite() && value.abs() <= MAX_PRICE).then(|| value.round() as i64)
 }
 
 fn round_u64(value: Option<f64>) -> Option<u64> {
@@ -679,7 +684,7 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
             let prev_close = q.price_previous_close.and_then(round_price);
             let change = prev_close
                 .map(|pc| price - pc)
-                .or_else(|| q.price_change.and_then(round_price));
+                .or_else(|| q.price_change.and_then(round_change));
             let ticker = q
                 .symbol
                 .as_deref()
@@ -910,6 +915,14 @@ mod tests {
         let quote = parse_quote("BBCA.JK", &raw).unwrap();
         assert_eq!(quote.price, 6075);
         assert_eq!(quote.prev_close, None);
+    }
+
+    #[test]
+    fn parse_quote_keeps_a_negative_change_without_a_previous_close() {
+        let raw: Vec<MsnQuote> =
+            serde_json::from_str(r#"[{"symbol":"BBCA","price":100.0,"priceChange":-5.0}]"#)
+                .unwrap();
+        assert_eq!(parse_quote("BBCA.JK", &raw).unwrap().change, Some(-5));
     }
 
     #[test]
