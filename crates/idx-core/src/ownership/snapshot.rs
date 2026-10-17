@@ -791,7 +791,14 @@ fn read_text(source: &str, context: &str) -> Result<String, IdxError> {
     }
 
     let path = local_source_path(source);
-    let bytes = read_local_bounded(&path, context, MANIFEST_LIMIT_BYTES)?;
+    // One byte over the limit tells an oversized manifest from one that fits.
+    let bytes = read_local_bounded(&path, context, MANIFEST_LIMIT_BYTES + 1)?;
+    if bytes.len() as u64 > MANIFEST_LIMIT_BYTES {
+        return Err(IdxError::InvalidInput(format!(
+            "{context} {} is larger than {MANIFEST_LIMIT_BYTES} bytes",
+            path.display()
+        )));
+    }
     String::from_utf8(bytes).map_err(|e| {
         IdxError::ParseError(format!("{context} {} is not UTF-8: {e}", path.display()))
     })
@@ -1105,17 +1112,36 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("idx-install-{}", fastrand::u64(..)));
         std::fs::create_dir_all(&dir).unwrap();
         let db = dir.join("ownership.db");
-        // An interrupted pre-0.3.3 install: only the backup is left.
+        // An interrupted pre-0.3.3 install left only the backup. Even if this
+        // install then fails (its temp file is gone), the old data comes back
+        // instead of being deleted, as the old code did first.
         std::fs::write(build_backup_path(&db), b"previous").unwrap();
-        let temp = dir.join("incoming.tmp");
+        let missing_temp = dir.join("incoming.tmp");
+
+        assert!(install_snapshot_file(&missing_temp, &db).is_err());
+        assert_eq!(std::fs::read(&db).unwrap(), b"previous");
+
+        let temp = dir.join("incoming-2.tmp");
         std::fs::write(&temp, b"snapshot").unwrap();
-
         install_snapshot_file(&temp, &db).unwrap();
-
         assert_eq!(std::fs::read(&db).unwrap(), b"snapshot");
         assert!(!build_backup_path(&db).exists());
-        assert!(!temp.exists());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn local_manifests_over_the_limit_are_rejected_not_truncated() {
+        let path = std::env::temp_dir().join(format!("idx-manifest-{}.json", fastrand::u64(..)));
+        std::fs::write(
+            &path,
+            vec![b' '; (super::MANIFEST_LIMIT_BYTES + 1) as usize],
+        )
+        .unwrap();
+
+        let err = super::read_text(path.to_str().unwrap(), "manifest").unwrap_err();
+
+        assert!(err.to_string().contains("larger than"), "{err}");
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]
