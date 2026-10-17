@@ -484,6 +484,14 @@ fn lock_path(db_path: &Path) -> PathBuf {
 /// not need write access, so readers fall back to opening an existing lock
 /// file read-only (e.g. one created by another user).
 fn lock_at(db_path: &Path, exclusive: bool) -> Result<fs::File, IdxError> {
+    lock_at_within(db_path, exclusive, LOCK_WAIT)
+}
+
+fn lock_at_within(
+    db_path: &Path,
+    exclusive: bool,
+    wait: std::time::Duration,
+) -> Result<fs::File, IdxError> {
     let path = lock_path(db_path);
     let opened = fs::OpenOptions::new()
         .create(true)
@@ -496,14 +504,37 @@ fn lock_at(db_path: &Path, exclusive: bool) -> Result<fs::File, IdxError> {
             .map_err(|e| IdxError::Io(format!("failed to open ownership lock: {e}")))?,
         Err(e) => return Err(IdxError::Io(format!("failed to open ownership lock: {e}"))),
     };
-    if exclusive {
-        file.lock()
-    } else {
-        file.lock_shared()
+    // Wait a bounded time: a blocking lock behind a long sync or import (or
+    // a stuck process) would hold every MCP call slot indefinitely.
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        let attempt = if exclusive {
+            file.try_lock()
+        } else {
+            file.try_lock_shared()
+        };
+        match attempt {
+            Ok(()) => return Ok(file),
+            Err(fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(fs::TryLockError::WouldBlock) => {
+                return Err(IdxError::Io(format!(
+                    "ownership database is busy (another idx is syncing or importing); try again in a moment ({})",
+                    path.display()
+                )));
+            }
+            Err(fs::TryLockError::Error(e)) => {
+                return Err(IdxError::Io(format!(
+                    "failed to lock ownership database: {e}"
+                )));
+            }
+        }
     }
-    .map_err(|e| IdxError::Io(format!("failed to lock ownership database: {e}")))?;
-    Ok(file)
 }
+
+/// How long ownership commands wait for another process's lock.
+const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// True when the lock file is absent and cannot be created.
 fn unlockable(db_path: &Path) -> bool {
@@ -778,5 +809,23 @@ mod tests {
             Some(OwnershipReportFamily::AboveOnePercent)
         );
         assert!(parse_report_family("above10").is_err());
+    }
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use std::time::Duration;
+
+    use super::lock_at_within;
+
+    #[test]
+    fn a_held_lock_times_out_with_a_busy_error() {
+        let db = std::env::temp_dir().join(format!("idx-lock-{}.db", fastrand::u64(..)));
+        let _held = lock_at_within(&db, true, Duration::ZERO).unwrap();
+
+        let err = lock_at_within(&db, false, Duration::from_millis(200)).unwrap_err();
+
+        assert!(err.to_string().contains("busy"), "{err}");
+        let _ = std::fs::remove_file(super::lock_path(&db));
     }
 }

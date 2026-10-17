@@ -30,6 +30,9 @@ impl YahooClient {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_connect(Some(Duration::from_secs(5)))
             .timeout_recv_body(Some(Duration::from_secs(10)))
+            // A server that stalls before sending headers must not hold a
+            // call (and an MCP call slot) forever.
+            .timeout_global(Some(Duration::from_secs(30)))
             .build()
             .into();
 
@@ -141,7 +144,14 @@ impl YahooClient {
         // Step 1: fetch fc.yahoo.com to set A3 cookie (returns 404 but writes cookie jar).
         // We allow non-zero exit here since 404 still writes the cookie.
         let _ = Command::new(binary)
-            .args(["--silent", "--cookie-jar", cookie_jar_str, COOKIE_FETCH_URL])
+            .args([
+                "--silent",
+                "--max-time",
+                "30",
+                "--cookie-jar",
+                cookie_jar_str,
+                COOKIE_FETCH_URL,
+            ])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .output();

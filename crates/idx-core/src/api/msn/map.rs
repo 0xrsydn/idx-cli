@@ -25,11 +25,15 @@ pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, Id
         }
         return Err(IdxError::SymbolNotFound(symbol.to_string()));
     };
-    let prev_close = quote.price_previous_close.map(round_price);
-    let price = round_price(raw_price);
+    let prev_close = quote.price_previous_close.and_then(round_price);
+    let price = round_price(raw_price).ok_or_else(|| {
+        IdxError::ParseError(format!(
+            "MSN sent an implausible price for {symbol}: {raw_price}"
+        ))
+    })?;
     let change = prev_close
         .map(|previous| price - previous)
-        .or_else(|| quote.price_change.map(round_price));
+        .or_else(|| quote.price_change.and_then(round_price));
 
     let ticker = quote
         .symbol
@@ -59,8 +63,8 @@ pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, Id
         change_pct: quote.price_change_percent,
         volume: round_u64(quote.accumulated_volume),
         market_cap: round_u64(quote.market_cap),
-        week52_high: quote.price_52w_high.map(round_price),
-        week52_low: quote.price_52w_low.map(round_price),
+        week52_high: quote.price_52w_high.and_then(round_price),
+        week52_low: quote.price_52w_low.and_then(round_price),
         week52_position,
         range_signal,
         prev_close,
@@ -196,8 +200,12 @@ fn sanitize_current_ratio(value: Option<f64>) -> Option<f64> {
     value.filter(|number| number.is_finite() && *number >= 0.01)
 }
 
-fn round_price(value: f64) -> i64 {
-    value.round() as i64
+/// Prices are IDR; anything non-finite, negative, or above this is not a
+/// real quote, and treating it as missing keeps arithmetic from overflowing.
+const MAX_PRICE: f64 = 1e12;
+
+fn round_price(value: f64) -> Option<i64> {
+    (value.is_finite() && (0.0..=MAX_PRICE).contains(&value)).then(|| value.round() as i64)
 }
 
 fn round_u64(value: Option<f64>) -> Option<u64> {
@@ -667,11 +675,11 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
         .iter()
         .filter_map(|q| {
             let raw_price = q.price.filter(|price| price.is_finite() && *price > 0.0)?;
-            let price = round_price(raw_price);
-            let prev_close = q.price_previous_close.map(round_price);
+            let price = round_price(raw_price)?;
+            let prev_close = q.price_previous_close.and_then(round_price);
             let change = prev_close
                 .map(|pc| price - pc)
-                .or_else(|| q.price_change.map(round_price));
+                .or_else(|| q.price_change.and_then(round_price));
             let ticker = q
                 .symbol
                 .as_deref()
@@ -698,8 +706,8 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
                 change_pct: q.price_change_percent,
                 volume: round_u64(q.accumulated_volume),
                 market_cap: round_u64(q.market_cap),
-                week52_high: q.price_52w_high.map(round_price),
-                week52_low: q.price_52w_low.map(round_price),
+                week52_high: q.price_52w_high.and_then(round_price),
+                week52_low: q.price_52w_low.and_then(round_price),
                 week52_position,
                 range_signal,
                 prev_close,
@@ -729,12 +737,11 @@ pub(super) fn parse_history(
         let Some(close_raw) = series.prices.get(idx).copied().flatten() else {
             continue;
         };
-        if !close_raw.is_finite() {
+        let Some(close) = round_price(close_raw) else {
             continue;
-        }
+        };
         let timestamp = DateTime::parse_from_rfc3339(raw_ts)
             .map_err(|e| IdxError::ParseError(format!("msn chart timestamp '{raw_ts}': {e}")))?;
-        let close = round_price(close_raw);
         let open = series_price_at(&series.open_prices, idx).unwrap_or(close);
         let high = series_price_at(&series.prices_high, idx).unwrap_or(close);
         let low = series_price_at(&series.prices_low, idx).unwrap_or(close);
@@ -774,7 +781,7 @@ fn series_price_at(values: &[Option<f64>], idx: usize) -> Option<i64> {
         .copied()
         .flatten()
         .filter(|value| value.is_finite())
-        .map(round_price)
+        .and_then(round_price)
 }
 
 fn series_volume_at(series: &RawChartSeries, idx: usize) -> u64 {
@@ -887,6 +894,22 @@ mod tests {
         assert_eq!(sentiment.statistics[0].bullish, 10);
         assert_eq!(sentiment.statistics[0].bearish, 2);
         assert_eq!(sentiment.statistics[0].neutral, 3);
+    }
+
+    #[test]
+    fn parse_quote_rejects_implausible_prices_instead_of_overflowing() {
+        let raw: Vec<MsnQuote> =
+            serde_json::from_str(r#"[{"symbol":"BBCA","price":1e20,"pricePreviousClose":-1e20}]"#)
+                .unwrap();
+        assert!(parse_quote("BBCA.JK", &raw).is_err());
+
+        let raw: Vec<MsnQuote> = serde_json::from_str(
+            r#"[{"symbol":"BBCA","price":6075.0,"pricePreviousClose":-1e20}]"#,
+        )
+        .unwrap();
+        let quote = parse_quote("BBCA.JK", &raw).unwrap();
+        assert_eq!(quote.price, 6075);
+        assert_eq!(quote.prev_close, None);
     }
 
     #[test]

@@ -97,8 +97,19 @@ pub fn run_owned_with_fallback(
     Err(last_error.expect("at least one profile was tried"))
 }
 
+/// Every curl run gives up after this long, so a stalled server cannot hang
+/// a command or an MCP call.
+const MAX_TIME_SECS: &str = "600";
+/// Largest response kept in memory (IDX report files are a few MB).
+const MAX_RESPONSE_BYTES: usize = 256 * 1024 * 1024;
+
 fn run_binary(stage: &str, binary: &str, args: &[String]) -> Result<Output, IdxError> {
-    let output = Command::new(binary).args(args).output().map_err(|e| {
+    let max_filesize = MAX_RESPONSE_BYTES.to_string();
+    let output = Command::new(binary)
+        .args(["--max-time", MAX_TIME_SECS, "--max-filesize", max_filesize.as_str()])
+        .args(args)
+        .output()
+        .map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             return IdxError::Http(format!(
                 "curl-impersonate binary '{binary}' not found; set {OVERRIDE_ENV} or install nixpkgs#curl-impersonate-chrome"
@@ -107,6 +118,12 @@ fn run_binary(stage: &str, binary: &str, args: &[String]) -> Result<Output, IdxE
         IdxError::Http(format!("failed to run {binary} for {stage}: {e}"))
     })?;
 
+    // --max-filesize cannot stop a response without a length; check here too.
+    if output.stdout.len() > MAX_RESPONSE_BYTES {
+        return Err(IdxError::Http(format!(
+            "{stage} response exceeds {MAX_RESPONSE_BYTES} bytes"
+        )));
+    }
     if output.status.success() {
         return Ok(output);
     }
