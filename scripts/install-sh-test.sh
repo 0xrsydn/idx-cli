@@ -191,6 +191,17 @@ else
   fail "expands quoted ~ and tolerates trailing slashes"; cat "${work}/out9" >&2
 fi
 
+# 10. a compact single-line releases response still resolves the newest tag.
+printf '%s' '[{"tag_name":"ownership-snapshot-current"},{"tag_name":"v0.2.4","name":"v0.2.4"},{"tag_name":"v0.2.3"}]' \
+  >"${api_dir}/releases"
+dir="${work}/compact"
+if run_installer "$test_shell" "$installer" --dir "$dir" >"${work}/out10" 2>&1 &&
+  [[ "$("${dir}/idx")" == "idx fake v0.2.4" ]]; then
+  pass "resolves the newest tag from a compact releases response"
+else
+  fail "resolves the newest tag from a compact releases response"; cat "${work}/out10" >&2
+fi
+
 if ((failures > 0)); then
   echo "install.sh tests: ${failures} failure(s) with ${test_shell}" >&2
   exit 1
