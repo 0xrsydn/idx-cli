@@ -1,13 +1,14 @@
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
-use comfy_table::{Cell, ContentArrangement, Table, presets::UTF8_FULL};
+use comfy_table::{ContentArrangement, Table, presets::UTF8_FULL};
 use serde::Serialize;
 
 use crate::config::IdxConfig;
 use crate::output::json;
 use crate::output::style::Paint;
 use crate::output::table::format_idr;
+use crate::output::text::{cell, painted, terminal_safe};
 use idx_core::error::IdxError;
 use idx_core::investor::{
     ConcentrationRank, HolderSource, ImportSource, Investor, parse_report_family,
@@ -227,7 +228,7 @@ fn handle_sync(investor: &Investor, args: &SyncArgs, config: &IdxConfig) -> Resu
                 result.latest_as_of_date.format("%Y-%m-%d"),
                 result.release_count,
                 result.ticker_count,
-                result.db_path
+                terminal_safe(&result.db_path)
             );
         }
         snapshot::OwnershipSyncAction::Updated => {
@@ -236,20 +237,20 @@ fn handle_sync(investor: &Investor, args: &SyncArgs, config: &IdxConfig) -> Resu
                 result.latest_as_of_date.format("%Y-%m-%d"),
                 result.release_count,
                 result.ticker_count,
-                result.db_path
+                terminal_safe(&result.db_path)
             );
         }
         snapshot::OwnershipSyncAction::Refreshed => {
             println!(
                 "Refreshed ownership snapshot {} in {}.",
                 result.latest_as_of_date.format("%Y-%m-%d"),
-                result.db_path
+                terminal_safe(&result.db_path)
             );
         }
         snapshot::OwnershipSyncAction::NoChange
         | snapshot::OwnershipSyncAction::SkippedNewer
         | snapshot::OwnershipSyncAction::SkippedDiverged => {
-            println!("{}", result.reason);
+            println!("{}", terminal_safe(&result.reason));
         }
     }
 
@@ -262,7 +263,7 @@ fn handle_discover(
     config: &IdxConfig,
 ) -> Result<(), IdxError> {
     if args.limit == 0 {
-        return Err(IdxError::ParseError(
+        return Err(IdxError::InvalidInput(
             "--limit must be greater than 0".to_string(),
         ));
     }
@@ -284,17 +285,17 @@ fn handle_discover(
 
     for report in reports {
         table.add_row(vec![
-            Cell::new(report.publish_date.split('T').next().unwrap_or("-")),
-            Cell::new(report.family.label()),
-            Cell::new(report.status.label()),
-            Cell::new(if report.is_attachment {
+            cell(report.publish_date.split('T').next().unwrap_or("-")),
+            cell(report.family.label()),
+            cell(report.status.label()),
+            cell(if report.is_attachment {
                 "attachment"
             } else {
                 "main"
             }),
-            Cell::new(report.original_filename.unwrap_or_else(|| "-".to_string())),
-            Cell::new(report.title),
-            Cell::new(report.pdf_url),
+            cell(report.original_filename.unwrap_or_else(|| "-".to_string())),
+            cell(report.title),
+            cell(report.pdf_url),
         ]);
     }
 
@@ -317,11 +318,11 @@ fn handle_ticker(
     println!(
         "{} {}  KSEI={}  Bing={}",
         "Ownership:".bold(),
-        data.ticker.code.bold(),
+        terminal_safe(&data.ticker.code).bold(),
         data.ksei_as_of
             .map(|d| d.format("%Y-%m-%d").to_string())
             .unwrap_or_else(|| "-".to_string()),
-        data.bing_as_of.unwrap_or_else(|| "-".to_string())
+        terminal_safe(&data.bing_as_of.unwrap_or_else(|| "-".to_string()))
     );
 
     let mut table = Table::new();
@@ -334,21 +335,21 @@ fn handle_ticker(
 
     for h in &data.holders {
         table.add_row(vec![
-            Cell::new(h.rank),
-            Cell::new(match h.source {
+            cell(h.rank),
+            cell(match h.source {
                 OwnershipSource::Ksei => "KSEI",
                 OwnershipSource::Bing => "BING",
             }),
-            Cell::new(&h.name),
-            Cell::new(h.investor_type.clone().unwrap_or_else(|| "-".to_string())),
-            Cell::new(match h.locality {
+            cell(&h.name),
+            cell(h.investor_type.clone().unwrap_or_else(|| "-".to_string())),
+            cell(match h.locality {
                 Some(idx_core::ownership::types::Locality::Local) => "L",
                 Some(idx_core::ownership::types::Locality::Foreign) => "F",
                 None => "-",
             }),
-            Cell::new(format_idr(h.shares)),
-            Cell::new(format_bps(h.percentage_bps)),
-            Cell::new(format_signal(h.signal)),
+            cell(format_idr(h.shares)),
+            cell(format_bps(h.percentage_bps)),
+            painted(format_signal(h.signal)),
         ]);
     }
     println!("{table}");
@@ -380,7 +381,7 @@ fn handle_entity(
     println!(
         "{} {}",
         "Entity:".bold(),
-        data.entity.canonical_name.as_str().bold()
+        terminal_safe(&data.entity.canonical_name).bold()
     );
     let mut table = Table::new();
     table
@@ -390,14 +391,14 @@ fn handle_entity(
 
     for row in &data.holdings {
         table.add_row(vec![
-            Cell::new(&row.ticker.code),
-            Cell::new(match row.source {
+            cell(&row.ticker.code),
+            cell(match row.source {
                 OwnershipSource::Ksei => "KSEI",
                 OwnershipSource::Bing => "BING",
             }),
-            Cell::new(format_idr(row.shares)),
-            Cell::new(format_bps(row.percentage_bps)),
-            Cell::new(row.report_date.format("%Y-%m-%d").to_string()),
+            cell(format_idr(row.shares)),
+            cell(format_bps(row.percentage_bps)),
+            cell(row.report_date.format("%Y-%m-%d").to_string()),
         ]);
     }
     println!("{table}");
@@ -418,7 +419,10 @@ fn handle_search(
     }
 
     if entities.is_empty() {
-        println!("No entities found for query: {}", args.query);
+        println!(
+            "No entities found for query: {}",
+            terminal_safe(&args.query)
+        );
         return Ok(());
     }
 
@@ -430,14 +434,14 @@ fn handle_search(
 
     for entity in &entities {
         table.add_row(vec![
-            Cell::new(&entity.canonical_name),
-            Cell::new(
+            cell(&entity.canonical_name),
+            cell(
                 entity
                     .entity_type
                     .clone()
                     .unwrap_or_else(|| "-".to_string()),
             ),
-            Cell::new(entity.country.clone().unwrap_or_else(|| "-".to_string())),
+            cell(entity.country.clone().unwrap_or_else(|| "-".to_string())),
         ]);
     }
     println!("{table}");
@@ -463,10 +467,10 @@ fn handle_cross_holders(
 
     for (i, row) in rows.iter().enumerate() {
         table.add_row(vec![
-            Cell::new(i + 1),
-            Cell::new(&row.entity.canonical_name),
-            Cell::new(row.ticker_count),
-            Cell::new(format_bps(row.total_bps)),
+            cell(i + 1),
+            cell(&row.entity.canonical_name),
+            cell(row.ticker_count),
+            cell(format_bps(row.total_bps)),
         ]);
     }
 
@@ -502,13 +506,13 @@ fn handle_concentration(
 
     for (idx, (ticker, m)) in rows.iter().enumerate() {
         table.add_row(vec![
-            Cell::new(idx + 1),
-            Cell::new(ticker),
-            Cell::new(format_bps(m.top1_bps)),
-            Cell::new(format_bps(m.top3_bps)),
-            Cell::new(m.hhi),
-            Cell::new(format_bps(m.free_float_bps)),
-            Cell::new(m.holder_count),
+            cell(idx + 1),
+            cell(ticker),
+            cell(format_bps(m.top1_bps)),
+            cell(format_bps(m.top3_bps)),
+            cell(m.hhi),
+            cell(format_bps(m.free_float_bps)),
+            cell(m.holder_count),
         ]);
     }
 
@@ -525,7 +529,10 @@ fn handle_flow(investor: &Investor, args: &FlowArgs, config: &IdxConfig) -> Resu
                 &Option::<idx_core::ownership::types::InstitutionalFlow>::None,
             );
         }
-        println!("No institutional flow data available for {symbol}.");
+        println!(
+            "No institutional flow data available for {}.",
+            terminal_safe(&symbol)
+        );
         return Ok(());
     };
 
@@ -533,7 +540,12 @@ fn handle_flow(investor: &Investor, args: &FlowArgs, config: &IdxConfig) -> Resu
         return json::print_json(&flow);
     }
 
-    println!("{} {} ({})", "Flow:".bold(), symbol.bold(), flow.period);
+    println!(
+        "{} {} ({})",
+        "Flow:".bold(),
+        terminal_safe(&symbol).bold(),
+        terminal_safe(&flow.period)
+    );
     print_flow_section("TOP BUYERS", &flow.top_buyers);
     print_flow_section("TOP SELLERS", &flow.top_sellers);
     print_flow_section("NEW POSITIONS", &flow.new_positions);
@@ -556,11 +568,11 @@ fn print_flow_section(title: &str, rows: &[HolderRow]) {
 
     for (i, row) in rows.iter().enumerate() {
         table.add_row(vec![
-            Cell::new(i + 1),
-            Cell::new(&row.name),
-            Cell::new(format_idr(row.shares)),
-            Cell::new(format_bps(row.percentage_bps)),
-            Cell::new(format_signal(row.signal)),
+            cell(i + 1),
+            cell(&row.name),
+            cell(format_idr(row.shares)),
+            cell(format_bps(row.percentage_bps)),
+            painted(format_signal(row.signal)),
         ]);
     }
     println!("{table}");
@@ -583,14 +595,20 @@ fn handle_graph(investor: &Investor, args: &GraphArgs, config: &IdxConfig) -> Re
 
     match args.format.trim().to_lowercase().as_str() {
         "table" => {
-            print!("{}", graph::format_graph_text(&nodes, &edges));
+            print!(
+                "{}",
+                terminal_safe(&graph::format_graph_text(&nodes, &edges))
+            );
             Ok(())
         }
         "dot" => {
-            print!("{}", graph::format_graph_dot(&nodes, &edges));
+            print!(
+                "{}",
+                terminal_safe(&graph::format_graph_dot(&nodes, &edges))
+            );
             Ok(())
         }
-        other => Err(IdxError::ParseError(format!(
+        other => Err(IdxError::InvalidInput(format!(
             "invalid --format '{other}', expected table|dot"
         ))),
     }
@@ -624,20 +642,20 @@ fn handle_changes(
 
     for row in changes {
         table.add_row(vec![
-            Cell::new(row.ticker_code),
-            Cell::new(row.entity_name),
-            Cell::new(format_change_type(row.change_type)),
-            Cell::new(
+            cell(row.ticker_code),
+            cell(row.entity_name),
+            painted(format_change_type(row.change_type)),
+            cell(
                 row.old_bps
                     .map(format_bps)
                     .unwrap_or_else(|| "-".to_string()),
             ),
-            Cell::new(
+            cell(
                 row.new_bps
                     .map(format_bps)
                     .unwrap_or_else(|| "-".to_string()),
             ),
-            Cell::new(format_signed_bps(row.delta_bps)),
+            cell(format_signed_bps(row.delta_bps)),
         ]);
     }
 
@@ -677,11 +695,11 @@ fn handle_resolve(
 
             for row in rows {
                 table.add_row(vec![
-                    Cell::new(row.raw_name),
-                    Cell::new(row.source),
-                    Cell::new(row.ticker_code),
-                    Cell::new(row.current_entity.unwrap_or_else(|| "-".to_string())),
-                    Cell::new(
+                    cell(row.raw_name),
+                    cell(row.source),
+                    cell(row.ticker_code),
+                    cell(row.current_entity.unwrap_or_else(|| "-".to_string())),
+                    cell(
                         row.confidence
                             .map(|v| format!("{v:.2}"))
                             .unwrap_or_else(|| "-".to_string()),
@@ -700,7 +718,11 @@ fn handle_resolve(
                     "entity": entity,
                 }));
             }
-            println!("Mapped alias '{alias}' -> '{entity}'.");
+            println!(
+                "Mapped alias '{}' -> '{}'.",
+                terminal_safe(alias),
+                terminal_safe(entity)
+            );
             Ok(())
         }
         ResolveCommand::Merge { keep, merge } => {
@@ -734,13 +756,13 @@ fn handle_import(
     config: &IdxConfig,
 ) -> Result<(), IdxError> {
     if args.file.is_none() && args.url.is_none() && args.fetch_bing.is_none() {
-        return Err(IdxError::ParseError(
+        return Err(IdxError::InvalidInput(
             "provide one of: --file, --url, or --fetch-bing".to_string(),
         ));
     }
 
     if args.file.is_some() && args.url.is_some() {
-        return Err(IdxError::ParseError(
+        return Err(IdxError::InvalidInput(
             "--file and --url are mutually exclusive".to_string(),
         ));
     }
@@ -802,11 +824,11 @@ fn handle_releases(investor: &Investor, config: &IdxConfig) -> Result<(), IdxErr
 
     for r in releases {
         table.add_row(vec![
-            Cell::new(r.as_of_date.format("%Y-%m-%d").to_string()),
-            Cell::new(r.row_count),
-            Cell::new(r.sha256),
-            Cell::new(r.source_url.unwrap_or_else(|| "-".to_string())),
-            Cell::new(r.imported_at),
+            cell(r.as_of_date.format("%Y-%m-%d").to_string()),
+            cell(r.row_count),
+            cell(r.sha256),
+            cell(r.source_url.unwrap_or_else(|| "-".to_string())),
+            cell(r.imported_at),
         ]);
     }
 

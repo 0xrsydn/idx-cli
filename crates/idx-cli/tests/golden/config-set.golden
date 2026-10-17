@@ -1,4 +1,4 @@
 exit: 0
 --- stdout
-ok
+{"key":"general.provider","ok":true,"value":"yahoo"}
 --- stderr

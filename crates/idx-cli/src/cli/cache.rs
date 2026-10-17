@@ -34,7 +34,10 @@ pub fn handle(cmd: &CacheCmd, format: &OutputFormat) -> Result<(), IdxError> {
                     "newest": info.newest,
                 }));
             }
-            println!("path: {}", info.path.display());
+            println!(
+                "path: {}",
+                crate::output::text::terminal_safe(&info.path.display().to_string())
+            );
             println!("files: {}", info.files);
             println!("size_bytes: {}", info.total_size);
             println!(

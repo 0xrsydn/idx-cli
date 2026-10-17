@@ -635,7 +635,7 @@ pub fn parse_report_family(raw: &str) -> Result<Option<OwnershipReportFamily>, I
         "investor-type" | "investor_type" | "investortype" => {
             Ok(Some(OwnershipReportFamily::InvestorTypeBreakdown))
         }
-        _ => Err(IdxError::ParseError(
+        _ => Err(IdxError::InvalidInput(
             "invalid --family, expected: all|above1|above5|investor-type".to_string(),
         )),
     }

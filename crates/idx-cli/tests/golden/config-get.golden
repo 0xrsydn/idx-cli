@@ -1,4 +1,4 @@
 exit: 0
 --- stdout
-msn
+{"key":"general.provider","value":"msn"}
 --- stderr

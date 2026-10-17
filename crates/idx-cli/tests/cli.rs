@@ -2118,6 +2118,61 @@ fn offline_and_no_cache_flags_are_rejected() {
 }
 
 #[test]
+fn argument_errors_follow_the_output_format_clap_resolves() {
+    // The last -o wins at any subcommand level, and -o may sit in a cluster:
+    // argument errors pick the same format a successful command would.
+    for args in [
+        &["-o", "table", "config", "-o", "json", "get"][..],
+        &["-qojson", "config", "get"][..],
+    ] {
+        run_error_json(test_bin("argument-error-json").args(args), "INVALIDINPUT");
+    }
+    // An -o after an unknown argument still counts, over IDX_OUTPUT too.
+    run_error_json(
+        test_bin("argument-error-json")
+            .env("IDX_OUTPUT", "table")
+            .args(["config", "get", "--bogus", "-o", "json"]),
+        "INVALIDINPUT",
+    );
+    // ...and so does one before it when --help or --version follows.
+    for args in [
+        &["-o", "json", "config", "get", "--bogus", "--help"][..],
+        &["-o", "json", "--bogus", "--version"][..],
+    ] {
+        run_error_json(
+            test_bin("argument-error-json")
+                .env("IDX_OUTPUT", "table")
+                .args(args),
+            "INVALIDINPUT",
+        );
+    }
+    test_bin("argument-error-table")
+        .env("IDX_OUTPUT", "json")
+        .args(["-o", "table", "config", "get", "--bogus", "--help"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::starts_with("error: "));
+    test_bin("argument-error-table")
+        .args(["config", "get", "--bogus", "-o", "table"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::starts_with("error: "));
+    for args in [
+        &["-o", "json", "config", "-o", "table", "get"][..],
+        &["-qotable", "config", "get"][..],
+    ] {
+        test_bin("argument-error-table")
+            .args(args)
+            .assert()
+            .failure()
+            .stdout("")
+            .stderr(predicate::str::starts_with("error: "));
+    }
+}
+
+#[test]
 fn msn_screen_rejects_invalid_filter() {
     test_bin("msn-screen-invalid-filter")
         .env("IDX_PROVIDER", "msn")

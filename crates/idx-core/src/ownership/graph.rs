@@ -14,7 +14,7 @@ pub fn query_ownership_graph(
 ) -> Result<(Vec<GraphNode>, Vec<GraphEdge>), IdxError> {
     let root = root.trim();
     if root.is_empty() {
-        return Err(IdxError::ParseError(
+        return Err(IdxError::InvalidInput(
             "graph root cannot be empty".to_string(),
         ));
     }
