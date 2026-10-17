@@ -118,12 +118,25 @@ fn run_binary_limited(
     limit: usize,
 ) -> Result<Output, IdxError> {
     let max_filesize = limit.to_string();
-    let mut child = Command::new(binary)
-        .args(["--max-time", MAX_TIME_SECS, "--max-filesize", max_filesize.as_str()])
+    let mut command = Command::new(binary);
+    command
+        .args([
+            "--max-time",
+            MAX_TIME_SECS,
+            "--max-filesize",
+            max_filesize.as_str(),
+        ])
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    // The curl_* profiles are scripts that run curl without exec; a process
+    // group of its own lets an overflow kill curl too, not just the script.
+    // Ctrl+C then reaches only idx: curl ends on its next write to the closed
+    // pipe, or at --max-time.
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    let mut child = command
         .spawn()
         .map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
@@ -147,14 +160,10 @@ fn run_binary_limited(
         .take(limit as u64 + 1)
         .read_to_end(&mut stdout);
     if read.is_err() || stdout.len() > limit {
-        // The curl_* profiles are scripts that run curl without exec, so the
-        // kill reaches only the wrapper; curl itself still holds stderr. Do
-        // not wait for it: closing stdout ends it on its next write (or
-        // --max-time ends a stalled one), and the stderr thread exits with it.
         drop(stdout_pipe);
-        let _ = child.kill();
+        kill_process_group(&mut child);
         let _ = child.wait();
-        drop(stderr_reader);
+        let _ = stderr_reader.join();
         return Err(match read {
             Err(e) => IdxError::Http(format!(
                 "failed to read {stage} response from {binary}: {e}"
@@ -189,6 +198,18 @@ fn run_binary_limited(
     )))
 }
 
+/// Kills curl and the profile script around it (their group, on Unix).
+fn kill_process_group(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    if let Ok(pgid) = libc::pid_t::try_from(child.id()) {
+        // SAFETY: kill(2) takes plain integers; the group is the one this
+        // child leads (process_group(0) at spawn), not yet reaped.
+        unsafe { libc::kill(-pgid, libc::SIGKILL) };
+        return;
+    }
+    let _ = child.kill();
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -200,9 +221,13 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("idx-curl-{}", fastrand::u64(..)));
         std::fs::create_dir_all(&dir).unwrap();
         let fake = dir.join("curl");
+        let pid_file = dir.join("curl.pid");
         std::fs::write(
             &fake,
-            "#!/bin/sh\n( head -c 8192 /dev/zero; sleep 30 )\ntrue\n",
+            format!(
+                "#!/bin/sh\nsh -c 'echo $$ > {}; head -c 8192 /dev/zero; exec sleep 30'\ntrue\n",
+                pid_file.display()
+            ),
         )
         .unwrap();
         let mut perms = std::fs::metadata(&fake).unwrap().permissions();
@@ -214,6 +239,21 @@ mod tests {
 
         assert!(err.to_string().contains("exceeds 4096 bytes"), "{err}");
         assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        // The stand-in curl behind the wrapper is gone too, not left to its
+        // timeout (allow a moment for init to reap it).
+        let pid: libc::pid_t = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let alive = || unsafe { libc::kill(pid, 0) } == 0;
+        for _ in 0..50 {
+            if !alive() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(!alive(), "curl {pid} outlived the overflow");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
