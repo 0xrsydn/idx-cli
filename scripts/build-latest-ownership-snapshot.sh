@@ -126,6 +126,16 @@ if ! command -v jq >/dev/null 2>&1; then
     echo "jq is required for manifest/source metadata processing" >&2
     exit 1
 fi
+# NUL-separated discovery fields need jq 1.7 (--raw-output0) and bash 4.4
+# (mapfile -d); the packaged publisher provides both.
+if ! jq --raw-output0 -n '"x"' >/dev/null 2>&1; then
+    echo "jq 1.7 or newer is required (for --raw-output0); found $(jq --version 2>&1)" >&2
+    exit 1
+fi
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+    echo "bash 4.4 or newer is required (for mapfile -d); found ${BASH_VERSION}" >&2
+    exit 1
+fi
 
 if ! "$IDX_BIN" version >/dev/null 2>&1; then
     echo "failed to run idx binary: $IDX_BIN" >&2
