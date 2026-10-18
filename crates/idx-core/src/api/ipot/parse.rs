@@ -151,13 +151,17 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     if html.to_ascii_lowercase().contains("invalid stock code") {
         return Ok(IpotPage::Invalid);
     }
-    let Some((body_start, body_end)) = html.find("<tbody>").and_then(|start| {
-        html[start..]
+    // Tags are matched case-insensitively on a lowercased copy; ASCII
+    // lowercasing keeps byte offsets, so slices of it index `html` too.
+    let lower = html.to_ascii_lowercase();
+    let body = lower.find("<tbody>").and_then(|start| {
+        lower[start..]
             .find("</tbody>")
-            .map(|len| (start, start + len))
-    }) else {
+            .map(|len| (start + "<tbody>".len(), start + len))
+    });
+    let Some((body_start, body_end)) = body.filter(|_| lower.matches("<tbody").count() == 1) else {
         return Err(IdxError::ParseError(
-            "ipot broker summary: no table in the page".to_string(),
+            "ipot broker summary: no single table in the page".to_string(),
         ));
     };
     let mut raw = BrokerSummaryRaw {
@@ -172,19 +176,31 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
             value
         })
     };
-    // A skipped row would shift every later broker up a rank, so a row of
-    // another shape, a rank out of order, or a broker after a side's blank
-    // rows rejects the page.
+    // A skipped or merged row would shift brokers between ranks, so the body
+    // must be whole rows only, each one `<tr>` of nine closed cells, ranked
+    // in order, and a broker after a side's blank rows rejects the page.
     let (mut buyers_ended, mut sellers_ended) = (false, false);
     let mut rank = 0;
-    for piece in html[body_start..body_end].split("</tr>") {
-        // Only the space after the last row has no row in it.
-        if !piece.contains("<tr") && !piece.contains("<td") {
-            continue;
+    let mut at = body_start;
+    while at < body_end {
+        let rest = &lower[at..body_end];
+        if rest.trim().is_empty() {
+            break;
         }
-        let row = cells(piece);
+        let end = rest
+            .find("</tr>")
+            .map_or(rest.len(), |end| end + "</tr>".len());
+        let piece = &rest[..end];
+        let original = &html[at..at + end];
+        at += end;
         rank += 1;
-        if row.len() != 9 || row[4].text.parse::<u32>().ok() != Some(rank) {
+        let whole_row = piece.trim_start().starts_with("<tr")
+            && piece.ends_with("</tr>")
+            && piece.matches("<tr").count() == 1
+            && piece.matches("<td").count() == 9
+            && piece.matches("</td>").count() == 9;
+        let row = cells(original);
+        if !whole_row || row.len() != 9 || row[4].text.parse::<u32>().ok() != Some(rank) {
             return Err(IdxError::ParseError(format!(
                 "ipot broker summary: unexpected row {rank} ({} cells, rank {:?})",
                 row.len(),
@@ -357,11 +373,28 @@ mod tests {
         let unclosed = DAY[..body].to_string()
             + &DAY[body..first_row_end].replace("</td>", "")
             + &DAY[first_row_end..];
+        // Rank 9 left open and rank 10 without cell ends: rank 10 would
+        // vanish into rank 9.
+        let rows: Vec<usize> = DAY[body..]
+            .match_indices("</tr>")
+            .map(|(at, _)| body + at)
+            .collect();
+        let merged = DAY[..rows[8]].to_string()
+            + &DAY[rows[8] + "</tr>".len()..rows[9]].replace("</td>", "")
+            + &DAY[rows[9]..];
+        // An extra row in uppercase tags before rank 5.
+        let rank5 = DAY[..rows[4]].rfind("<tr>").unwrap();
+        let extra_row = DAY[rank5..rows[4] + "</tr>".len()]
+            .replace("<tr>", "<TR>")
+            .replace("<td", "<TD");
+        let uppercase = DAY[..rank5].to_string() + &extra_row + &DAY[rank5..];
         for page in [
             short_row,
             skipped_rank,
             gap,
             unclosed,
+            merged,
+            uppercase,
             "</tbody><tbody>".to_string(),
         ] {
             assert!(
