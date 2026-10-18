@@ -20,8 +20,12 @@ pub(super) fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, 
         .ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
     let raw_prev_close = meta.previous_close.or(meta.chart_previous_close);
 
-    let price = round_price(raw_price);
-    let prev_close = raw_prev_close.map(round_price);
+    let price = round_price(raw_price).ok_or_else(|| {
+        IdxError::ParseError(format!(
+            "Yahoo sent an implausible price for {symbol}: {raw_price}"
+        ))
+    })?;
+    let prev_close = raw_prev_close.and_then(round_price);
     let change = prev_close.map(|p| price - p);
     let change_pct = raw_prev_close
         .filter(|p| *p != 0.0)
@@ -50,8 +54,8 @@ pub(super) fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, 
         change_pct,
         volume: meta.regular_market_volume,
         market_cap: meta.market_cap,
-        week52_high: meta.fifty_two_week_high.map(round_price),
-        week52_low: meta.fifty_two_week_low.map(round_price),
+        week52_high: meta.fifty_two_week_high.and_then(round_price),
+        week52_low: meta.fifty_two_week_low.and_then(round_price),
         week52_position,
         range_signal,
         prev_close,
@@ -103,22 +107,22 @@ pub(super) fn parse_history(
             .open
             .as_ref()
             .and_then(|v| v.get(i).copied().flatten())
-            .map(round_price);
+            .and_then(round_price);
         let high = quote
             .high
             .as_ref()
             .and_then(|v| v.get(i).copied().flatten())
-            .map(round_price);
+            .and_then(round_price);
         let low = quote
             .low
             .as_ref()
             .and_then(|v| v.get(i).copied().flatten())
-            .map(round_price);
+            .and_then(round_price);
         let close = quote
             .close
             .as_ref()
             .and_then(|v| v.get(i).copied().flatten())
-            .map(round_price);
+            .and_then(round_price);
         let volume = quote
             .volume
             .as_ref()
@@ -202,8 +206,12 @@ pub(super) fn parse_fundamentals(
     })
 }
 
-fn round_price(value: f64) -> i64 {
-    value.round() as i64
+/// Prices are IDR; anything non-finite, negative, or above this is not a
+/// real quote, and treating it as missing keeps arithmetic from overflowing.
+const MAX_PRICE: f64 = 1e12;
+
+fn round_price(value: f64) -> Option<i64> {
+    (value.is_finite() && (0.0..=MAX_PRICE).contains(&value)).then(|| value.round() as i64)
 }
 
 pub(super) fn map_yahoo_error(symbol: &str, endpoint: &str, err: &ChartError) -> IdxError {

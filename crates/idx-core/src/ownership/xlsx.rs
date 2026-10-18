@@ -87,11 +87,13 @@ fn read_zip_entry(
 }
 
 fn first_worksheet_name(zip: &mut zip::ZipArchive<Cursor<&[u8]>>) -> Result<String, IdxError> {
+    // Undecodable entry names cannot be worksheets; skip them.
     let mut sheets: Vec<String> = zip
         .file_names()
+        .filter_map(Result::ok)
         .filter(|name| name.starts_with("xl/worksheets/") && name.ends_with(".xml"))
         .filter(|name| !name["xl/worksheets/".len()..].contains('/'))
-        .map(str::to_string)
+        .map(|name| name.into_owned())
         .collect();
     // sheet1.xml, sheet2.xml, ... sort by their numeric suffix.
     sheets.sort_by_key(|name| {

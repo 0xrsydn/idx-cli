@@ -172,7 +172,10 @@ fn extract_txt_from_zip(path: &Path) -> Result<String, IdxError> {
             continue;
         }
 
-        let name = file.name().to_ascii_lowercase();
+        // An undecodable entry name cannot be the TXT payload.
+        let Ok(name) = file.name().map(|name| name.to_ascii_lowercase()) else {
+            continue;
+        };
         if !name.ends_with(".txt") {
             continue;
         }

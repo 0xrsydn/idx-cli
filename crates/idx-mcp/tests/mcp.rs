@@ -394,6 +394,22 @@ fn ownership_tools_read_the_local_database() {
         assert!(page["next_offset"].is_null(), "offset {past}: {page}");
     }
 
+    // Bad, unknown, or reversed dates are errors, not "everyone is new".
+    for (from, to) in [
+        ("", "2026-02-27"),
+        ("1999-01-01", "2026-02-27"),
+        ("2026-02-27", "2026-01-30"),
+        ("2026-01-30", "2026-01-30"),
+    ] {
+        let (is_error, body) =
+            client.call("get_ownership_changes", json!({"from": from, "to": to}));
+        assert!(is_error, "{from}..{to}: {body}");
+        assert_eq!(body["code"], "INVALIDINPUT", "{from}..{to}: {body}");
+    }
+    let (is_error, body) = client.call("get_investor_holdings", json!({"entity": "  "}));
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "INVALIDINPUT", "{body}");
+
     let (is_error, body) = client.call(
         "get_ownership_changes",
         json!({"from": "2026-01-30", "to": "2026-02-27", "limit": 301}),

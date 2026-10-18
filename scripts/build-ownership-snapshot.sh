@@ -79,9 +79,9 @@ fi
 
 mkdir -p "$OUTPUT_DIR"
 
-LATEST_AS_OF="$(sqlite3 "$DB_PATH" "SELECT as_of_date FROM ownership_releases ORDER BY as_of_date DESC, imported_at DESC LIMIT 1;")"
-LATEST_RELEASE_SHA="$(sqlite3 "$DB_PATH" "SELECT sha256 FROM ownership_releases ORDER BY as_of_date DESC, imported_at DESC LIMIT 1;")"
-LATEST_ROW_COUNT="$(sqlite3 "$DB_PATH" "SELECT row_count FROM ownership_releases ORDER BY as_of_date DESC, imported_at DESC LIMIT 1;")"
+LATEST_AS_OF="$(sqlite3 "$DB_PATH" "SELECT as_of_date FROM ownership_releases ORDER BY as_of_date DESC, imported_at DESC, rowid DESC LIMIT 1;")"
+LATEST_RELEASE_SHA="$(sqlite3 "$DB_PATH" "SELECT sha256 FROM ownership_releases ORDER BY as_of_date DESC, imported_at DESC, rowid DESC LIMIT 1;")"
+LATEST_ROW_COUNT="$(sqlite3 "$DB_PATH" "SELECT row_count FROM ownership_releases ORDER BY as_of_date DESC, imported_at DESC, rowid DESC LIMIT 1;")"
 RELEASE_COUNT="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM ownership_releases;")"
 TICKER_COUNT="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tickers;")"
 
@@ -94,6 +94,15 @@ MANIFEST_PATH="$OUTPUT_DIR/ownership-snapshot-manifest.json"
 TMP_ARTIFACT_PATH="$OUTPUT_DIR/.ownership-snapshot-${LATEST_AS_OF}.sqlite.tmp.$$"
 # Remove a partial copy if the script fails before the atomic rename below.
 trap 'rm -f "$TMP_ARTIFACT_PATH"' EXIT
+# Committed data can still sit in the -wal file while another connection has
+# the database open; checkpoint it into the main file first (a no-op for a
+# closed database, so its bytes and hash are unchanged), and refuse to copy
+# when that cannot complete.
+checkpoint="$(sqlite3 "$DB_PATH" "PRAGMA wal_checkpoint(TRUNCATE);")"
+if [[ "${checkpoint%%|*}" != "0" ]]; then
+    echo "ownership database is busy; could not checkpoint its WAL before copying: $DB_PATH" >&2
+    exit 1
+fi
 cp "$DB_PATH" "$TMP_ARTIFACT_PATH"
 
 # Immutable, content-addressed name. The publisher relies on this to upload and

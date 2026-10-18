@@ -1,6 +1,7 @@
 pub mod json;
 pub mod style;
 pub mod table;
+pub mod text;
 
 use std::io::IsTerminal;
 
@@ -210,7 +211,8 @@ pub fn render_screener(
 
 pub fn emit_error(err: &IdxError, format: &OutputFormat) {
     if !format.is_json() {
-        eprintln!("Error: {err}");
+        // Errors can carry provider, KSEI, or manifest text.
+        eprintln!("Error: {}", text::terminal_safe(&err.to_string()));
         return;
     }
     let payload = serde_json::json!({

@@ -1,9 +1,4 @@
 exit: 2
 --- stdout
 --- stderr
-error: the following required arguments were not provided:
-  <SYMBOLS>...
-
-Usage: idx stocks quote <SYMBOLS>...
-
-For more information, try '--help'.
+{"code":"INVALIDINPUT","error":true,"message":"invalid input: the following required arguments were not provided:\n  <SYMBOLS>...\n\nUsage: idx stocks quote <SYMBOLS>...\n\nFor more information, try '--help'."}

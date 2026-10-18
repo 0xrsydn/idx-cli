@@ -62,7 +62,8 @@ Semantics:
   (`ownership-snapshot-YYYY-MM-DD-<sha256>.sqlite`), so consumers must always
   follow `download_url` and validate it with `sqlite_sha256` and `size_bytes`.
 - `sqlite_sha256` and `size_bytes` are validated before install.
-- `latest_*` and `release_count` are validated against the downloaded SQLite contents before replacement.
+- `latest_*` and `release_count` are validated against the downloaded SQLite contents before replacement, including the number of holdings rows actually stored for the latest release.
+- A manifest fetched over `http(s)://` must give an `http(s)://` `download_url`; only a local manifest may point at a local file. Local files must be regular files, and manifests are limited to 1 MiB.
 - `replaces_sqlite_sha256` (optional, omitted when empty) lists earlier builds
   published for the same `latest_as_of_date` that this snapshot supersedes, for
   example after a parser fix. Clients up to v0.2.x ignore it.
@@ -78,9 +79,11 @@ Without `--force`, sync behaves conservatively:
 - local DB file is byte-identical to a build in `replaces_sqlite_sha256`: replace
   (queries never write to a synced file, so this means it was not modified;
   committed changes still in the `-wal` file are checkpointed before hashing)
-- local latest release/date/count matches snapshot: no-op
+- local latest release/date/count matches snapshot: no-op (a same-date build
+  with a different row count replaces the local file only when it lists that
+  file in `replaces_sqlite_sha256`)
 - local latest release matches but has fewer releases than snapshot: replace to fill missing history
 - local DB newer than snapshot: no-op and keep local data
 - local DB diverges at the same latest date: no-op and require `--force`
 
-Replacement is staged through a temp file and validated before the local DB is swapped in.
+Replacement is staged through a temp file and validated before the local DB is swapped in with a single rename, so an interrupted sync leaves either the old database or the new one.

@@ -134,11 +134,23 @@ impl Investor {
     /// Holdings of the entity whose name best matches `name` (shortest
     /// canonical name containing it).
     pub fn entity(&self, name: &str) -> Result<EntityHoldings, IdxError> {
+        let name = name.trim();
+        // An empty pattern would match every investor and return an arbitrary one.
+        if name.is_empty() {
+            return Err(IdxError::InvalidInput(
+                "investor name must not be empty".into(),
+            ));
+        }
         let conn = self.connect()?;
-        let pattern = format!("%{}%", name.trim());
+        // `%` and `_` in the name are literal characters, not LIKE wildcards.
+        let escaped = name
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let pattern = format!("%{escaped}%");
         let entity_id = conn
             .query_row(
-                "SELECT id FROM entities WHERE canonical_name LIKE ?1 COLLATE NOCASE ORDER BY LENGTH(canonical_name) ASC LIMIT 1",
+                "SELECT id FROM entities WHERE canonical_name LIKE ?1 ESCAPE '\\' COLLATE NOCASE ORDER BY LENGTH(canonical_name) ASC LIMIT 1",
                 rusqlite::params![pattern],
                 |row| row.get::<_, i64>(0),
             )
@@ -147,7 +159,7 @@ impl Investor {
     }
 
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Entity>, IdxError> {
-        search::fts_search(&*self.connect()?, query, limit)
+        search::search_entities(&*self.connect()?, query, limit)
     }
 
     pub fn cross_holders(
@@ -175,14 +187,29 @@ impl Investor {
         db::query_bing_flow(&conn, ticker_id)
     }
 
-    /// Holder changes between two release dates, optionally for one ticker.
+    /// Holder changes between two release dates (`from` earlier than `to`,
+    /// both imported releases), optionally for one ticker.
     pub fn changes(
         &self,
         from: &str,
         to: &str,
         ticker: Option<&str>,
     ) -> Result<Vec<ChangeRow>, IdxError> {
-        let mut rows = db::query_changes(&*self.connect()?, from, to)?;
+        let date = |field: &str, value: &str| {
+            NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d").map_err(|_| {
+                IdxError::InvalidInput(format!(
+                    "{field} must be a release date as YYYY-MM-DD (got {value:?})"
+                ))
+            })
+        };
+        let (from_date, to_date) = (date("from", from)?, date("to", to)?);
+        if from_date >= to_date {
+            return Err(IdxError::InvalidInput(format!(
+                "from ({from_date}) must be earlier than to ({to_date})"
+            )));
+        }
+        let (from, to) = (from_date.to_string(), to_date.to_string());
+        let mut rows = db::query_changes(&*self.connect()?, &from, &to)?;
         if let Some(ticker) = ticker {
             let ticker = ticker.trim().to_uppercase();
             rows.retain(|row| row.ticker_code == ticker);
@@ -457,6 +484,14 @@ fn lock_path(db_path: &Path) -> PathBuf {
 /// not need write access, so readers fall back to opening an existing lock
 /// file read-only (e.g. one created by another user).
 fn lock_at(db_path: &Path, exclusive: bool) -> Result<fs::File, IdxError> {
+    lock_at_within(db_path, exclusive, LOCK_WAIT)
+}
+
+fn lock_at_within(
+    db_path: &Path,
+    exclusive: bool,
+    wait: std::time::Duration,
+) -> Result<fs::File, IdxError> {
     let path = lock_path(db_path);
     let opened = fs::OpenOptions::new()
         .create(true)
@@ -469,14 +504,37 @@ fn lock_at(db_path: &Path, exclusive: bool) -> Result<fs::File, IdxError> {
             .map_err(|e| IdxError::Io(format!("failed to open ownership lock: {e}")))?,
         Err(e) => return Err(IdxError::Io(format!("failed to open ownership lock: {e}"))),
     };
-    if exclusive {
-        file.lock()
-    } else {
-        file.lock_shared()
+    // Wait a bounded time: a blocking lock behind a long sync or import (or
+    // a stuck process) would hold every MCP call slot indefinitely.
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        let attempt = if exclusive {
+            file.try_lock()
+        } else {
+            file.try_lock_shared()
+        };
+        match attempt {
+            Ok(()) => return Ok(file),
+            Err(fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(fs::TryLockError::WouldBlock) => {
+                return Err(IdxError::Io(format!(
+                    "ownership database is busy (another idx is syncing or importing); try again in a moment ({})",
+                    path.display()
+                )));
+            }
+            Err(fs::TryLockError::Error(e)) => {
+                return Err(IdxError::Io(format!(
+                    "failed to lock ownership database: {e}"
+                )));
+            }
+        }
     }
-    .map_err(|e| IdxError::Io(format!("failed to lock ownership database: {e}")))?;
-    Ok(file)
 }
+
+/// How long ownership commands wait for another process's lock.
+const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// True when the lock file is absent and cannot be created.
 fn unlockable(db_path: &Path) -> bool {
@@ -528,7 +586,7 @@ impl FromStr for HolderSource {
             "all" => Ok(Self::All),
             "ksei" => Ok(Self::Ksei),
             "bing" => Ok(Self::Bing),
-            _ => Err(IdxError::ParseError(
+            _ => Err(IdxError::InvalidInput(
                 "invalid --source, expected: all|ksei|bing".to_string(),
             )),
         }
@@ -561,7 +619,7 @@ impl FromStr for ConcentrationRank {
             "top1" => Ok(Self::Top1),
             "top3" => Ok(Self::Top3),
             "hhi" => Ok(Self::Hhi),
-            _ => Err(IdxError::ParseError(
+            _ => Err(IdxError::InvalidInput(
                 "invalid --by, expected: top1|top3|hhi".to_string(),
             )),
         }
@@ -577,7 +635,7 @@ pub fn parse_report_family(raw: &str) -> Result<Option<OwnershipReportFamily>, I
         "investor-type" | "investor_type" | "investortype" => {
             Ok(Some(OwnershipReportFamily::InvestorTypeBreakdown))
         }
-        _ => Err(IdxError::ParseError(
+        _ => Err(IdxError::InvalidInput(
             "invalid --family, expected: all|above1|above5|investor-type".to_string(),
         )),
     }
@@ -751,5 +809,23 @@ mod tests {
             Some(OwnershipReportFamily::AboveOnePercent)
         );
         assert!(parse_report_family("above10").is_err());
+    }
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use std::time::Duration;
+
+    use super::lock_at_within;
+
+    #[test]
+    fn a_held_lock_times_out_with_a_busy_error() {
+        let db = std::env::temp_dir().join(format!("idx-lock-{}.db", fastrand::u64(..)));
+        let _held = lock_at_within(&db, true, Duration::ZERO).unwrap();
+
+        let err = lock_at_within(&db, false, Duration::from_millis(200)).unwrap_err();
+
+        assert!(err.to_string().contains("busy"), "{err}");
+        let _ = std::fs::remove_file(super::lock_path(&db));
     }
 }

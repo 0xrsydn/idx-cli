@@ -14,82 +14,38 @@ pub fn query_ownership_graph(
 ) -> Result<(Vec<GraphNode>, Vec<GraphEdge>), IdxError> {
     let root = root.trim();
     if root.is_empty() {
-        return Err(IdxError::ParseError(
+        return Err(IdxError::InvalidInput(
             "graph root cannot be empty".to_string(),
         ));
     }
 
     let root_node_id = detect_root_node(conn, root)?;
 
-    let mut visited: BTreeSet<String> = BTreeSet::new();
-    {
-        let mut stmt = conn
-            .prepare(
-                "WITH RECURSIVE
-                    latest_ksei AS (
-                        SELECT sha256
-                        FROM ownership_releases
-                        ORDER BY as_of_date DESC, imported_at DESC
-                        LIMIT 1
-                    ),
-                    latest_bing AS (
-                        SELECT ticker_id, MAX(report_date) AS report_date
-                        FROM bing_holdings
-                        GROUP BY ticker_id
-                    ),
-                    all_edges AS (
-                        SELECT
-                            'entity:' || k.entity_id AS from_id,
-                            'ticker:' || t.code AS to_id
-                        FROM ksei_holdings k
-                        JOIN tickers t ON t.id = k.ticker_id
-                        JOIN latest_ksei lk ON lk.sha256 = k.release_sha256
-                        WHERE k.entity_id IS NOT NULL
-
-                        UNION
-
-                        SELECT
-                            'entity:' || b.entity_id AS from_id,
-                            'ticker:' || t.code AS to_id
-                        FROM bing_holdings b
-                        JOIN latest_bing lb
-                          ON lb.ticker_id = b.ticker_id
-                         AND lb.report_date = b.report_date
-                        JOIN tickers t ON t.id = b.ticker_id
-                        WHERE b.entity_id IS NOT NULL
-                          AND b.signal = 'holder'
-                    ),
-                    neighbors AS (
-                        SELECT from_id AS a, to_id AS b FROM all_edges
-                        UNION
-                        SELECT to_id AS a, from_id AS b FROM all_edges
-                    ),
-                    walk(node_id, depth, path) AS (
-                        SELECT ?1 AS node_id, 0 AS depth, ?1 AS path
-                        UNION ALL
-                        SELECT n.b, w.depth + 1, w.path || '>' || n.b
-                        FROM walk w
-                        JOIN neighbors n ON n.a = w.node_id
-                        WHERE w.depth < ?2
-                          AND instr(w.path, n.b) = 0
-                    )
-                    SELECT DISTINCT node_id
-                    FROM walk",
-            )
-            .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
-
-        let rows = stmt
-            .query_map(params![root_node_id, depth as i64], |row| {
-                row.get::<_, String>(0)
-            })
-            .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
-
-        for row in rows {
-            visited.insert(row.map_err(|e| IdxError::DatabaseError(e.to_string()))?);
-        }
-    }
-
+    // Breadth-first over the latest edges with an exact visited set: linear
+    // in the graph size, unlike enumerating every path, and a node is never
+    // mistaken for one whose id merely contains it (`entity:1` in `entity:10`).
     let mut edges = query_all_edges(conn)?;
+    let mut neighbors: HashMap<&str, Vec<&str>> = HashMap::new();
+    for edge in &edges {
+        neighbors.entry(&edge.from).or_default().push(&edge.to);
+        neighbors.entry(&edge.to).or_default().push(&edge.from);
+    }
+    let mut visited: BTreeSet<String> = BTreeSet::from([root_node_id.clone()]);
+    let mut frontier = vec![root_node_id.as_str()];
+    for _ in 0..depth {
+        let mut next = Vec::new();
+        for node in frontier {
+            for &neighbor in neighbors.get(node).into_iter().flatten() {
+                if visited.insert(neighbor.to_string()) {
+                    next.push(neighbor);
+                }
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        frontier = next;
+    }
     edges.retain(|edge| visited.contains(&edge.from) && visited.contains(&edge.to));
 
     let nodes = build_nodes(conn, &visited)?;
@@ -226,7 +182,7 @@ fn query_all_edges(conn: &Connection) -> Result<Vec<GraphEdge>, IdxError> {
     if let Ok(release_sha) = conn.query_row(
         "SELECT sha256
              FROM ownership_releases
-             ORDER BY as_of_date DESC, imported_at DESC
+             ORDER BY as_of_date DESC, imported_at DESC, id DESC
              LIMIT 1",
         [],
         |row| row.get::<_, String>(0),
@@ -378,6 +334,58 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         ensure_schema(&conn).unwrap();
         conn
+    }
+
+    #[test]
+    fn graph_reaches_holders_whose_id_is_a_prefix_of_a_visited_one() {
+        // From entity:10 via ticker:BB to entity:1; "entity:1" is a substring
+        // of "entity:10", which the old path check treated as visited.
+        let conn = setup();
+        let bb = upsert_ticker(&conn, "BB", None).unwrap();
+        conn.execute(
+            "INSERT INTO entities (id, canonical_name, created_at, updated_at)
+             VALUES (10, 'HOLDER TEN', 0, 0), (1, 'HOLDER ONE', 0, 0)",
+            [],
+        )
+        .unwrap();
+        let release = OwnershipRelease {
+            id: 0,
+            source_url: None,
+            sha256: "prefix-graph".to_string(),
+            as_of_date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
+            row_count: 2,
+            imported_at: 1,
+        };
+        let row = |entity_id: i64, name: &str| KseiHolding {
+            id: 0,
+            ticker_id: bb,
+            entity_id: Some(entity_id),
+            raw_investor_name: name.to_string(),
+            investor_type: None,
+            locality: None,
+            nationality: None,
+            domicile: None,
+            holdings_scripless: 1,
+            holdings_scrip: 0,
+            total_shares: 1,
+            percentage_bps: 600,
+            report_date: release.as_of_date,
+            release_sha256: release.sha256.clone(),
+        };
+        write_ksei_release(
+            &conn,
+            &release,
+            &[row(10, "HOLDER TEN"), row(1, "HOLDER ONE")],
+            false,
+        )
+        .unwrap();
+
+        let (nodes, edges) = query_ownership_graph(&conn, "HOLDER TEN", 2).unwrap();
+
+        let mut labels: Vec<_> = nodes.iter().map(|node| node.label.as_str()).collect();
+        labels.sort();
+        assert_eq!(labels, ["BB", "HOLDER ONE", "HOLDER TEN"]);
+        assert_eq!(edges.len(), 2);
     }
 
     #[test]

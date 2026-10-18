@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/idx-core", "crates/idx-cli", "crates/idx-mcp"]
 
 [workspace.package]
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT"
@@ -11,7 +11,7 @@ repository = "https://github.com/0xrsydn/idx-cli"
 homepage = "https://idx.rasyidanaf.com"
 
 [workspace.dependencies]
-idx-core = { path = "crates/idx-core", version = "=0.3.2" }
+idx-core = { path = "crates/idx-core", version = "=0.3.3" }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
@@ -20,4 +20,4 @@ chrono = { version = "0.4", features = ["serde"] }
 ureq = { version = "3", features = ["json", "cookies"] }
 rusqlite = { version = "0.32", features = ["bundled-full"] }
 sha2 = "0.10"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }

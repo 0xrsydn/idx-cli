@@ -15,6 +15,7 @@ pub mod investor;
 pub mod market;
 #[cfg(feature = "ownership")]
 pub mod ownership;
+pub mod text;
 
 pub use client::{CachePolicy, Fetched, Idx};
 
@@ -23,6 +24,7 @@ pub mod runtime {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     static QUIET: AtomicBool = AtomicBool::new(false);
+    static JSON: AtomicBool = AtomicBool::new(false);
 
     pub fn set_quiet(quiet: bool) {
         QUIET.store(quiet, Ordering::Relaxed);
@@ -32,15 +34,32 @@ pub mod runtime {
         QUIET.load(Ordering::Relaxed)
     }
 
-    pub fn info(message: impl Display) {
-        if !is_quiet() {
-            eprintln!("info: {message}");
+    /// In JSON mode diagnostics are JSON lines, so stderr stays
+    /// machine-readable alongside a JSON error.
+    pub fn set_json(json: bool) {
+        JSON.store(json, Ordering::Relaxed);
+    }
+
+    fn emit(level: &str, message: impl Display) {
+        if is_quiet() {
+            return;
+        }
+        if JSON.load(Ordering::Relaxed) {
+            let line = serde_json::json!({ "level": level, "message": message.to_string() });
+            eprintln!("{line}");
+        } else {
+            eprintln!(
+                "{level}: {}",
+                crate::text::terminal_safe(&message.to_string())
+            );
         }
     }
 
+    pub fn info(message: impl Display) {
+        emit("info", message);
+    }
+
     pub fn warn(message: impl Display) {
-        if !is_quiet() {
-            eprintln!("warning: {message}");
-        }
+        emit("warning", message);
     }
 }

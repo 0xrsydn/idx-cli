@@ -161,6 +161,10 @@ pub fn sync_snapshot<L>(
     let resolved_db_path = db::resolve_db_path(db_path)?;
     let db_path = resolved_db_path.as_path();
     let manifest = fetch_manifest(manifest_source)?;
+    {
+        let _lock = lock(db_path, true)?;
+        recover_interrupted_install(db_path)?;
+    }
     let local_state = {
         let _shared = lock(db_path, false)?;
         inspect_local_db(db_path)?
@@ -189,6 +193,7 @@ pub fn sync_snapshot<L>(
     // A body larger than the manifest says is rejected while downloading
     // (ureq fails once a body reaches its limit, hence the +1); the exact size
     // and SHA-256 are verified afterwards.
+    check_download_source(manifest_source, &manifest.snapshot.download_url)?;
     let bytes = read_bytes(
         &manifest.snapshot.download_url,
         "ownership snapshot SQLite",
@@ -506,17 +511,12 @@ fn build_sync_decision(
         };
     }
 
-    if latest.sha256 == snapshot.latest_release_sha256 {
-        if latest.row_count != snapshot.latest_row_count
-            && snapshot.release_count >= local.release_count
-        {
-            return SyncDecision {
-                action: OwnershipSyncAction::Updated,
-                should_download: true,
-                reason: "local ownership database has the same latest release date but different row_count metadata".to_string(),
-            };
-        }
-
+    // A same-date rebuild replaces the local file only through
+    // `replaces_sqlite_sha256` above; differing row counts alone would let a
+    // replayed older build undo a corrected one.
+    if latest.sha256 == snapshot.latest_release_sha256
+        && latest.row_count == snapshot.latest_row_count
+    {
         if local.release_count < snapshot.release_count {
             return SyncDecision {
                 action: OwnershipSyncAction::Updated,
@@ -549,6 +549,18 @@ fn build_sync_decision(
             snapshot.latest_as_of_date.format("%Y-%m-%d")
         ),
     }
+}
+
+/// A manifest fetched over HTTP(S) must not name a local file: it could make
+/// sync read a device such as /dev/zero, or any local file. A local manifest
+/// (the user's own) may.
+fn check_download_source(manifest_source: &str, download_url: &str) -> Result<(), IdxError> {
+    if is_http_source(manifest_source) && !is_http_source(download_url) {
+        return Err(IdxError::InvalidInput(format!(
+            "ownership snapshot manifest from {manifest_source} names a non-HTTP(S) download_url: {download_url}"
+        )));
+    }
+    Ok(())
 }
 
 fn validate_downloaded_bytes(
@@ -626,6 +638,21 @@ fn validate_snapshot_db(path: &Path, snapshot: &OwnershipSnapshotArtifact) -> Re
             snapshot.latest_row_count, latest.row_count
         )));
     }
+    // Count the stored rows too: release metadata alone would accept a
+    // snapshot whose holdings table is empty or missing.
+    let stored_rows: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM ksei_holdings WHERE release_sha256 = ?1",
+            rusqlite::params![latest.sha256],
+            |row| row.get(0),
+        )
+        .map_err(|e| IdxError::DatabaseError(format!("failed counting snapshot holdings: {e}")))?;
+    if usize::try_from(stored_rows).ok() != Some(snapshot.latest_row_count) {
+        return Err(IdxError::ParseError(format!(
+            "downloaded snapshot holds {stored_rows} rows for its latest release; manifest expected {}",
+            snapshot.latest_row_count
+        )));
+    }
 
     let ticker_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM tickers", [], |row| row.get(0))
@@ -668,50 +695,42 @@ fn install_snapshot_file(temp_path: &Path, db_path: &Path) -> Result<(), IdxErro
         })?;
     }
 
-    let backup_path = build_backup_path(db_path);
-    if backup_path.exists() {
-        fs::remove_file(&backup_path).map_err(|e| {
-            IdxError::Io(format!(
-                "failed to remove stale backup {}: {e}",
-                backup_path.display()
-            ))
-        })?;
-    }
-
-    let had_existing = db_path.exists();
+    // One rename replaces the old database atomically: a crash leaves either
+    // the old file or the new one, never neither. Queries do not write to a
+    // synced file, so its sidecars hold no data and go first.
     remove_sqlite_sidecars(db_path)?;
-
-    if had_existing {
-        fs::rename(db_path, &backup_path).map_err(|e| {
-            IdxError::Io(format!(
-                "failed to move existing ownership database {} to backup {}: {e}",
-                db_path.display(),
-                backup_path.display()
-            ))
-        })?;
-    }
-
-    if let Err(err) = fs::rename(temp_path, db_path) {
-        if had_existing {
-            let _ = fs::rename(&backup_path, db_path);
-        }
-        return Err(IdxError::Io(format!(
-            "failed to install ownership snapshot into {}: {err}",
+    fs::rename(temp_path, db_path).map_err(|e| {
+        IdxError::Io(format!(
+            "failed to install ownership snapshot into {}: {e}",
             db_path.display()
-        )));
-    }
-
-    if had_existing && backup_path.exists() {
-        fs::remove_file(&backup_path).map_err(|e| {
-            IdxError::Io(format!(
-                "failed to remove snapshot backup {}: {e}",
-                backup_path.display()
-            ))
-        })?;
-    }
+        ))
+    })?;
 
     remove_sqlite_sidecars(db_path)?;
     Ok(())
+}
+
+/// Versions before 0.3.3 moved the database to a backup before installing;
+/// a crash between the two renames left only the backup. Restore it, or drop
+/// it when the database is there. Runs before the local database is
+/// inspected, so the restored one gets the usual newer/modified safeguards
+/// and stays in place if the download then fails.
+fn recover_interrupted_install(db_path: &Path) -> Result<(), IdxError> {
+    let backup_path = build_backup_path(db_path);
+    if !backup_path.exists() {
+        return Ok(());
+    }
+    let result = if db_path.exists() {
+        fs::remove_file(&backup_path)
+    } else {
+        fs::rename(&backup_path, db_path)
+    };
+    result.map_err(|e| {
+        IdxError::Io(format!(
+            "failed to resolve leftover backup {}: {e}",
+            backup_path.display()
+        ))
+    })
 }
 
 fn build_backup_path(db_path: &Path) -> PathBuf {
@@ -772,16 +791,30 @@ fn read_text(source: &str, context: &str) -> Result<String, IdxError> {
             .header("Accept", "application/json,text/plain;q=0.9,*/*;q=0.8")
             .call()
             .map_err(|e| IdxError::Http(format!("failed to fetch {context}: {e}")))?;
-        let mut body = response.into_body();
-        return body
+        return response
+            .into_body()
+            .with_config()
+            .limit(MANIFEST_LIMIT_BYTES)
             .read_to_string()
             .map_err(|e| IdxError::Http(format!("failed reading {context} body: {e}")));
     }
 
     let path = local_source_path(source);
-    fs::read_to_string(&path)
-        .map_err(|e| IdxError::Io(format!("failed to read {context} {}: {e}", path.display())))
+    // One byte over the limit tells an oversized manifest from one that fits.
+    let bytes = read_local_bounded(&path, context, MANIFEST_LIMIT_BYTES + 1)?;
+    if bytes.len() as u64 > MANIFEST_LIMIT_BYTES {
+        return Err(IdxError::InvalidInput(format!(
+            "{context} {} is larger than {MANIFEST_LIMIT_BYTES} bytes",
+            path.display()
+        )));
+    }
+    String::from_utf8(bytes).map_err(|e| {
+        IdxError::ParseError(format!("{context} {} is not UTF-8: {e}", path.display()))
+    })
 }
+
+/// A manifest is a few KB; anything near this is not one.
+const MANIFEST_LIMIT_BYTES: u64 = 1 << 20;
 
 /// Downloads give up rather than hang: a stalled connection must not keep
 /// sync (and anything waiting on it) blocked forever.
@@ -816,9 +849,26 @@ fn read_bytes(source: &str, context: &str, limit_bytes: u64) -> Result<Vec<u8>, 
             });
     }
 
-    let path = local_source_path(source);
-    fs::read(&path)
-        .map_err(|e| IdxError::Io(format!("failed to read {context} {}: {e}", path.display())))
+    read_local_bounded(&local_source_path(source), context, limit_bytes)
+}
+
+/// Reads at most `limit_bytes` of a regular file (not a device or FIFO); a
+/// larger file comes back truncated and fails the caller's size check.
+fn read_local_bounded(path: &Path, context: &str, limit_bytes: u64) -> Result<Vec<u8>, IdxError> {
+    let read_error = |e: std::io::Error| {
+        IdxError::Io(format!("failed to read {context} {}: {e}", path.display()))
+    };
+    let file = fs::File::open(path).map_err(read_error)?;
+    if !file.metadata().map_err(read_error)?.is_file() {
+        return Err(IdxError::InvalidInput(format!(
+            "{context} {} is not a regular file",
+            path.display()
+        )));
+    }
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(file, limit_bytes), &mut bytes)
+        .map_err(read_error)?;
+    Ok(bytes)
 }
 
 fn is_http_source(source: &str) -> bool {
@@ -841,7 +891,8 @@ mod tests {
     use super::{
         DEFAULT_SNAPSHOT_MANIFEST_URL, OwnershipSnapshotArtifact, OwnershipSnapshotManifest,
         OwnershipSnapshotSource, OwnershipSyncAction, SNAPSHOT_MANIFEST_SCHEMA_VERSION,
-        build_sync_decision, parse_manifest, resolve_manifest_source_with,
+        build_sync_decision, check_download_source, parse_manifest, read_local_bounded,
+        resolve_manifest_source_with, validate_snapshot_db,
     };
     use crate::ownership::db::{ensure_schema, insert_release};
     use crate::ownership::types::OwnershipRelease;
@@ -982,6 +1033,102 @@ mod tests {
 
         let decision = build_sync_decision(Some(&local), &snapshot, false);
         assert!(!decision.should_download, "{}", decision.reason);
+    }
+
+    #[test]
+    fn build_sync_decision_ignores_a_replayed_older_build_for_the_same_date() {
+        // Local holds corrected build B (7200 rows); an older build A for the
+        // same release (7154 rows) that does not list B must not undo it.
+        let snapshot = same_date_snapshot(Vec::new());
+        let mut local = same_release_local(&snapshot, &"c".repeat(64));
+        if let Some(release) = local.latest_release.as_mut() {
+            release.row_count = 7200;
+        }
+
+        let decision = build_sync_decision(Some(&local), &snapshot, false);
+        assert!(!decision.should_download, "{}", decision.reason);
+    }
+
+    #[test]
+    fn validation_rejects_a_snapshot_whose_holdings_are_missing() {
+        // Release metadata and manifest agree (7154 rows), but no holdings
+        // are stored: installing it would replace good data with nothing.
+        let snapshot = same_date_snapshot(Vec::new());
+        let path = std::env::temp_dir().join(format!("idx-empty-{}.sqlite", fastrand::u64(..)));
+        let conn = Connection::open(&path).unwrap();
+        ensure_schema(&conn).unwrap();
+        for (index, sha256) in ["1", "2"].into_iter().map(|c| c.repeat(64)).enumerate() {
+            let as_of_date = NaiveDate::from_ymd_opt(2026, 7 + index as u32, 28).unwrap();
+            insert_release(
+                &conn,
+                &OwnershipRelease {
+                    id: 0,
+                    source_url: None,
+                    sha256,
+                    as_of_date,
+                    row_count: 1,
+                    imported_at: 0,
+                },
+            )
+            .unwrap();
+        }
+        insert_release(
+            &conn,
+            &OwnershipRelease {
+                id: 0,
+                source_url: None,
+                sha256: snapshot.latest_release_sha256.clone(),
+                as_of_date: snapshot.latest_as_of_date,
+                row_count: snapshot.latest_row_count,
+                imported_at: 0,
+            },
+        )
+        .unwrap();
+        for code in 0..snapshot.ticker_count {
+            conn.execute(
+                "INSERT INTO tickers (code) VALUES (?1)",
+                [format!("T{code}")],
+            )
+            .unwrap();
+        }
+        drop(conn);
+
+        let err = validate_snapshot_db(&path, &snapshot).expect_err("no holdings stored");
+        assert!(err.to_string().contains("holds 0 rows"), "{err}");
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn remote_manifests_may_not_name_local_artifacts() {
+        let remote = "https://example.com/ownership-snapshot-manifest.json";
+        assert!(check_download_source(remote, "/dev/zero").is_err());
+        assert!(check_download_source(remote, "file:///etc/passwd").is_err());
+        assert!(check_download_source(remote, "https://example.com/a.sqlite").is_ok());
+        // The user's own local manifest may point at a local file.
+        assert!(check_download_source("/tmp/manifest.json", "/tmp/a.sqlite").is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_reads_refuse_devices() {
+        let err = read_local_bounded(std::path::Path::new("/dev/zero"), "snapshot", 16)
+            .expect_err("a device is not a snapshot file");
+        assert!(err.to_string().contains("not a regular file"), "{err}");
+    }
+
+    #[test]
+    fn local_manifests_over_the_limit_are_rejected_not_truncated() {
+        let path = std::env::temp_dir().join(format!("idx-manifest-{}.json", fastrand::u64(..)));
+        std::fs::write(
+            &path,
+            vec![b' '; (super::MANIFEST_LIMIT_BYTES + 1) as usize],
+        )
+        .unwrap();
+
+        let err = super::read_text(path.to_str().unwrap(), "manifest").unwrap_err();
+
+        assert!(err.to_string().contains("larger than"), "{err}");
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

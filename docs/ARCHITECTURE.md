@@ -162,7 +162,12 @@ CLI flags > environment variables > config file > defaults
 ## Error Strategy
 - `IdxError` enum (thiserror) with structured error codes
 - Table mode: human-readable error on stderr
-- JSON and JSONL modes: `{"error": true, "code": "...", "message": "..."}` on stderr, stdout empty
+- JSON and JSONL modes: `{"error": true, "code": "...", "message": "..."}` on stderr, stdout empty.
+  This includes argument errors (`INVALIDINPUT`, exit 2) when `-o`/`--output`,
+  `IDX_OUTPUT`, or auto mode with stdout not a terminal selects JSON; `--help`
+  and `--version` print normally.
+- Untrusted text (provider strings, KSEI names) has control characters and
+  bidirectional overrides replaced before it reaches a terminal table.
 - Exit codes by class: `0` success, `2` `INVALIDINPUT`/`CONFIGERROR` and clap usage
   errors, `3` `SYMBOLNOTFOUND`/`NOMARKETDATA`/`CACHEMISS`, `4` `HTTP`/`RATELIMITED`/
   `PROVIDERUNAVAILABLE`/`OFFLINE`/`AUTHERROR`, `5` `UNSUPPORTED`, `1` everything else
@@ -182,4 +187,6 @@ CLI flags > environment variables > config file > defaults
 - `stocks quote` and `stocks compare` require at least one symbol.
 - Offline reads warn on stderr when serving cache entries past their TTL,
   including the cache fetch timestamp. `--quiet` suppresses these warnings.
+  In JSON mode warnings and info are JSON lines,
+  `{"level": "warning", "message": "..."}`, so stderr stays parseable.
   Staleness is not yet represented by a versioned JSON result envelope.

@@ -148,12 +148,16 @@ pub fn analyze_risk(fundamentals: &Fundamentals) -> RiskReport {
     let de_signal = de_signal(fundamentals.debt_to_equity);
     let current_ratio_signal = cr_signal(fundamentals.current_ratio);
 
-    let overall_signal = if de_signal == "no data" && current_ratio_signal == "no data" {
+    // A known adverse signal decides on its own: negative equity or heavy
+    // leverage is high risk even when the current ratio is missing.
+    let overall_signal = if matches!(de_signal, "highly leveraged" | "negative equity")
+        || current_ratio_signal == "weak"
+    {
+        "high risk"
+    } else if de_signal == "no data" && current_ratio_signal == "no data" {
         "no data"
     } else if de_signal == "no data" || current_ratio_signal == "no data" {
         "incomplete data"
-    } else if de_signal == "highly leveraged" || current_ratio_signal == "weak" {
-        "high risk"
     } else if de_signal == "conservative" && matches!(current_ratio_signal, "strong" | "adequate") {
         "low risk"
     } else {
@@ -176,9 +180,14 @@ pub fn analyze_fundamental(symbol: &str, fundamentals: &Fundamentals) -> Fundame
     let valuation = analyze_valuation(fundamentals);
     let risk = analyze_risk(fundamentals);
 
+    // "healthy" needs evidence on all three: missing valuation or risk data
+    // must not pass for "not expensive" or "not risky".
     let overall_signal = if growth.overall_signal == "growing"
-        && valuation.overall_signal != "expensive"
-        && risk.overall_signal != "high risk"
+        && matches!(
+            valuation.overall_signal.as_str(),
+            "undervalued" | "fairly valued"
+        )
+        && matches!(risk.overall_signal.as_str(), "low risk" | "moderate risk")
     {
         "healthy"
     } else if growth.overall_signal == "shrinking" && risk.overall_signal == "high risk" {
@@ -373,6 +382,35 @@ mod tests {
             ebitda: Some(15),
             market_cap: Some(100),
         }
+    }
+
+    #[test]
+    fn missing_valuation_and_risk_data_is_not_healthy() {
+        // Growth alone (12% revenue, 22% earnings) used to rate "healthy".
+        let fundamentals = Fundamentals {
+            revenue_growth: Some(0.12),
+            earnings_growth: Some(0.22),
+            ..Fundamentals::default()
+        };
+        let report = analyze_fundamental("X.JK", &fundamentals);
+        assert_eq!(report.growth.overall_signal, "growing");
+        assert_eq!(report.overall_signal, "mixed");
+    }
+
+    #[test]
+    fn negative_equity_is_high_risk_and_not_healthy() {
+        let mut fundamentals = sample_fundamentals();
+        fundamentals.debt_to_equity = Some(-10.0);
+        assert_eq!(analyze_risk(&fundamentals).overall_signal, "high risk");
+        assert_eq!(
+            analyze_fundamental("X.JK", &fundamentals).overall_signal,
+            "mixed"
+        );
+
+        // Known heavy leverage decides even with the current ratio missing.
+        fundamentals.debt_to_equity = Some(250.0);
+        fundamentals.current_ratio = None;
+        assert_eq!(analyze_risk(&fundamentals).overall_signal, "high risk");
     }
 
     #[test]

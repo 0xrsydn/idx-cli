@@ -981,6 +981,43 @@ fn config_set_and_get_provider_round_trip() {
 }
 
 #[test]
+fn config_prints_json_only_when_json_is_asked_for() {
+    // Piped with auto output, scripts read plain text: `$(idx config path)`.
+    let root = test_env_dir("config-output-format");
+    bin_with_root(&root)
+        .args(["config", "set", "general.provider", "msn"])
+        .assert()
+        .success()
+        .stdout("ok\n");
+    bin_with_root(&root)
+        .args(["config", "get", "general.provider"])
+        .assert()
+        .success()
+        .stdout("msn\n");
+
+    let flag = run_success_json(bin_with_root(&root).args([
+        "-o",
+        "json",
+        "config",
+        "get",
+        "general.provider",
+    ]));
+    assert_eq!(
+        flag,
+        serde_json::json!({"key": "general.provider", "value": "msn"})
+    );
+    let env = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_OUTPUT", "json")
+            .args(["config", "path"]),
+    );
+    assert!(
+        env["path"].as_str().unwrap().ends_with("config.toml"),
+        "{env}"
+    );
+}
+
+#[test]
 fn config_set_and_get_ownership_db_path_round_trip() {
     let root = test_env_dir("config-ownership-db-path");
 
@@ -1924,12 +1961,24 @@ fn ownership_sync_installs_snapshot_and_preserves_query_behavior() {
     }
 
     let bytes = fs::read(&target_db).unwrap();
+    // A pre-0.3.3 install interrupted between its two renames left only a
+    // backup. Sync restores it before deciding, so it is kept like any local
+    // database (no_change, not a reinstall), and survives a failed download.
+    let backup = sync_root.join(".ownership.db.sync-backup");
+    fs::rename(&target_db, &backup).unwrap();
+    let result =
+        run_success_json(bin_with_root(&sync_root).args(["-o", "json", "ownership", "sync"]));
+    assert_eq!(result["action"], "no_change");
+    assert_eq!(fs::read(&target_db).unwrap(), bytes);
+    assert!(!backup.exists());
+
     // Both failures happen after a usable local snapshot has been installed.
     write_snapshot_manifest(
         &manifest_path,
         &source_db,
         Some("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"),
     );
+    fs::rename(&target_db, &backup).unwrap();
     run_error_json(
         bin_with_root(&sync_root).args(["-o", "json", "ownership", "sync", "--force"]),
         "PARSEERROR",
@@ -2103,6 +2152,61 @@ fn offline_and_no_cache_flags_are_rejected() {
         ]),
         "INVALIDINPUT",
     );
+}
+
+#[test]
+fn argument_errors_follow_the_output_format_clap_resolves() {
+    // The last -o wins at any subcommand level, and -o may sit in a cluster:
+    // argument errors pick the same format a successful command would.
+    for args in [
+        &["-o", "table", "config", "-o", "json", "get"][..],
+        &["-qojson", "config", "get"][..],
+    ] {
+        run_error_json(test_bin("argument-error-json").args(args), "INVALIDINPUT");
+    }
+    // An -o after an unknown argument still counts, over IDX_OUTPUT too.
+    run_error_json(
+        test_bin("argument-error-json")
+            .env("IDX_OUTPUT", "table")
+            .args(["config", "get", "--bogus", "-o", "json"]),
+        "INVALIDINPUT",
+    );
+    // ...and so does one before it when --help or --version follows.
+    for args in [
+        &["-o", "json", "config", "get", "--bogus", "--help"][..],
+        &["-o", "json", "--bogus", "--version"][..],
+    ] {
+        run_error_json(
+            test_bin("argument-error-json")
+                .env("IDX_OUTPUT", "table")
+                .args(args),
+            "INVALIDINPUT",
+        );
+    }
+    test_bin("argument-error-table")
+        .env("IDX_OUTPUT", "json")
+        .args(["-o", "table", "config", "get", "--bogus", "--help"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::starts_with("error: "));
+    test_bin("argument-error-table")
+        .args(["config", "get", "--bogus", "-o", "table"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::starts_with("error: "));
+    for args in [
+        &["-o", "json", "config", "-o", "table", "get"][..],
+        &["-qotable", "config", "get"][..],
+    ] {
+        test_bin("argument-error-table")
+            .args(args)
+            .assert()
+            .failure()
+            .stdout("")
+            .stderr(predicate::str::starts_with("error: "));
+    }
 }
 
 #[test]
