@@ -1,4 +1,4 @@
 exit: 0
 --- stdout
-{"path":"<ROOT>/config/idx/config.toml"}
+<ROOT>/config/idx/config.toml
 --- stderr

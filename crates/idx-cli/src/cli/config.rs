@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand};
 
 use crate::config::{config_path, ensure_default_config, get_config_value, set_config_value};
-use crate::output::{OutputFormat, json};
+use crate::output::{OutputSetting, json};
 use idx_core::error::IdxError;
 
 #[derive(Debug, Args)]
@@ -23,10 +23,11 @@ pub enum ConfigSubcommand {
     Path,
 }
 
-pub fn handle(cmd: &ConfigCmd, format: &OutputFormat) -> Result<(), IdxError> {
-    // Each result as plain text, or one JSON document with -o json.
+pub fn handle(cmd: &ConfigCmd, setting: OutputSetting) -> Result<(), IdxError> {
+    // Plain text, as scripts read `$(idx config path)`, unless JSON is asked
+    // for (-o json, IDX_OUTPUT, or general.output); auto stays text when piped.
     let print = |text: String, document: serde_json::Value| {
-        if format.is_json() {
+        if matches!(setting, OutputSetting::Json | OutputSetting::Jsonl) {
             json::print_json(&document)
         } else {
             println!("{}", crate::output::text::terminal_safe(&text));

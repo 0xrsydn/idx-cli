@@ -62,7 +62,7 @@ fn run() -> Result<(), IdxError> {
             }
         }
         Commands::Config(cfg) => {
-            if let Err(err) = cli::config::handle(cfg, &config.output) {
+            if let Err(err) = cli::config::handle(cfg, config.output_setting) {
                 emit_error(&err, &config.output);
                 return Err(err);
             }

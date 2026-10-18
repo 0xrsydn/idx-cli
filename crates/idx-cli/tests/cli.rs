@@ -981,6 +981,43 @@ fn config_set_and_get_provider_round_trip() {
 }
 
 #[test]
+fn config_prints_json_only_when_json_is_asked_for() {
+    // Piped with auto output, scripts read plain text: `$(idx config path)`.
+    let root = test_env_dir("config-output-format");
+    bin_with_root(&root)
+        .args(["config", "set", "general.provider", "msn"])
+        .assert()
+        .success()
+        .stdout("ok\n");
+    bin_with_root(&root)
+        .args(["config", "get", "general.provider"])
+        .assert()
+        .success()
+        .stdout("msn\n");
+
+    let flag = run_success_json(bin_with_root(&root).args([
+        "-o",
+        "json",
+        "config",
+        "get",
+        "general.provider",
+    ]));
+    assert_eq!(
+        flag,
+        serde_json::json!({"key": "general.provider", "value": "msn"})
+    );
+    let env = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_OUTPUT", "json")
+            .args(["config", "path"]),
+    );
+    assert!(
+        env["path"].as_str().unwrap().ends_with("config.toml"),
+        "{env}"
+    );
+}
+
+#[test]
 fn config_set_and_get_ownership_db_path_round_trip() {
     let root = test_env_dir("config-ownership-db-path");
 

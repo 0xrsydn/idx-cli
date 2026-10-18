@@ -22,6 +22,10 @@ idx config get cache.quote_ttl
 idx config path
 ```
 
+`idx config` prints plain text, even when piped, so `$(idx config path)` works
+in scripts. Ask for JSON with `-o json`, `IDX_OUTPUT=json`, or
+`output = "json"`.
+
 ```toml
 [general]
 provider = "msn"           # msn | yahoo
