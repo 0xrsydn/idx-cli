@@ -1,5 +1,81 @@
 [
   {
+    "description": "Bandarmology for one or more IDX tickers from the broker summary: for the top 1, 3, 5 and 10 brokers per side, buy value minus sell value as basis points of value traded (`imbalance_bps`), with a `signal` from big_accumulation (>= +1500) through neutral (within +-500) to big_distribution (<= -1500), headlined by `top` (default 5). Reports come strongest accumulation first; tickers that fail are listed under `failures`. A heuristic over end-of-day broker codes: brokers trade for many clients, and `both_sides` lists brokers whose gross figures overstate their direction. `method` names the rules applied.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "board": {
+          "default": null,
+          "description": "Which board's trades to count (default \"all\"); \"regular\" leaves out\nnegotiated block trades.",
+          "enum": [
+            "all",
+            "regular",
+            "cash",
+            "negotiated"
+          ],
+          "type": "string"
+        },
+        "date": {
+          "default": null,
+          "description": "One session, YYYY-MM-DD. Omit date, from and to for the latest session with trades.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "from": {
+          "default": null,
+          "description": "First session of a range, YYYY-MM-DD (at most 366 days).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "investor": {
+          "default": null,
+          "description": "Whose trades to count, by investor domicile (default \"all\").",
+          "enum": [
+            "all",
+            "foreign",
+            "domestic"
+          ],
+          "type": "string"
+        },
+        "symbols": {
+          "description": "IDX tickers, e.g. [\"BBCA\", \"BBRI\"]; the `.JK` suffix is optional. At most 20.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "to": {
+          "default": null,
+          "description": "Last session of the range, YYYY-MM-DD (default today).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "top": {
+          "default": null,
+          "description": "Tier behind the headline signal: 1, 3, 5 or 10 brokers per side (default 5).",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "symbols"
+      ],
+      "type": "object"
+    },
+    "name": "analyze_bandar"
+  },
+  {
     "description": "Analyze one IDX ticker: technical signals (trend, RSI, MACD, moving averages) and fundamental growth, valuation, and risk ratings. Analyses that fail are listed under `errors`; the call fails only if every analysis fails.",
     "inputSchema": {
       "$defs": {

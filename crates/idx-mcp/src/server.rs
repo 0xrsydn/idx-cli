@@ -4,6 +4,8 @@
 
 use std::collections::BTreeMap;
 
+use idx_core::analysis::BandarQuery;
+use idx_core::analysis::bandar::{BandarReport, DEFAULT_TOP};
 use idx_core::analysis::fundamental::FundamentalReport;
 use idx_core::broker::types::BrokerRange;
 use idx_core::config::CoreConfig;
@@ -22,9 +24,9 @@ use serde_json::{Map, Value, json};
 use tokio::sync::Semaphore;
 
 use crate::params::{
-    AnalysisKind, AnalyzeParams, BrokerParams, ChangesParams, CompanyParams, CompanySection,
-    EntityParams, HistoryParams, ScreenParams, SearchParams, ShareholdersParams, SymbolsParams,
-    SyncParams,
+    AnalysisKind, AnalyzeParams, BandarParams, BrokerParams, ChangesParams, CompanyParams,
+    CompanySection, EntityParams, HistoryParams, ScreenParams, SearchParams, ShareholdersParams,
+    SymbolsParams, SyncParams,
 };
 
 const SYNC_TOOL: &str = "ownership_sync";
@@ -176,29 +178,62 @@ broker's own status (local, foreign, state_owned), not its clients'. `rounded` =
 figures of a million and more carry one decimal of precision."
     )]
     async fn get_broker_summary(&self, params: Parameters<BrokerParams>) -> ToolResult {
-        let BrokerParams {
-            symbol,
-            date,
-            from,
-            to,
-            investor,
-            board,
-        } = params.0;
+        let BrokerParams { symbol, scope } = params.0;
         self.live(move |idx| {
             let broker = idx.broker();
             let range = BrokerRange::from_args(
-                date.as_deref(),
-                from.as_deref(),
-                to.as_deref(),
+                scope.date.as_deref(),
+                scope.from.as_deref(),
+                scope.to.as_deref(),
                 broker.today(),
             )?;
             broker.fetch(
                 &symbol,
                 range,
-                investor.as_deref().unwrap_or("all").parse()?,
-                board.as_deref().unwrap_or("all").parse()?,
+                scope.investor.as_deref().unwrap_or("all").parse()?,
+                scope.board.as_deref().unwrap_or("all").parse()?,
                 CachePolicy::Default,
             )
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Bandarmology for one or more IDX tickers from the broker summary: for \
+the top 1, 3, 5 and 10 brokers per side, buy value minus sell value as basis points of value \
+traded (`imbalance_bps`), with a `signal` from big_accumulation (>= +1500) through neutral \
+(within +-500) to big_distribution (<= -1500), headlined by `top` (default 5). Reports come \
+strongest accumulation first; tickers that fail are listed under `failures`. A heuristic over \
+end-of-day broker codes: brokers trade for many clients, and `both_sides` lists brokers whose \
+gross figures overstate their direction. `method` names the rules applied."
+    )]
+    async fn analyze_bandar(&self, params: Parameters<BandarParams>) -> ToolResult {
+        let BandarParams {
+            scope,
+            symbols,
+            top,
+        } = params.0;
+        let symbols = match checked_symbols(symbols) {
+            Ok(symbols) => symbols,
+            Err(err) => return err,
+        };
+        self.live(move |idx| {
+            let query = BandarQuery {
+                range: BrokerRange::from_args(
+                    scope.date.as_deref(),
+                    scope.from.as_deref(),
+                    scope.to.as_deref(),
+                    idx.broker().today(),
+                )?,
+                investor: scope.investor.as_deref().unwrap_or("all").parse()?,
+                board: scope.board.as_deref().unwrap_or("all").parse()?,
+                top: top.unwrap_or(DEFAULT_TOP),
+            };
+            let screen = idx
+                .analysis()
+                .bandar_screen(&symbols, &query, CachePolicy::Default)?;
+            let reports: &[Fetched<BandarReport>] = &screen.reports;
+            Ok(json!({ "reports": reports, "failures": failures_json(&screen.failures) }))
         })
         .await
     }
@@ -294,17 +329,8 @@ tickers. Tickers that fail are listed under `failures`."
         };
         self.live(move |idx| {
             let comparison = idx.analysis().compare(&symbols, CachePolicy::Default)?;
-            let failures: Vec<Value> = comparison
-                .failures
-                .iter()
-                .map(|(symbol, err)| {
-                    let mut body = error_body(err);
-                    body.insert("symbol".into(), json!(symbol));
-                    Value::Object(body)
-                })
-                .collect();
             let reports: &[Fetched<FundamentalReport>] = &comparison.reports;
-            Ok(json!({ "reports": reports, "failures": failures }))
+            Ok(json!({ "reports": reports, "failures": failures_json(&comparison.failures) }))
         })
         .await
     }
@@ -478,6 +504,18 @@ where
         Ok(value) => CallToolResult::structured(value),
         Err(err) => CallToolResult::structured_error(Value::Object(error_body(&err))),
     })
+}
+
+/// Per-symbol failures as error bodies carrying their symbol.
+fn failures_json(failures: &[(String, IdxError)]) -> Vec<Value> {
+    failures
+        .iter()
+        .map(|(symbol, err)| {
+            let mut body = error_body(err);
+            body.insert("symbol".into(), json!(symbol));
+            Value::Object(body)
+        })
+        .collect()
 }
 
 fn input_error(message: String) -> ToolResult {

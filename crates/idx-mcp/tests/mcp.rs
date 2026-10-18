@@ -9,7 +9,8 @@ use idx_core::config::CoreConfig;
 use idx_core::investor::{ImportSource, Investor};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 12] = [
+const TOOLS: [&str; 13] = [
+    "analyze_bandar",
     "analyze_stock",
     "compare_stocks",
     "get_broker_summary",
@@ -258,6 +259,22 @@ fn live_tools_wrap_data_with_freshness() {
     assert_eq!(brokers["data"]["sellers"][0]["name"], "MANDIRI SEKURITAS");
     assert_eq!(brokers["data"]["foreign_net_value"], -2_300_000_000_000_i64);
 
+    let bandar = client.ok(
+        "analyze_bandar",
+        json!({"symbols": ["BBCA", "BBRI", "ZZZZ"], "date": "2026-10-16", "top": 3}),
+    );
+    let reports = bandar["reports"].as_array().unwrap();
+    assert_eq!(reports.len(), 2);
+    assert_fetched(&reports[0]);
+    assert_eq!(reports[0]["data"]["top"], 3);
+    assert_eq!(reports[0]["data"]["method"], "top_concentration_v1");
+    assert!(
+        reports[0]["data"]["imbalance_bps"].as_i64()
+            >= reports[1]["data"]["imbalance_bps"].as_i64()
+    );
+    assert_eq!(bandar["failures"][0]["symbol"], "ZZZZ.JK");
+    assert_eq!(bandar["failures"][0]["code"], "SYMBOLNOTFOUND");
+
     let compared = client.ok("compare_stocks", json!({"symbols": ["BBCA", "BBRI"]}));
     assert_eq!(compared["reports"].as_array().unwrap().len(), 2);
     assert_eq!(compared["failures"], json!([]));
@@ -292,6 +309,8 @@ fn errors_carry_cli_codes() {
             "get_broker_summary",
             json!({"symbol": "BBCA", "date": "2026-10-16", "board": "dark"}),
         ),
+        ("analyze_bandar", json!({"symbols": ["BBCA"], "top": 4})),
+        ("analyze_bandar", json!({"symbols": []})),
     ] {
         let (is_error, body) = client.call(tool, arguments);
         assert!(is_error, "{tool}: {body}");

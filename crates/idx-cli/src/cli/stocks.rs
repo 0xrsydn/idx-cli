@@ -4,10 +4,13 @@ use clap::{Args, Subcommand};
 
 use crate::config::{HistoryProviderKind, IdxConfig};
 use crate::output::{
-    render_broker_summary, render_compare, render_earnings, render_financials, render_fundamental,
-    render_growth, render_history, render_insights, render_news, render_profile, render_quotes,
-    render_risk, render_screener, render_sentiment, render_technical, render_valuation,
+    render_bandar, render_broker_summary, render_compare, render_earnings, render_financials,
+    render_fundamental, render_growth, render_history, render_insights, render_news,
+    render_profile, render_quotes, render_risk, render_screener, render_sentiment,
+    render_technical, render_valuation,
 };
+use idx_core::analysis::BandarQuery;
+use idx_core::analysis::bandar::DEFAULT_TOP;
 use idx_core::api::types::{Interval, Period};
 use idx_core::broker::types::{BrokerBoard, BrokerInvestor, BrokerRange};
 use idx_core::error::IdxError;
@@ -17,6 +20,9 @@ use idx_core::{CachePolicy, Idx, runtime};
 
 /// Splits comma-separated symbol arguments; `-` reads symbols from stdin,
 /// separated by whitespace or commas.
+/// Most symbols one `bandar` screen fetches, one request each.
+const MAX_BANDAR_SYMBOLS: usize = 100;
+
 fn expand_symbols(args: &[String]) -> Result<Vec<String>, IdxError> {
     let mut symbols = Vec::new();
     for arg in args {
@@ -195,6 +201,24 @@ does not show broker codes during trading. Without dates, the latest session wit
         #[command(flatten)]
         scope: BrokerScopeArgs,
     },
+    #[command(
+        about = "Bandarmology: is buying more concentrated than selling",
+        long_about = "Bandarmology from the broker summary: the top 1, 3, 5 and 10 buyers' value \
+against the same number of sellers', as a share of value traded, with a signal from big \
+accumulation to big distribution. Several symbols give a screen ranked by the headline tier \
+(at most 100, one request each). A heuristic over end-of-day broker codes, not advice.",
+        after_help = "Examples:\n  idx stocks bandar BBCA\n  idx stocks bandar BBCA --from 2026-10-12 --to 2026-10-16 --top 3\n  idx stocks bandar BBCA,BBRI,BMRI,TLKM\n  idx stocks screen --filter high-volume | jq -r '.[].symbol' | idx stocks bandar -"
+    )]
+    Bandar {
+        /// One or more symbols, comma-separated or space-separated; `-` reads them from stdin.
+        #[arg(required = true)]
+        symbols: Vec<String>,
+        #[command(flatten)]
+        scope: BrokerScopeArgs,
+        /// Tier behind the headline signal: 1, 3, 5 or 10 brokers per side.
+        #[arg(long, default_value_t = DEFAULT_TOP)]
+        top: u8,
+    },
     #[command(about = "Get company profile")]
     Profile { symbol: String },
     #[command(
@@ -310,6 +334,31 @@ pub fn handle(
                 policy,
             )?;
             render_broker_summary(&summary.data, format)
+        }
+        StocksSubcommand::Bandar {
+            symbols,
+            scope,
+            top,
+        } => {
+            let symbols = expand_symbols(symbols)?;
+            if symbols.len() > MAX_BANDAR_SYMBOLS {
+                return Err(IdxError::InvalidInput(format!(
+                    "at most {MAX_BANDAR_SYMBOLS} symbols per bandar screen (got {})",
+                    symbols.len()
+                )));
+            }
+            let query = BandarQuery {
+                range: scope.range(&idx)?,
+                investor: scope.investor,
+                board: scope.board,
+                top: *top,
+            };
+            let screen = idx.analysis().bandar_screen(&symbols, &query, policy)?;
+            for (resolved, err) in screen.failures {
+                runtime::warn(format!("failed to read brokers for {resolved}: {err}"));
+            }
+            let reports: Vec<_> = screen.reports.into_iter().map(|r| r.data).collect();
+            render_bandar(&reports, symbols.len() > 1, format, no_color)
         }
         StocksSubcommand::Profile { symbol } => {
             let profile = idx.financial().profile(symbol, policy)?;

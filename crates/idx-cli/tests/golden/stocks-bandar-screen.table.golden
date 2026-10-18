@@ -1,0 +1,13 @@
+exit: 0
+--- stdout
+┌─────────┬────────────┬──────────────────┬─────────────┬───────────┬────────────┬───────┬─────────────┐
+│ SYMBOL  ┆ DATES      ┆ SIGNAL           ┆ TOP 3 NET % ┆ BUY SHARE ┆ SELL SHARE ┆ VALUE ┆ FOREIGN NET │
+╞═════════╪════════════╪══════════════════╪═════════════╪═══════════╪════════════╪═══════╪═════════════╡
+│ BBRI.JK ┆ 2026-10-16 ┆ big distribution ┆ -17.5%      ┆ 38.3%     ┆ 55.7%      ┆ 3.3T  ┆ -1.1T       │
+├╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ TLKM.JK ┆ 2026-10-16 ┆ big distribution ┆ -19.9%      ┆ 43.1%     ┆ 63.1%      ┆ 2.2T  ┆ -90.2B      │
+├╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ BBCA.JK ┆ 2026-10-16 ┆ big distribution ┆ -29.1%      ┆ 30.1%     ┆ 59.2%      ┆ 6.6T  ┆ -2.3T       │
+└─────────┴────────────┴──────────────────┴─────────────┴───────────┴────────────┴───────┴─────────────┘
+Method top_concentration_v1: the top 3 buyers' value minus the top 3 sellers' value, as a share of value traded; 5% or more reads accumulation, 15% or more big (negative: distribution). Brokers trade for many clients, so this is a heuristic, not advice.
+--- stderr

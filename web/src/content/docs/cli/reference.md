@@ -67,6 +67,7 @@ Commands:
   risk         Run risk analysis on a stock
   fundamental  Run full fundamental analysis on a stock
   broker       Which brokers bought and sold a stock
+  bandar       Bandarmology: is buying more concentrated than selling
   profile      Get company profile
   financials   Get financial statements
   earnings     Get earnings report
@@ -349,6 +350,83 @@ Examples:
   idx stocks broker BBCA --date 2026-10-16
   idx stocks broker BBCA --from 2026-10-12 --to 2026-10-16 --board regular
   idx -o json stocks broker BBCA --investor foreign
+```
+
+### `idx stocks bandar`
+
+```text
+Bandarmology from the broker summary: the top 1, 3, 5 and 10 buyers' value against the same number of sellers', as a share of value traded, with a signal from big accumulation to big distribution. Several symbols give a screen ranked by the headline tier (at most 100, one request each). A heuristic over end-of-day broker codes, not advice.
+
+Usage: idx stocks bandar [OPTIONS] <SYMBOLS>...
+
+Arguments:
+  <SYMBOLS>...
+          One or more symbols, comma-separated or space-separated; `-` reads them from stdin
+
+Options:
+      --date <DATE>
+          One session, YYYY-MM-DD. Default: the latest session with trades
+
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --from <FROM>
+          First session of a range, YYYY-MM-DD (at most 366 days)
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+      --to <TO>
+          Last session of the range, YYYY-MM-DD. Default: today
+
+      --investor <INVESTOR>
+          Whose trades to count
+
+          Possible values:
+          - all:      Every trade
+          - foreign:  Trades by foreign investors only
+          - domestic: Trades by domestic investors only
+
+          [default: all]
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --board <BOARD>
+          Which board's trades to count; `regular` leaves out negotiated block trades
+
+          Possible values:
+          - all:        Every board
+          - regular:    Regular market (RG), the continuous order book
+          - cash:       Cash market (TN)
+          - negotiated: Negotiated market (NG): pre-arranged block trades
+
+          [default: all]
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+      --top <TOP>
+          Tier behind the headline signal: 1, 3, 5 or 10 brokers per side
+
+          [default: 5]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx stocks bandar BBCA
+  idx stocks bandar BBCA --from 2026-10-12 --to 2026-10-16 --top 3
+  idx stocks bandar BBCA,BBRI,BMRI,TLKM
+  idx stocks screen --filter high-volume | jq -r '.[].symbol' | idx stocks bandar -
 ```
 
 ### `idx stocks profile`

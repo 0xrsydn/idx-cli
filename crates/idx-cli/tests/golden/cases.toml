@@ -259,6 +259,15 @@ name = "stocks-broker-no-trades"
 args = ["stocks", "broker", "BBCA", "--date", "2026-10-17"]
 
 [[case]]
+name = "stocks-bandar"
+args = ["stocks", "bandar", "BBCA", "--date", "2026-10-16"]
+
+[[case]]
+name = "stocks-bandar-screen"
+formats = ["table", "json", "jsonl"]
+args = ["stocks", "bandar", "BBCA,BBRI,TLKM", "--date", "2026-10-16", "--top", "3"]
+
+[[case]]
 name = "error-broker-unknown-symbol"
 args = ["stocks", "broker", "ZZZZ", "--date", "2026-10-16"]
 

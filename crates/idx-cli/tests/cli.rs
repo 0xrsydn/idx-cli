@@ -2605,3 +2605,120 @@ fn broker_summary_errors_follow_the_output_contract() {
     ]);
     run_error_json(&mut failing, "PROVIDERUNAVAILABLE");
 }
+
+#[test]
+fn bandar_reads_the_broker_summary_tiers() {
+    let reports = run_success_json(mock_bin("bandar-json").args([
+        "-o",
+        "json",
+        "stocks",
+        "bandar",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+    ]));
+    let report = &reports[0];
+    assert_eq!(reports.as_array().unwrap().len(), 1);
+    assert_eq!(report["symbol"], "BBCA.JK");
+    assert_eq!(report["method"], "top_concentration_v1");
+    let tiers: Vec<i64> = report["tiers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tier| tier["top"].as_i64().unwrap())
+        .collect();
+    assert_eq!(tiers, [1, 3, 5, 10]);
+    // Top 5 bought 2,939.5B and sold 4,540.4B of 6.6T traded.
+    let top5 = &report["tiers"][2];
+    assert_eq!(top5["buy_value"], 2_939_500_000_000_i64);
+    assert_eq!(top5["sell_value"], 4_540_400_000_000_i64);
+    assert_eq!(top5["imbalance_bps"], -2426);
+    assert_eq!(report["top"], 5);
+    assert_eq!(report["imbalance_bps"], -2426);
+    assert_eq!(report["signal"], "big_distribution");
+    assert_eq!(
+        report["both_sides"],
+        serde_json::json!(["AK", "CC", "MG", "XL", "YU", "ZP"])
+    );
+}
+
+#[test]
+fn bandar_screen_ranks_symbols_and_reports_failures_on_stderr() {
+    let output = mock_bin("bandar-screen")
+        .args([
+            "-o",
+            "json",
+            "stocks",
+            "bandar",
+            "BBCA,ZZZZ",
+            "TLKM",
+            "BBRI",
+            "--date",
+            "2026-10-16",
+            "--top",
+            "3",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let reports: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let ranked: Vec<(&str, i64)> = reports
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["symbol"].as_str().unwrap(),
+                r["imbalance_bps"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(ranked.len(), 3);
+    assert!(
+        ranked.windows(2).all(|pair| pair[0].1 >= pair[1].1),
+        "{ranked:?}"
+    );
+    assert!(reports.as_array().unwrap().iter().all(|r| r["top"] == 3));
+    let warning: Value = serde_json::from_slice(&output.stderr).expect("one JSON warning line");
+    assert_eq!(warning["level"], "warning");
+    assert!(warning["message"].as_str().unwrap().contains("ZZZZ.JK"));
+
+    // A one-symbol screen that loses a symbol still prints the screen table.
+    let table = run_success_stdout(mock_bin("bandar-screen-table").args([
+        "--no-color",
+        "stocks",
+        "bandar",
+        "BBCA,ZZZZ",
+        "--date",
+        "2026-10-16",
+    ]));
+    assert!(table.contains("TOP 5 NET %"), "{table}");
+}
+
+#[test]
+fn bandar_errors_follow_the_output_contract() {
+    let many: Vec<String> = (0..101).map(|i| format!("S{i}")).collect();
+    for (args, code) in [
+        (
+            vec!["BBCA".to_string(), "--top".into(), "4".into()],
+            "INVALIDINPUT",
+        ),
+        (vec![many.join(",")], "INVALIDINPUT"),
+        (
+            vec!["ZZZZ".to_string(), "--date".into(), "2026-10-16".into()],
+            "SYMBOLNOTFOUND",
+        ),
+        (
+            vec![
+                "BBCA,BBRI".to_string(),
+                "--date".into(),
+                "2999-01-01".into(),
+            ],
+            "INVALIDINPUT",
+        ),
+    ] {
+        let mut cmd = mock_bin("bandar-errors");
+        cmd.args(["-o", "json", "stocks", "bandar"]).args(&args);
+        run_error_json(&mut cmd, code);
+    }
+}

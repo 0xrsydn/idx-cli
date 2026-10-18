@@ -115,10 +115,9 @@ pub struct AnalyzeParams {
     pub kinds: Option<Vec<AnalysisKind>>,
 }
 
+/// Which sessions and trades a broker tool covers.
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct BrokerParams {
-    /// IDX ticker, e.g. "BBCA".
-    pub symbol: String,
+pub struct BrokerScope {
     /// One session, YYYY-MM-DD. Omit date, from and to for the latest session with trades.
     #[serde(default)]
     pub date: Option<String>,
@@ -137,6 +136,25 @@ pub struct BrokerParams {
     #[serde(default)]
     #[schemars(schema_with = "board_schema")]
     pub board: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct BrokerParams {
+    /// IDX ticker, e.g. "BBCA".
+    pub symbol: String,
+    #[serde(flatten)]
+    pub scope: BrokerScope,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct BandarParams {
+    /// IDX tickers, e.g. ["BBCA", "BBRI"]; the `.JK` suffix is optional. At most 20.
+    pub symbols: Vec<String>,
+    #[serde(flatten)]
+    pub scope: BrokerScope,
+    /// Tier behind the headline signal: 1, 3, 5 or 10 brokers per side (default 5).
+    #[serde(default)]
+    pub top: Option<u8>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

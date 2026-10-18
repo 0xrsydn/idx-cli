@@ -103,6 +103,11 @@ WIB as the fallback.
 - Data is end of day: IDX hides broker codes during trading. Summaries that
   ended before today are cached for 7 days, today's for 5 minutes. Broker
   names come from `broker/codes.tsv` (IDX `GetBrokerCodeList`).
+- Bandarmology (`analysis/bandar.rs`, method `top_concentration_v1`) is pure
+  over one summary: for the top 1/3/5/10 per side, buy value minus sell value
+  in basis points of value traded, with thresholds ±500/±1500 bps taken from
+  fzn0x/idx. A tier with a missing figure has no reading; missing values are
+  never summed as zero. A change to the rules gets a new method name.
 
 ### Capability Gating
 ```

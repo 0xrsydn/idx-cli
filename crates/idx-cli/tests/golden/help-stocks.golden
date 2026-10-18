@@ -13,6 +13,7 @@ Commands:
   risk         Run risk analysis on a stock
   fundamental  Run full fundamental analysis on a stock
   broker       Which brokers bought and sold a stock
+  bandar       Bandarmology: is buying more concentrated than selling
   profile      Get company profile
   financials   Get financial statements
   earnings     Get earnings report

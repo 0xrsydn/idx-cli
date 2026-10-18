@@ -1,3 +1,4 @@
+pub mod bandar;
 pub mod fundamental;
 pub mod report;
 pub mod signals;
@@ -8,9 +9,11 @@ use serde::de::DeserializeOwned;
 
 use crate::api::history_provider;
 use crate::api::types::{Fundamentals, Interval, Period};
+use crate::broker::types::{BrokerBoard, BrokerInvestor, BrokerRange};
 use crate::client::{CachePolicy, CacheSpec, Fetched, Idx, cached_fetch};
 use crate::error::IdxError;
 use crate::market::HistorySource;
+use bandar::{BandarReport, analyze_bandar, check_top};
 use fundamental::{
     FundamentalReport, GrowthReport, RiskReport, ValuationReport, analyze_fundamental,
     analyze_growth, analyze_risk, analyze_valuation,
@@ -28,7 +31,69 @@ pub struct Comparison {
     pub failures: Vec<(String, IdxError)>,
 }
 
+/// Bandar readings for several symbols, strongest accumulation first;
+/// symbols that failed are listed with their error.
+pub struct BandarScreen {
+    pub reports: Vec<Fetched<BandarReport>>,
+    pub failures: Vec<(String, IdxError)>,
+}
+
+/// The sessions and trades a bandar reading covers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BandarQuery {
+    pub range: BrokerRange,
+    pub investor: BrokerInvestor,
+    pub board: BrokerBoard,
+    /// Headline tier, one of `bandar::TIERS`.
+    pub top: u8,
+}
+
 impl Analysis<'_> {
+    /// Bandarmology over the broker summary `query` selects.
+    pub fn bandar(
+        &self,
+        symbol: &str,
+        query: &BandarQuery,
+        policy: CachePolicy,
+    ) -> Result<Fetched<BandarReport>, IdxError> {
+        let top = check_top(query.top)?;
+        let summary =
+            self.idx
+                .broker()
+                .fetch(symbol, query.range, query.investor, query.board, policy)?;
+        Ok(summary.map(|summary| analyze_bandar(&summary, top)))
+    }
+
+    /// [`Self::bandar`] for each symbol, ranked by the headline imbalance.
+    /// Invalid input fails the whole screen; other errors fail one symbol.
+    pub fn bandar_screen<S: AsRef<str>>(
+        &self,
+        symbols: &[S],
+        query: &BandarQuery,
+        policy: CachePolicy,
+    ) -> Result<BandarScreen, IdxError> {
+        check_top(query.top)?;
+        let mut reports = Vec::new();
+        let mut failures = Vec::new();
+        for symbol in symbols {
+            let resolved = self.idx.resolve(symbol.as_ref())?;
+            match self.bandar(&resolved, query, policy) {
+                Ok(report) => reports.push(report),
+                Err(err @ IdxError::InvalidInput(_)) => return Err(err),
+                Err(err) => failures.push((resolved, err)),
+            }
+        }
+        if reports.is_empty() {
+            return Err(failures
+                .pop()
+                .map(|(_, err)| err)
+                .unwrap_or_else(|| IdxError::InvalidInput("no symbols to screen".to_string())));
+        }
+        // Strongest accumulation first; readings without an imbalance last.
+        reports.sort_by_key(|report| std::cmp::Reverse(report.data.imbalance_bps));
+        Ok(BandarScreen { reports, failures })
+    }
+
     /// Technical analysis over one year of daily history from `source`
     /// (see `Market::history_source`).
     pub fn technical(

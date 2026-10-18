@@ -2,6 +2,9 @@ use crate::output::style::Paint;
 use crate::output::text::{cell, painted, terminal_safe, truncate_chars};
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 
+use idx_core::analysis::bandar::{
+    ACCUMULATION_BPS, BIG_BPS, BandarReport, BandarSignal, METHOD as BANDAR_METHOD,
+};
 use idx_core::analysis::fundamental::{
     FundamentalReport, GrowthReport, RiskReport, ValuationReport,
 };
@@ -1015,6 +1018,171 @@ pub fn print_broker_summary(summary: &BrokerSummary) -> Result<(), IdxError> {
     if summary.rounded {
         println!("Note: the source rounds figures of a million and more to one decimal.");
     }
+    Ok(())
+}
+
+fn format_bps_pct(bps: Option<i64>) -> String {
+    bps.map(|bps| format!("{:+.1}%", bps as f64 / 100.0))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_bps_share(bps: Option<i64>) -> String {
+    bps.map(|bps| format!("{:.1}%", bps as f64 / 100.0))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_bandar_signal(signal: Option<BandarSignal>, no_color: bool) -> String {
+    let Some(signal) = signal else {
+        return "-".to_string();
+    };
+    let label = signal.as_str().replace('_', " ");
+    if no_color {
+        return label;
+    }
+    match signal {
+        BandarSignal::BigAccumulation | BandarSignal::Accumulation => label.green(),
+        BandarSignal::BigDistribution | BandarSignal::Distribution => label.red(),
+        BandarSignal::Neutral => label,
+    }
+}
+
+fn bandar_method_note(top: u8) -> String {
+    format!(
+        "Method {BANDAR_METHOD}: the top {top} buyers' value minus the top {top} sellers' value, \
+as a share of value traded; {}% or more reads accumulation, {}% or more big (negative: \
+distribution). Brokers trade for many clients, so this is a heuristic, not advice.",
+        ACCUMULATION_BPS / 100,
+        BIG_BPS / 100
+    )
+}
+
+pub fn print_bandar_report(report: &BandarReport, no_color: bool) -> Result<(), IdxError> {
+    println!(
+        "{}",
+        format!(
+            "Bandar reading for {}, {}",
+            terminal_safe(&report.symbol),
+            broker_scope(report.from, report.to, report.investor, report.board)
+        )
+        .bold()
+    );
+    if report.total_value.is_none_or(|value| value <= 0) {
+        println!("No trades.");
+        return Ok(());
+    }
+    println!(
+        "Signal (top {}): {}, {} of value",
+        report.top,
+        format_bandar_signal(report.signal, no_color),
+        format_bps_pct(report.imbalance_bps)
+    );
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec![
+            "TOP", "BUY", "SELL", "NET", "NET %", "BUY AVG", "SELL AVG", "SIGNAL",
+        ]);
+    for tier in &report.tiers {
+        table.add_row(vec![
+            cell(tier.top),
+            cell(format_compact_option(tier.buy_value)),
+            cell(format_compact_option(tier.sell_value)),
+            cell(format_compact_option(tier.imbalance_value)),
+            cell(format_bps_pct(tier.imbalance_bps)),
+            cell(
+                tier.buy_average
+                    .map(format_idr)
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            cell(
+                tier.sell_average
+                    .map(format_idr)
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            painted(format_bandar_signal(tier.signal, no_color)),
+        ]);
+    }
+    println!("{table}");
+    let mut totals = format!("Total {} IDR", format_compact_option(report.total_value));
+    if let Some(average) = report.average_price {
+        totals.push_str(&format!(", average {}", format_idr(average)));
+    }
+    if let Some(net) = report.foreign_net_value {
+        totals.push_str(&format!(
+            "; foreign net {:+} ({} of value)",
+            format_compact(net),
+            format_bps_pct(report.foreign_net_bps)
+        ));
+    }
+    println!("{totals}.");
+    if !report.both_sides.is_empty() {
+        println!(
+            "On both sides: {}; their gross figures overstate which way they traded.",
+            terminal_safe(&report.both_sides.join(", "))
+        );
+    }
+    println!("{}", bandar_method_note(report.top));
+    if report.rounded {
+        println!("Note: the source rounds figures of a million and more to one decimal.");
+    }
+    Ok(())
+}
+
+pub fn print_bandar_screen(reports: &[BandarReport], no_color: bool) -> Result<(), IdxError> {
+    let top = reports.first().map(|report| report.top).unwrap_or_default();
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec![
+            "SYMBOL".to_string(),
+            "DATES".to_string(),
+            "SIGNAL".to_string(),
+            format!("TOP {top} NET %"),
+            "BUY SHARE".to_string(),
+            "SELL SHARE".to_string(),
+            "VALUE".to_string(),
+            "FOREIGN NET".to_string(),
+        ]);
+    for report in reports {
+        let headline = report.tiers.iter().find(|tier| tier.top == report.top);
+        table.add_row(vec![
+            cell(&report.symbol),
+            cell(broker_scope(
+                report.from,
+                report.to,
+                BrokerInvestor::All,
+                BrokerBoard::All,
+            )),
+            painted(format_bandar_signal(report.signal, no_color)),
+            cell(format_bps_pct(report.imbalance_bps)),
+            cell(format_bps_share(
+                headline.and_then(|tier| tier.buy_share_bps),
+            )),
+            cell(format_bps_share(
+                headline.and_then(|tier| tier.sell_share_bps),
+            )),
+            cell(format_compact_option(report.total_value)),
+            cell(
+                report
+                    .foreign_net_value
+                    .map(|net| format!("{:+}", format_compact(net)))
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+        ]);
+    }
+    println!("{table}");
+    if let Some(first) = reports.first()
+        && (first.investor, first.board) != (BrokerInvestor::All, BrokerBoard::All)
+    {
+        println!(
+            "Counting {} investors on the {} board.",
+            first.investor.as_str(),
+            first.board.as_str()
+        );
+    }
+    println!("{}", bandar_method_note(top));
     Ok(())
 }
 

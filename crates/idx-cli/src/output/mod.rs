@@ -8,6 +8,7 @@ use std::io::IsTerminal;
 use clap::ValueEnum;
 use serde::Serialize;
 
+use idx_core::analysis::bandar::BandarReport;
 use idx_core::analysis::fundamental::{
     FundamentalReport, GrowthReport, RiskReport, ValuationReport,
 };
@@ -81,6 +82,21 @@ pub fn render_broker_summary(
     match format {
         OutputFormat::Table => table::print_broker_summary(summary),
         OutputFormat::Json | OutputFormat::Jsonl => json::print_json(summary),
+    }
+}
+
+/// One symbol gets the detailed table, several the ranked screen (even when
+/// only one of them succeeded); JSON is always the array.
+pub fn render_bandar(
+    reports: &[BandarReport],
+    screen: bool,
+    format: &OutputFormat,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    match (format, reports) {
+        (OutputFormat::Table, [report]) if !screen => table::print_bandar_report(report, no_color),
+        (OutputFormat::Table, _) => table::print_bandar_screen(reports, no_color),
+        (OutputFormat::Json | OutputFormat::Jsonl, _) => json::print_json(reports),
     }
 }
 

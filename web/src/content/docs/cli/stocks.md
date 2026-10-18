@@ -47,6 +47,32 @@ codes during trading. Buyers and sellers are ranked separately on gross
 lots, so a broker can appear on both sides. The source rounds figures of a
 million and more to one decimal, and the output says so.
 
+## Bandarmology
+
+```bash
+idx stocks bandar BBCA
+idx stocks bandar BBCA --from 2026-10-12 --to 2026-10-16 --top 3
+idx stocks screen --filter high-volume | jq -r '.[].symbol' | idx stocks bandar -
+```
+
+`bandar` reads the broker summary: for the top 1, 3, 5 and 10 brokers on each
+side, the buyers' value minus the sellers' value as a share of the value
+traded. The headline tier (`--top`, default 5) gives the signal:
+
+| Top-N buy minus sell, % of value | Signal |
+| --- | --- |
+| +15% or more | big accumulation |
+| +5% to +15% | accumulation |
+| within ±5% | neutral |
+| -15% to -5% | distribution |
+| -15% or less | big distribution |
+
+Several symbols give a screen ranked by that figure (at most 100, one request
+each), and it takes the same date and filter flags as `broker`. It is a
+heuristic: a broker trades for many clients, and a broker on both sides of
+the summary is listed, since its gross figures overstate which way it traded.
+The JSON names the rules in `method` (`top_concentration_v1`).
+
 ## Analysis
 
 | Command | What it computes |

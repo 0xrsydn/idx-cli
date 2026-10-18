@@ -10,6 +10,20 @@ starts with `--allow-sync`. Results that come from a live provider are wrapped
 as `{data, source, fetched_at, stale}`; failures return `{error, code,
 message}` with `isError` set.
 
+## `analyze_bandar`
+
+Bandarmology for one or more IDX tickers from the broker summary: for the top 1, 3, 5 and 10 brokers per side, buy value minus sell value as basis points of value traded (`imbalance_bps`), with a `signal` from big_accumulation (>= +1500) through neutral (within +-500) to big_distribution (<= -1500), headlined by `top` (default 5). Reports come strongest accumulation first; tickers that fail are listed under `failures`. A heuristic over end-of-day broker codes: brokers trade for many clients, and `both_sides` lists brokers whose gross figures overstate their direction. `method` names the rules applied.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `board` | `all` / `regular` / `cash` / `negotiated` | no | Which board's trades to count (default "all"); "regular" leaves out negotiated block trades. |
+| `date` | string | no | One session, YYYY-MM-DD. Omit date, from and to for the latest session with trades. |
+| `from` | string | no | First session of a range, YYYY-MM-DD (at most 366 days). |
+| `investor` | `all` / `foreign` / `domestic` | no | Whose trades to count, by investor domicile (default "all"). |
+| `symbols` | array of string | yes | IDX tickers, e.g. ["BBCA", "BBRI"]; the `.JK` suffix is optional. At most 20. |
+| `to` | string | no | Last session of the range, YYYY-MM-DD (default today). |
+| `top` | integer | no | Tier behind the headline signal: 1, 3, 5 or 10 brokers per side (default 5). |
+
 ## `analyze_stock`
 
 Analyze one IDX ticker: technical signals (trend, RSI, MACD, moving averages) and fundamental growth, valuation, and risk ratings. Analyses that fail are listed under `errors`; the call fails only if every analysis fails.
