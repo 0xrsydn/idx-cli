@@ -2434,3 +2434,154 @@ fn msn_screen_rejects_invalid_totals_without_populating_cache() {
         fs::remove_dir_all(root).unwrap();
     }
 }
+
+/// A command on the fixture-backed mock provider, never the network.
+fn mock_bin(name: &str) -> Command {
+    let mut cmd = test_bin(name);
+    cmd.env("IDX_USE_MOCK_PROVIDER", "1");
+    cmd
+}
+
+fn mock_bin_with_root(root: &Path) -> Command {
+    let mut cmd = bin_with_root(root);
+    cmd.env("IDX_USE_MOCK_PROVIDER", "1");
+    cmd
+}
+
+#[test]
+fn broker_summary_json_names_brokers_and_keeps_source_totals() {
+    let summary = run_success_json(mock_bin("broker-json").args([
+        "-o",
+        "json",
+        "stocks",
+        "broker",
+        "bbca",
+        "--date",
+        "2026-10-16",
+    ]));
+    assert_eq!(summary["symbol"], "BBCA.JK");
+    assert_eq!(
+        (summary["from"].as_str(), summary["to"].as_str()),
+        (Some("2026-10-16"), Some("2026-10-16"))
+    );
+    assert_eq!(summary["buyers"].as_array().unwrap().len(), 10);
+    let top = &summary["buyers"][0];
+    assert_eq!(top["code"], "MG");
+    assert_eq!(top["name"], "SEMESTA INDOVEST SEKURITAS");
+    assert_eq!(top["kind"], "local");
+    assert_eq!(top["lots"], 1_600_000);
+    assert_eq!(top["value"], 841_200_000_000_i64);
+    assert_eq!(top["average_price"], 5_191);
+    assert_eq!(summary["sellers"][0]["kind"], "state_owned");
+    assert_eq!(summary["total_value"], 6_600_000_000_000_i64);
+    assert_eq!(summary["foreign_net_value"], -2_300_000_000_000_i64);
+    assert_eq!(summary["rounded"], true);
+
+    // The source does not filter its foreign net figure, so a filtered
+    // summary leaves it out rather than passing it off as filtered.
+    let filtered = run_success_json(mock_bin("broker-filtered").args([
+        "-o",
+        "json",
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+        "--investor",
+        "foreign",
+        "--board",
+        "regular",
+    ]));
+    assert_eq!(filtered["investor"], "foreign");
+    assert_eq!(filtered["board"], "regular");
+    assert_eq!(filtered["buyers"][0]["code"], "KZ");
+    assert!(filtered["foreign_net_value"].is_null());
+}
+
+#[test]
+fn broker_summary_without_dates_finds_the_latest_session_offline() {
+    let root = test_env_dir("broker-latest");
+    run_success_json(mock_bin_with_root(&root).args([
+        "-o",
+        "json",
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+    ]));
+    // Monday 2026-10-19 is not cached and the weekend is skipped, so the
+    // offline lookup lands on Friday's cached session.
+    let latest = run_success_json(
+        mock_bin_with_root(&root)
+            .env("IDX_MOCK_TODAY", "2026-10-19")
+            .args(["-o", "json", "--offline", "stocks", "broker", "BBCA"]),
+    );
+    assert_eq!(latest["from"], "2026-10-16");
+    assert_eq!(latest["buyers"][0]["code"], "MG");
+    run_error_json(
+        mock_bin_with_root(&root)
+            .env("IDX_MOCK_TODAY", "2026-10-19")
+            .args(["-o", "json", "--offline", "stocks", "broker", "BBRI"]),
+        "CACHEMISS",
+    );
+}
+
+#[test]
+fn broker_summary_session_without_trades_is_empty_not_an_error() {
+    let summary = run_success_json(mock_bin("broker-empty").args([
+        "-o",
+        "json",
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-17",
+    ]));
+    assert_eq!(summary["buyers"], serde_json::json!([]));
+    assert_eq!(summary["total_value"], 0);
+    assert!(summary["average_price"].is_null());
+
+    let table = run_success_stdout(mock_bin("broker-empty-table").args([
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-17",
+    ]));
+    assert!(table.contains("No trades."), "{table}");
+}
+
+#[test]
+fn broker_summary_errors_follow_the_output_contract() {
+    for (args, code) in [
+        (vec!["ZZZZ", "--date", "2026-10-16"], "SYMBOLNOTFOUND"),
+        (vec!["BBCA.US", "--date", "2026-10-16"], "UNSUPPORTED"),
+        (vec!["BBCA", "--date", "16/10/2026"], "INVALIDINPUT"),
+        (
+            vec!["BBCA", "--from", "2026-10-16", "--to", "2026-10-12"],
+            "INVALIDINPUT",
+        ),
+        (vec!["BBCA", "--to", "2026-10-16"], "INVALIDINPUT"),
+        (
+            vec!["BBCA", "--date", "2026-10-16", "--from", "2026-10-12"],
+            "INVALIDINPUT",
+        ),
+        (vec!["BBCA", "--date", "2999-01-01"], "INVALIDINPUT"),
+    ] {
+        let mut cmd = mock_bin("broker-errors");
+        cmd.args(["-o", "json", "stocks", "broker"]).args(&args);
+        run_error_json(&mut cmd, code);
+    }
+    let mut failing = mock_bin("broker-provider-error");
+    failing.env("IDX_MOCK_ERROR", "1").args([
+        "-o",
+        "json",
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+    ]);
+    run_error_json(&mut failing, "PROVIDERUNAVAILABLE");
+}

@@ -66,6 +66,7 @@ Commands:
   valuation    Run valuation analysis on a stock
   risk         Run risk analysis on a stock
   fundamental  Run full fundamental analysis on a stock
+  broker       Which brokers bought and sold a stock
   profile      Get company profile
   financials   Get financial statements
   earnings     Get earnings report
@@ -276,6 +277,78 @@ Options:
 Examples:
   idx stocks fundamental BBCA
   idx -o json stocks fundamental BBCA
+```
+
+### `idx stocks broker`
+
+```text
+Which brokers bought and sold a stock: the top 10 buyers and top 10 sellers by lots, with value and average price, from Indo Premier (IPOT). End of day: IDX does not show broker codes during trading. Without dates, the latest session with trades.
+
+Usage: idx stocks broker [OPTIONS] <SYMBOL>
+
+Arguments:
+  <SYMBOL>
+          Single ticker symbol (e.g. BBCA)
+
+Options:
+      --date <DATE>
+          One session, YYYY-MM-DD. Default: the latest session with trades
+
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --from <FROM>
+          First session of a range, YYYY-MM-DD (at most 366 days)
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+      --to <TO>
+          Last session of the range, YYYY-MM-DD. Default: today
+
+      --investor <INVESTOR>
+          Whose trades to count
+
+          Possible values:
+          - all:      Every trade
+          - foreign:  Trades by foreign investors only
+          - domestic: Trades by domestic investors only
+
+          [default: all]
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --board <BOARD>
+          Which board's trades to count; `regular` leaves out negotiated block trades
+
+          Possible values:
+          - all:        Every board
+          - regular:    Regular market (RG), the continuous order book
+          - cash:       Cash market (TN)
+          - negotiated: Negotiated market (NG): pre-arranged block trades
+
+          [default: all]
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx stocks broker BBCA
+  idx stocks broker BBCA --date 2026-10-16
+  idx stocks broker BBCA --from 2026-10-12 --to 2026-10-16 --board regular
+  idx -o json stocks broker BBCA --investor foreign
 ```
 
 ### `idx stocks profile`

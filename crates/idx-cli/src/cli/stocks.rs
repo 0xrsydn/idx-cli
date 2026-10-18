@@ -4,11 +4,12 @@ use clap::{Args, Subcommand};
 
 use crate::config::{HistoryProviderKind, IdxConfig};
 use crate::output::{
-    render_compare, render_earnings, render_financials, render_fundamental, render_growth,
-    render_history, render_insights, render_news, render_profile, render_quotes, render_risk,
-    render_screener, render_sentiment, render_technical, render_valuation,
+    render_broker_summary, render_compare, render_earnings, render_financials, render_fundamental,
+    render_growth, render_history, render_insights, render_news, render_profile, render_quotes,
+    render_risk, render_screener, render_sentiment, render_technical, render_valuation,
 };
 use idx_core::api::types::{Interval, Period};
+use idx_core::broker::types::{BrokerBoard, BrokerInvestor, BrokerRange};
 use idx_core::error::IdxError;
 use idx_core::financial::{EarningsFilter, StatementFilter, StatementKind};
 use idx_core::market::ScreenQuery;
@@ -73,6 +74,37 @@ impl From<EarningsFilterArgs> for EarningsFilter {
             annual: args.annual,
             quarterly: args.quarterly,
         }
+    }
+}
+
+/// Which sessions and trades a broker command covers.
+#[derive(Debug, Clone, Args)]
+pub struct BrokerScopeArgs {
+    /// One session, YYYY-MM-DD. Default: the latest session with trades.
+    #[arg(long, conflicts_with_all = ["from", "to"])]
+    date: Option<String>,
+    /// First session of a range, YYYY-MM-DD (at most 366 days).
+    #[arg(long)]
+    from: Option<String>,
+    /// Last session of the range, YYYY-MM-DD. Default: today.
+    #[arg(long, requires = "from")]
+    to: Option<String>,
+    /// Whose trades to count.
+    #[arg(long, value_enum, default_value_t = BrokerInvestor::All)]
+    investor: BrokerInvestor,
+    /// Which board's trades to count; `regular` leaves out negotiated block trades.
+    #[arg(long, value_enum, default_value_t = BrokerBoard::All)]
+    board: BrokerBoard,
+}
+
+impl BrokerScopeArgs {
+    fn range(&self, idx: &Idx) -> Result<BrokerRange, IdxError> {
+        BrokerRange::from_args(
+            self.date.as_deref(),
+            self.from.as_deref(),
+            self.to.as_deref(),
+            idx.broker().today(),
+        )
     }
 }
 
@@ -149,6 +181,19 @@ pub enum StocksSubcommand {
     Fundamental {
         /// Single ticker symbol (e.g. BBCA).
         symbol: String,
+    },
+    #[command(
+        about = "Which brokers bought and sold a stock",
+        long_about = "Which brokers bought and sold a stock: the top 10 buyers and top 10 \
+sellers by lots, with value and average price, from Indo Premier (IPOT). End of day: IDX \
+does not show broker codes during trading. Without dates, the latest session with trades.",
+        after_help = "Examples:\n  idx stocks broker BBCA\n  idx stocks broker BBCA --date 2026-10-16\n  idx stocks broker BBCA --from 2026-10-12 --to 2026-10-16 --board regular\n  idx -o json stocks broker BBCA --investor foreign"
+    )]
+    Broker {
+        /// Single ticker symbol (e.g. BBCA).
+        symbol: String,
+        #[command(flatten)]
+        scope: BrokerScopeArgs,
     },
     #[command(about = "Get company profile")]
     Profile { symbol: String },
@@ -255,6 +300,16 @@ pub fn handle(
         StocksSubcommand::Fundamental { symbol } => {
             let report = idx.analysis().fundamental(symbol, policy)?;
             render_fundamental(&report.data, format, no_color)
+        }
+        StocksSubcommand::Broker { symbol, scope } => {
+            let summary = idx.broker().fetch(
+                symbol,
+                scope.range(&idx)?,
+                scope.investor,
+                scope.board,
+                policy,
+            )?;
+            render_broker_summary(&summary.data, format)
         }
         StocksSubcommand::Profile { symbol } => {
             let profile = idx.financial().profile(symbol, policy)?;

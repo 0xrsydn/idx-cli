@@ -27,6 +27,19 @@ Compare fundamental reports (growth, valuation, risk) across IDX tickers. Ticker
 | --- | --- | --- | --- |
 | `symbols` | array of string | yes | IDX tickers, e.g. ["BBCA", "BBRI"]; the `.JK` suffix is optional. At most 20. |
 
+## `get_broker_summary`
+
+Broker summary for one IDX ticker: the top 10 buyers and top 10 sellers by lots over a session or date range, each with lots (1 lot = 100 shares), value and average price in IDR, plus totals. Buyers and sellers are ranked separately and gross, so a broker can appear on both sides. End of day only (IDX hides broker codes during trading); `kind` is the broker's own status (local, foreign, state_owned), not its clients'. `rounded` = true means figures of a million and more carry one decimal of precision.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `board` | `all` / `regular` / `cash` / `negotiated` | no | Which board's trades to count (default "all"); "regular" leaves out negotiated block trades. |
+| `date` | string | no | One session, YYYY-MM-DD. Omit date, from and to for the latest session with trades. |
+| `from` | string | no | First session of a range, YYYY-MM-DD (at most 366 days). |
+| `investor` | `all` / `foreign` / `domestic` | no | Whose trades to count, by investor domicile (default "all"). |
+| `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
+| `to` | string | no | Last session of the range, YYYY-MM-DD (default today). |
+
 ## `get_company`
 
 Company data for one IDX ticker: profile, financial statements, earnings, analyst sentiment, insights, and news. News items carry `relevance`: `company` (about this ticker) first, then `market` (general market news). Sections that fail are listed under `errors`; the call fails only if every section fails.

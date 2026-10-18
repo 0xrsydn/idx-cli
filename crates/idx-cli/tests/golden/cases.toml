@@ -244,6 +244,24 @@ name = "yahoo-fundamental"
 args = ["stocks", "fundamental", "BBCA"]
 env = { IDX_PROVIDER = "yahoo" }
 
+# --- stocks: broker summaries (IPOT) -------------------------------------------
+
+[[case]]
+name = "stocks-broker"
+args = ["stocks", "broker", "BBCA", "--date", "2026-10-16"]
+
+[[case]]
+name = "stocks-broker-range"
+args = ["stocks", "broker", "BBCA", "--from", "2026-10-12", "--to", "2026-10-16"]
+
+[[case]]
+name = "stocks-broker-no-trades"
+args = ["stocks", "broker", "BBCA", "--date", "2026-10-17"]
+
+[[case]]
+name = "error-broker-unknown-symbol"
+args = ["stocks", "broker", "ZZZZ", "--date", "2026-10-16"]
+
 # --- errors ---------------------------------------------------------------------
 
 [[case]]

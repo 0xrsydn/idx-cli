@@ -9,9 +9,10 @@ use idx_core::config::CoreConfig;
 use idx_core::investor::{ImportSource, Investor};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 11] = [
+const TOOLS: [&str; 12] = [
     "analyze_stock",
     "compare_stocks",
+    "get_broker_summary",
     "get_company",
     "get_investor_holdings",
     "get_ownership_changes",
@@ -247,6 +248,16 @@ fn live_tools_wrap_data_with_freshness() {
         assert_fetched(&analysis[kind]);
     }
 
+    let brokers = client.ok(
+        "get_broker_summary",
+        json!({"symbol": "BBCA", "date": "2026-10-16"}),
+    );
+    assert_fetched(&brokers);
+    assert_eq!(brokers["source"], "ipot");
+    assert_eq!(brokers["data"]["buyers"][0]["code"], "MG");
+    assert_eq!(brokers["data"]["sellers"][0]["name"], "MANDIRI SEKURITAS");
+    assert_eq!(brokers["data"]["foreign_net_value"], -2_300_000_000_000_i64);
+
     let compared = client.ok("compare_stocks", json!({"symbols": ["BBCA", "BBRI"]}));
     assert_eq!(compared["reports"].as_array().unwrap().len(), 2);
     assert_eq!(compared["failures"], json!([]));
@@ -273,6 +284,14 @@ fn errors_carry_cli_codes() {
         ("compare_stocks", json!({"symbols": []})),
         ("get_company", json!({"symbol": "BBCA", "sections": []})),
         ("analyze_stock", json!({"symbol": "BBCA", "kinds": []})),
+        (
+            "get_broker_summary",
+            json!({"symbol": "BBCA", "date": "2026-10-16", "from": "2026-10-12"}),
+        ),
+        (
+            "get_broker_summary",
+            json!({"symbol": "BBCA", "date": "2026-10-16", "board": "dark"}),
+        ),
     ] {
         let (is_error, body) = client.call(tool, arguments);
         assert!(is_error, "{tool}: {body}");

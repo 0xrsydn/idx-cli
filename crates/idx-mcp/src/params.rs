@@ -2,6 +2,7 @@
 //! accepted values and error messages match the CLI; the schemas list them.
 
 use idx_core::api::types::{Interval, Period};
+use idx_core::broker::types::{BrokerBoard, BrokerInvestor};
 use idx_core::market::{ScreenFilter, ScreenRegion};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::Deserialize;
@@ -115,6 +116,30 @@ pub struct AnalyzeParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct BrokerParams {
+    /// IDX ticker, e.g. "BBCA".
+    pub symbol: String,
+    /// One session, YYYY-MM-DD. Omit date, from and to for the latest session with trades.
+    #[serde(default)]
+    pub date: Option<String>,
+    /// First session of a range, YYYY-MM-DD (at most 366 days).
+    #[serde(default)]
+    pub from: Option<String>,
+    /// Last session of the range, YYYY-MM-DD (default today).
+    #[serde(default)]
+    pub to: Option<String>,
+    /// Whose trades to count, by investor domicile (default "all").
+    #[serde(default)]
+    #[schemars(schema_with = "investor_schema")]
+    pub investor: Option<String>,
+    /// Which board's trades to count (default "all"); "regular" leaves out
+    /// negotiated block trades.
+    #[serde(default)]
+    #[schemars(schema_with = "board_schema")]
+    pub board: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ShareholdersParams {
     /// IDX ticker, e.g. "BBCA".
     pub ticker: String,
@@ -177,4 +202,12 @@ fn filter_schema(_: &mut SchemaGenerator) -> Schema {
 
 fn region_schema(_: &mut SchemaGenerator) -> Schema {
     string_enum(ScreenRegion::ALL.map(ScreenRegion::as_str).to_vec())
+}
+
+fn investor_schema(_: &mut SchemaGenerator) -> Schema {
+    string_enum(BrokerInvestor::ALL.map(BrokerInvestor::as_str).to_vec())
+}
+
+fn board_schema(_: &mut SchemaGenerator) -> Schema {
+    string_enum(BrokerBoard::ALL.map(BrokerBoard::as_str).to_vec())
 }

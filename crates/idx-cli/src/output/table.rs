@@ -11,6 +11,7 @@ use idx_core::api::types::{
     CompanyProfile, EarningsData, EarningsReport, FinancialStatements, InsightData, NewsItem, Ohlc,
     Quote, SentimentData,
 };
+use idx_core::broker::types::{BrokerBoard, BrokerFlow, BrokerInvestor, BrokerKind, BrokerSummary};
 use idx_core::error::IdxError;
 
 pub fn format_idr(value: i64) -> String {
@@ -891,6 +892,126 @@ fn add_earnings_forecast_row(table: &mut Table, row: &EarningsData) {
 
 fn truncate_url(url: &str) -> String {
     truncate_chars(url, 72)
+}
+
+/// A figure at the precision the broker summary source publishes:
+/// `841.2B`, `1.6M`, exact below a million.
+fn format_compact(value: i64) -> String {
+    let abs = value.unsigned_abs();
+    let (unit, suffix) = match abs {
+        1_000_000_000_000.. => (1e12, "T"),
+        1_000_000_000.. => (1e9, "B"),
+        1_000_000.. => (1e6, "M"),
+        _ => return format_idr(value),
+    };
+    format!("{:.1}{suffix}", value as f64 / unit)
+}
+
+fn format_compact_option(value: Option<i64>) -> String {
+    value.map(format_compact).unwrap_or_else(|| "-".to_string())
+}
+
+fn broker_cells(flow: Option<&BrokerFlow>) -> [Cell; 4] {
+    match flow {
+        Some(flow) => [
+            cell(&flow.code),
+            cell(format_compact_option(flow.lots)),
+            cell(format_compact_option(flow.value)),
+            cell(
+                flow.average_price
+                    .map(format_idr)
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+        ],
+        None => [cell(""), cell(""), cell(""), cell("")],
+    }
+}
+
+/// `2026-10-16`, or `2026-10-12 to 2026-10-16`, plus any filters.
+pub(crate) fn broker_scope(
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+    investor: BrokerInvestor,
+    board: BrokerBoard,
+) -> String {
+    let mut scope = if from == to {
+        from.to_string()
+    } else {
+        format!("{from} to {to}")
+    };
+    if investor != BrokerInvestor::All {
+        scope.push_str(&format!(", {} investors", investor.as_str()));
+    }
+    if board != BrokerBoard::All {
+        scope.push_str(&format!(", {} board", board.as_str()));
+    }
+    scope
+}
+
+pub fn print_broker_summary(summary: &BrokerSummary) -> Result<(), IdxError> {
+    println!(
+        "{}",
+        format!(
+            "Broker summary for {}, {}",
+            terminal_safe(&summary.symbol),
+            broker_scope(summary.from, summary.to, summary.investor, summary.board)
+        )
+        .bold()
+    );
+    if summary.is_empty() {
+        println!("No trades.");
+        return Ok(());
+    }
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec![
+            "#", "BUYER", "LOTS", "VALUE", "AVG", "SELLER", "LOTS", "VALUE", "AVG",
+        ]);
+    let rows = summary.buyers.len().max(summary.sellers.len());
+    for index in 0..rows {
+        let mut row = vec![cell(index + 1)];
+        row.extend(broker_cells(summary.buyers.get(index)));
+        row.extend(broker_cells(summary.sellers.get(index)));
+        table.add_row(row);
+    }
+    println!("{table}");
+
+    let mut totals = format!(
+        "Total {} IDR, {} lots",
+        format_compact_option(summary.total_value),
+        format_compact_option(summary.total_lots)
+    );
+    if let Some(average) = summary.average_price {
+        totals.push_str(&format!(", average {}", format_idr(average)));
+    }
+    if let Some(net) = summary.foreign_net_value {
+        totals.push_str(&format!("; foreign net {:+}", format_compact(net)));
+    }
+    println!("{totals}.");
+    for (kind, label) in [
+        (BrokerKind::Foreign, "Foreign brokers"),
+        (BrokerKind::StateOwned, "State-owned brokers"),
+    ] {
+        let mut codes: Vec<&str> = summary
+            .buyers
+            .iter()
+            .chain(&summary.sellers)
+            .filter(|flow| flow.kind == Some(kind))
+            .map(|flow| flow.code.as_str())
+            .collect();
+        codes.sort_unstable();
+        codes.dedup();
+        if !codes.is_empty() {
+            println!("{label}: {}.", terminal_safe(&codes.join(", ")));
+        }
+    }
+    println!("Buyers and sellers are each ranked by lots; a broker can be on both sides.");
+    if summary.rounded {
+        println!("Note: the source rounds figures of a million and more to one decimal.");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

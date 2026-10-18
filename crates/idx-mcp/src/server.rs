@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 
 use idx_core::analysis::fundamental::FundamentalReport;
+use idx_core::broker::types::BrokerRange;
 use idx_core::config::CoreConfig;
 use idx_core::error::IdxError;
 use idx_core::financial::{EarningsFilter, StatementFilter};
@@ -21,8 +22,9 @@ use serde_json::{Map, Value, json};
 use tokio::sync::Semaphore;
 
 use crate::params::{
-    AnalysisKind, AnalyzeParams, ChangesParams, CompanyParams, CompanySection, EntityParams,
-    HistoryParams, ScreenParams, SearchParams, ShareholdersParams, SymbolsParams, SyncParams,
+    AnalysisKind, AnalyzeParams, BrokerParams, ChangesParams, CompanyParams, CompanySection,
+    EntityParams, HistoryParams, ScreenParams, SearchParams, ShareholdersParams, SymbolsParams,
+    SyncParams,
 };
 
 const SYNC_TOOL: &str = "ownership_sync";
@@ -161,6 +163,42 @@ for one or more IDX tickers."
                 limit: bounded_limit("limit", limit, SCREEN_LIMIT, MAX_SCREEN_LIMIT)?,
             };
             idx.market().screen(&query, CachePolicy::Default)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Broker summary for one IDX ticker: the top 10 buyers and top 10 sellers \
+by lots over a session or date range, each with lots (1 lot = 100 shares), value and average \
+price in IDR, plus totals. Buyers and sellers are ranked separately and gross, so a broker can \
+appear on both sides. End of day only (IDX hides broker codes during trading); `kind` is the \
+broker's own status (local, foreign, state_owned), not its clients'. `rounded` = true means \
+figures of a million and more carry one decimal of precision."
+    )]
+    async fn get_broker_summary(&self, params: Parameters<BrokerParams>) -> ToolResult {
+        let BrokerParams {
+            symbol,
+            date,
+            from,
+            to,
+            investor,
+            board,
+        } = params.0;
+        self.live(move |idx| {
+            let broker = idx.broker();
+            let range = BrokerRange::from_args(
+                date.as_deref(),
+                from.as_deref(),
+                to.as_deref(),
+                broker.today(),
+            )?;
+            broker.fetch(
+                &symbol,
+                range,
+                investor.as_deref().unwrap_or("all").parse()?,
+                board.as_deref().unwrap_or("all").parse()?,
+                CachePolicy::Default,
+            )
         })
         .await
     }

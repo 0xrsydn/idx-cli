@@ -1,6 +1,6 @@
 ---
 title: Stocks
-description: Quotes, history, company data, analysis and screening.
+description: Quotes, history, company data, broker summaries, analysis and screening.
 ---
 
 All `stocks` commands take IDX tickers (`BBCA`, or `BBCA.JK`). Every flag is
@@ -27,6 +27,25 @@ them from stdin. `history` takes `--period` (`1d` to `5y`) and `--interval`
 | `sentiment` | crowd sentiment |
 | `insights` | AI insights from the provider |
 | `news` | recent news, this company's first (`ABOUT` = `company`), then general market news (`market`) |
+
+## Broker summary
+
+```bash
+idx stocks broker BBCA
+idx stocks broker BBCA --date 2026-10-16
+idx stocks broker BBCA --from 2026-10-12 --to 2026-10-16 --board regular
+```
+
+Which brokers bought and sold a stock: the top 10 buyers and the top 10
+sellers by lots, each with lots, value and average price, plus totals and the
+net foreign value. Without dates it shows the latest session with trades.
+`--investor foreign|domestic` counts only one side's clients, and
+`--board regular` leaves out negotiated block trades.
+
+The data comes from Indo Premier (IPOT) and is end of day: IDX hides broker
+codes during trading. Buyers and sellers are ranked separately on gross
+lots, so a broker can appear on both sides. The source rounds figures of a
+million and more to one decimal, and the output says so.
 
 ## Analysis
 
@@ -62,6 +81,7 @@ idx stocks screen --filter high-dividend | jq -r '.[].symbol' | idx stocks compa
 ## Providers
 
 MSN is the default for quotes, company data and screening; Yahoo serves
-price history. Switch with `IDX_PROVIDER=msn|yahoo` and
+price history, and Indo Premier (IPOT) serves broker summaries whichever
+provider is selected. Switch with `IDX_PROVIDER=msn|yahoo` and
 `IDX_HISTORY_PROVIDER=auto|yahoo|msn`, or the matching
 [config keys](/start/config/).

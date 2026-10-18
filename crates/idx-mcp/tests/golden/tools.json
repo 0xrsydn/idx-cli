@@ -58,6 +58,68 @@
     "name": "compare_stocks"
   },
   {
+    "description": "Broker summary for one IDX ticker: the top 10 buyers and top 10 sellers by lots over a session or date range, each with lots (1 lot = 100 shares), value and average price in IDR, plus totals. Buyers and sellers are ranked separately and gross, so a broker can appear on both sides. End of day only (IDX hides broker codes during trading); `kind` is the broker's own status (local, foreign, state_owned), not its clients'. `rounded` = true means figures of a million and more carry one decimal of precision.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "board": {
+          "default": null,
+          "description": "Which board's trades to count (default \"all\"); \"regular\" leaves out\nnegotiated block trades.",
+          "enum": [
+            "all",
+            "regular",
+            "cash",
+            "negotiated"
+          ],
+          "type": "string"
+        },
+        "date": {
+          "default": null,
+          "description": "One session, YYYY-MM-DD. Omit date, from and to for the latest session with trades.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "from": {
+          "default": null,
+          "description": "First session of a range, YYYY-MM-DD (at most 366 days).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "investor": {
+          "default": null,
+          "description": "Whose trades to count, by investor domicile (default \"all\").",
+          "enum": [
+            "all",
+            "foreign",
+            "domestic"
+          ],
+          "type": "string"
+        },
+        "symbol": {
+          "description": "IDX ticker, e.g. \"BBCA\".",
+          "type": "string"
+        },
+        "to": {
+          "default": null,
+          "description": "Last session of the range, YYYY-MM-DD (default today).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "name": "get_broker_summary"
+  },
+  {
     "description": "Company data for one IDX ticker: profile, financial statements, earnings, analyst sentiment, insights, and news. News items carry `relevance`: `company` (about this ticker) first, then `market` (general market news). Sections that fail are listed under `errors`; the call fails only if every section fails.",
     "inputSchema": {
       "$defs": {

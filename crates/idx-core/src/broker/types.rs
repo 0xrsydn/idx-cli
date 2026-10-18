@@ -1,7 +1,11 @@
 //! Broker summary types: which IDX brokers bought and sold a stock.
 
+use std::str::FromStr;
+
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
+
+use crate::error::IdxError;
 
 /// Whose trades a broker summary counts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -18,11 +22,28 @@ pub enum BrokerInvestor {
 }
 
 impl BrokerInvestor {
+    pub const ALL: [Self; 3] = [Self::All, Self::Foreign, Self::Domestic];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::All => "all",
             Self::Foreign => "foreign",
             Self::Domestic => "domestic",
+        }
+    }
+}
+
+impl FromStr for BrokerInvestor {
+    type Err = IdxError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "all" => Ok(Self::All),
+            "foreign" => Ok(Self::Foreign),
+            "domestic" => Ok(Self::Domestic),
+            _ => Err(IdxError::InvalidInput(format!(
+                "invalid investor '{value}'; use all, foreign or domestic"
+            ))),
         }
     }
 }
@@ -44,12 +65,30 @@ pub enum BrokerBoard {
 }
 
 impl BrokerBoard {
+    pub const ALL: [Self; 4] = [Self::All, Self::Regular, Self::Cash, Self::Negotiated];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::All => "all",
             Self::Regular => "regular",
             Self::Cash => "cash",
             Self::Negotiated => "negotiated",
+        }
+    }
+}
+
+impl FromStr for BrokerBoard {
+    type Err = IdxError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "all" => Ok(Self::All),
+            "regular" => Ok(Self::Regular),
+            "cash" => Ok(Self::Cash),
+            "negotiated" => Ok(Self::Negotiated),
+            _ => Err(IdxError::InvalidInput(format!(
+                "invalid board '{value}'; use all, regular, cash or negotiated"
+            ))),
         }
     }
 }
@@ -71,6 +110,49 @@ impl BrokerKind {
             Self::Local => "local",
             Self::Foreign => "foreign",
             Self::StateOwned => "state_owned",
+        }
+    }
+}
+
+/// Which sessions a frontend asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrokerRange {
+    /// The latest session with trades.
+    Latest,
+    /// `from..=to`, WIB dates.
+    Dates { from: NaiveDate, to: NaiveDate },
+}
+
+impl BrokerRange {
+    /// From a frontend's `date`, or `from` with an optional `to` (default
+    /// today), as `YYYY-MM-DD`; none of them means the latest session.
+    pub fn from_args(
+        date: Option<&str>,
+        from: Option<&str>,
+        to: Option<&str>,
+        today: NaiveDate,
+    ) -> Result<Self, IdxError> {
+        let parse = |name: &str, value: &str| {
+            NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d").map_err(|_| {
+                IdxError::InvalidInput(format!("invalid {name} '{value}'; use YYYY-MM-DD"))
+            })
+        };
+        match (date, from, to) {
+            (None, None, None) => Ok(Self::Latest),
+            (Some(date), None, None) => {
+                let day = parse("date", date)?;
+                Ok(Self::Dates { from: day, to: day })
+            }
+            (None, Some(from), to) => Ok(Self::Dates {
+                from: parse("from", from)?,
+                to: to.map(|to| parse("to", to)).transpose()?.unwrap_or(today),
+            }),
+            (None, None, Some(_)) => Err(IdxError::InvalidInput(
+                "to needs from (or use date for one session)".to_string(),
+            )),
+            (Some(_), _, _) => Err(IdxError::InvalidInput(
+                "date cannot be combined with from or to".to_string(),
+            )),
         }
     }
 }

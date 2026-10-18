@@ -12,7 +12,7 @@ use crate::api::ipot::BrokerSummaryRaw;
 use crate::api::{broker_provider, today_wib};
 use crate::client::{CachePolicy, CacheSpec, Fetched, Idx, cached_fetch};
 use crate::error::IdxError;
-use types::{BrokerBoard, BrokerInvestor, BrokerQuery, BrokerSummary};
+use types::{BrokerBoard, BrokerInvestor, BrokerQuery, BrokerRange, BrokerSummary};
 
 const SOURCE: &str = "ipot";
 /// Longest range one summary may cover.
@@ -47,6 +47,35 @@ pub struct Broker<'a> {
 }
 
 impl Broker<'_> {
+    /// Today in WIB, the date `BrokerRange::from_args` defaults `to` to.
+    pub fn today(&self) -> NaiveDate {
+        today_wib()
+    }
+
+    /// The summary a frontend asked for: the latest session or a range.
+    pub fn fetch(
+        &self,
+        symbol: &str,
+        range: BrokerRange,
+        investor: BrokerInvestor,
+        board: BrokerBoard,
+        policy: CachePolicy,
+    ) -> Result<Fetched<BrokerSummary>, IdxError> {
+        match range {
+            BrokerRange::Latest => self.latest(symbol, investor, board, policy),
+            BrokerRange::Dates { from, to } => self.summary(
+                symbol,
+                &BrokerQuery {
+                    from,
+                    to,
+                    investor,
+                    board,
+                },
+                policy,
+            ),
+        }
+    }
+
     /// The broker summary for `symbol` over `query`'s range. An empty
     /// summary means no trades (weekend, holiday, suspension).
     pub fn summary(
@@ -245,6 +274,38 @@ mod tests {
         );
         assert_eq!(filtered.foreign_net_value, None);
         assert_eq!(filtered.sellers[0].value, Some(2_000_000_000_000));
+    }
+
+    #[test]
+    fn test_broker_range_from_args() {
+        let today = date(2026, 10, 18);
+        let range = |date, from, to| BrokerRange::from_args(date, from, to, today);
+        assert_eq!(range(None, None, None).unwrap(), BrokerRange::Latest);
+        assert_eq!(
+            range(Some("2026-10-16"), None, None).unwrap(),
+            BrokerRange::Dates {
+                from: date(2026, 10, 16),
+                to: date(2026, 10, 16)
+            }
+        );
+        assert_eq!(
+            range(None, Some("2026-10-12"), None).unwrap(),
+            BrokerRange::Dates {
+                from: date(2026, 10, 12),
+                to: today
+            }
+        );
+        for (d, f, t) in [
+            (None, None, Some("2026-10-16")),
+            (Some("2026-10-16"), Some("2026-10-12"), None),
+            (Some("16/10/2026"), None, None),
+            (None, Some("2026-10-12"), Some("tomorrow")),
+        ] {
+            assert!(
+                matches!(range(d, f, t), Err(IdxError::InvalidInput(_))),
+                "{d:?} {f:?} {t:?}"
+            );
+        }
     }
 
     #[test]

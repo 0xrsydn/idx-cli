@@ -16,6 +16,7 @@ use idx_core::api::types::{
     CompanyProfile, EarningsReport, FinancialStatements, InsightData, NewsItem, Ohlc, Quote,
     SentimentData,
 };
+use idx_core::broker::types::BrokerSummary;
 use idx_core::error::IdxError;
 
 /// Output format requested by the user (flag, `IDX_OUTPUT`, or config file).
@@ -70,6 +71,16 @@ pub fn render_quotes(
     match format {
         OutputFormat::Table => table::print_quotes(quotes, no_color),
         OutputFormat::Json | OutputFormat::Jsonl => json::print_json(quotes),
+    }
+}
+
+pub fn render_broker_summary(
+    summary: &BrokerSummary,
+    format: &OutputFormat,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_broker_summary(summary),
+        OutputFormat::Json | OutputFormat::Jsonl => json::print_json(summary),
     }
 }
 

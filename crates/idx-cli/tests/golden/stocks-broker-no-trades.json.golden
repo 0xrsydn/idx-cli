@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+{"symbol":"BBCA.JK","from":"2026-10-17","to":"2026-10-17","investor":"all","board":"all","buyers":[],"sellers":[],"total_value":0,"total_lots":0,"average_price":null,"foreign_net_value":0,"rounded":false}
+--- stderr
