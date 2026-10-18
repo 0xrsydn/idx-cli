@@ -151,7 +151,11 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     if html.to_ascii_lowercase().contains("invalid stock code") {
         return Ok(IpotPage::Invalid);
     }
-    let (Some(body_start), Some(body_end)) = (html.find("<tbody>"), html.find("</tbody>")) else {
+    let Some((body_start, body_end)) = html.find("<tbody>").and_then(|start| {
+        html[start..]
+            .find("</tbody>")
+            .map(|len| (start, start + len))
+    }) else {
         return Err(IdxError::ParseError(
             "ipot broker summary: no table in the page".to_string(),
         ));
@@ -168,16 +172,36 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
             value
         })
     };
+    // A skipped row would shift every later broker up a rank, so a row of
+    // another shape, a rank out of order, or a broker after a side's blank
+    // rows rejects the page.
+    let (mut buyers_ended, mut sellers_ended) = (false, false);
     for (index, row) in html[body_start..body_end].split("</tr>").enumerate() {
         let row = cells(row);
-        if row.len() < 9 {
+        if row.is_empty() {
             continue;
         }
-        let rank = row[4].text.parse::<u32>().unwrap_or(index as u32 + 1);
-        for (side, at) in [(&mut raw.buyers, 0), (&mut raw.sellers, 5)] {
+        let rank = index as u32 + 1;
+        if row.len() != 9 || row[4].text.parse::<u32>().ok() != Some(rank) {
+            return Err(IdxError::ParseError(format!(
+                "ipot broker summary: unexpected row {rank} ({} cells, rank {:?})",
+                row.len(),
+                row.get(4).map(|cell| cell.text.as_str())
+            )));
+        }
+        for (side, at, ended) in [
+            (&mut raw.buyers, 0, &mut buyers_ended),
+            (&mut raw.sellers, 5, &mut sellers_ended),
+        ] {
             let code = row[at].text.to_ascii_uppercase();
             if code.is_empty() {
+                *ended = true;
                 continue;
+            }
+            if *ended {
+                return Err(IdxError::ParseError(format!(
+                    "ipot broker summary: broker {code:?} after a blank row"
+                )));
             }
             if code.len() != 2 || !code.bytes().all(|b| b.is_ascii_alphanumeric()) {
                 return Err(IdxError::ParseError(format!(
@@ -313,5 +337,24 @@ mod tests {
             parse_broker_summary(&odd),
             Err(IdxError::ParseError(_))
         ));
+    }
+
+    #[test]
+    fn test_parse_broker_summary_rejects_rows_that_would_shift_ranks() {
+        let first_cell = "<td align=\"center\"><span class=\"text-local\">MG</span></td>";
+        let short_row = DAY.replacen(first_cell, "", 1);
+        let skipped_rank = DAY.replacen(
+            "<td align=\"center\">1</td>",
+            "<td align=\"center\">2</td>",
+            1,
+        );
+        let gap = DAY.replacen(">XL<", "><", 1);
+        for page in [short_row, skipped_rank, gap, "</tbody><tbody>".to_string()] {
+            assert!(
+                matches!(parse_broker_summary(&page), Err(IdxError::ParseError(_))),
+                "{}",
+                &page[..page.len().min(80)]
+            );
+        }
     }
 }

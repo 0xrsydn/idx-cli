@@ -193,7 +193,13 @@ pub fn bandar_tier(summary: &BrokerSummary, top: u8) -> BandarTier {
                 i128::from(bought),
                 i128::from(sold),
             );
-            i64::try_from((buy * sold - sell * bought) * 10_000 / (bought * sold)).ok()
+            // Checked: past i128 there is no reading, never a wrapped one.
+            buy.checked_mul(sold)
+                .zip(sell.checked_mul(bought))
+                .and_then(|(buys, sells)| buys.checked_sub(sells))
+                .and_then(|diff| diff.checked_mul(10_000))
+                .zip(bought.checked_mul(sold))
+                .and_then(|(diff, denominator)| i64::try_from(diff / denominator).ok())
         }
         _ => None,
     };
@@ -438,6 +444,18 @@ mod tests {
         assert!(report.tiers.iter().all(|tier| tier.signal.is_none()));
         assert_eq!((report.signal, report.imbalance_bps), (None, None));
         assert_eq!(report.tiers[2].buy_value, Some(0));
+    }
+
+    #[test]
+    fn test_bandar_tier_past_i128_has_no_reading_instead_of_a_wrapped_one() {
+        let reading = |total: i64| {
+            let buyers = vec![flow("AA", Some(total / 10 * 6), 1)];
+            let sellers = vec![flow("BB", Some(total / 10 * 4), 1)];
+            bandar_tier(&summary(buyers, sellers, total), 1).imbalance_bps
+        };
+        // A quadrillion rupiah, far past any session, is still exact.
+        assert_eq!(reading(1_000_000_000_000_000), Some(2000));
+        assert_eq!(reading(1_000_000_000_000_000_000), None);
     }
 
     #[test]

@@ -1109,10 +1109,11 @@ pub fn print_bandar_report(report: &BandarReport, no_color: bool) -> Result<(), 
         )
         .bold()
     );
+    // Brokers on either side mean trades, even when a total is unavailable.
     if report
-        .buy_value
-        .zip(report.sell_value)
-        .is_none_or(|(buy, sell)| buy <= 0 && sell <= 0)
+        .tiers
+        .iter()
+        .all(|tier| tier.buy_value == Some(0) && tier.sell_value == Some(0))
     {
         println!("No trades.");
         return Ok(());

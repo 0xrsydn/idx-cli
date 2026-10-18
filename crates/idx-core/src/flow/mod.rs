@@ -104,6 +104,9 @@ impl Flow<'_> {
                 Err(IdxError::CacheMiss(_)) if skip_misses => continue,
                 Err(err) => return Err(err),
             };
+            // Every consulted session counts toward freshness, empty ones too.
+            fetched_at = Some(fetched_at.map_or(fetch.fetched_at, |at| at.min(fetch.fetched_at)));
+            stale |= fetch.stale;
             match fetch.day {
                 Day::NoSession => continue,
                 Day::Absent => {}
@@ -116,8 +119,6 @@ impl Flow<'_> {
                 }
             }
             sessions += 1;
-            fetched_at = Some(fetched_at.map_or(fetch.fetched_at, |at| at.min(fetch.fetched_at)));
-            stale |= fetch.stale;
         }
         if sessions == 0 {
             return Err(if policy == CachePolicy::Offline {

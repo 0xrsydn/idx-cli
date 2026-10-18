@@ -38,11 +38,13 @@ fn whole(value: Option<f64>) -> Option<i64> {
 
 /// The rows of one session. A day without trading (weekend, holiday) is
 /// empty; rows dated other than `date` are dropped, so another session's
-/// figures never pass as this one's.
+/// figures never pass as this one's. Rows for other days only are an error,
+/// not an empty session, so they are never cached as one.
 pub fn parse_stock_summary(raw: &str, date: NaiveDate) -> Result<Vec<StockDay>, IdxError> {
     let response: StockSummaryResponse = serde_json::from_str(raw)
         .map_err(|e| IdxError::ParseError(format!("idx stock summary: {e}")))?;
-    Ok(response
+    let answered = response.data.len();
+    let rows: Vec<StockDay> = response
         .data
         .into_iter()
         .filter(|row| {
@@ -66,7 +68,13 @@ pub fn parse_stock_summary(raw: &str, date: NaiveDate) -> Result<Vec<StockDay>, 
             non_regular_volume: whole(row.non_regular_volume),
             non_regular_value: whole(row.non_regular_value),
         })
-        .collect())
+        .collect();
+    if rows.is_empty() && answered > 0 {
+        return Err(IdxError::ParseError(format!(
+            "idx stock summary: asked for {date}, got {answered} rows for other days"
+        )));
+    }
+    Ok(rows)
 }
 
 #[cfg(test)]
@@ -101,11 +109,10 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-        assert!(
-            parse_stock_summary(DAY, date(2026, 10, 15))
-                .unwrap()
-                .is_empty()
-        );
+        assert!(matches!(
+            parse_stock_summary(DAY, date(2026, 10, 15)),
+            Err(IdxError::ParseError(_))
+        ));
         assert!(matches!(
             parse_stock_summary("<html>Just a moment...</html>", date(2026, 10, 16)),
             Err(IdxError::ParseError(_))

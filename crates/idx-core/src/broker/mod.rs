@@ -114,7 +114,11 @@ impl Broker<'_> {
                 source: SOURCE,
             },
             policy,
-            || provider.broker_summary(&code, query),
+            || {
+                provider
+                    .broker_summary(&code, query)
+                    .and_then(|raw| check_echoed_dates(query, raw))
+            },
             |raw| Ok(summary_from_raw(&resolved, query, raw)),
         )
     }
@@ -205,6 +209,25 @@ pub(crate) fn summary_from_raw(
         flow.name = broker_name(&flow.code).map(str::to_string);
     }
     summary
+}
+
+/// The page echoes the dates it covers; another range's figures must not be
+/// cached or reported as the requested one's.
+fn check_echoed_dates(
+    query: &BrokerQuery,
+    raw: BrokerSummaryRaw,
+) -> Result<BrokerSummaryRaw, IdxError> {
+    if raw.from == Some(query.from) && raw.to == Some(query.to) {
+        return Ok(raw);
+    }
+    let echoed = |date: Option<NaiveDate>| date.map_or("none".to_string(), |date| date.to_string());
+    Err(IdxError::ParseError(format!(
+        "ipot broker summary: asked for {} to {}, the page covers {} to {}",
+        query.from,
+        query.to,
+        echoed(raw.from),
+        echoed(raw.to)
+    )))
 }
 
 fn check_range(query: &BrokerQuery, today: NaiveDate) -> Result<(), IdxError> {
@@ -378,6 +401,31 @@ mod tests {
             assert!(
                 matches!(check_range(&bad, today), Err(IdxError::InvalidInput(_))),
                 "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_check_echoed_dates_rejects_another_sessions_page() {
+        let friday = date(2026, 10, 16);
+        let page = || BrokerSummaryRaw {
+            from: Some(friday),
+            to: Some(friday),
+            ..BrokerSummaryRaw::default()
+        };
+        assert!(check_echoed_dates(&query(friday, friday), page()).is_ok());
+        let thursday = date(2026, 10, 15);
+        for (asked, raw) in [
+            (query(thursday, thursday), page()),
+            (query(thursday, friday), page()),
+            (query(friday, friday), BrokerSummaryRaw::default()),
+        ] {
+            assert!(
+                matches!(
+                    check_echoed_dates(&asked, raw),
+                    Err(IdxError::ParseError(_))
+                ),
+                "{asked:?}"
             );
         }
     }
