@@ -59,13 +59,13 @@
         "top": {
           "default": null,
           "description": "Tier behind the headline signal: 1, 3, 5 or 10 brokers per side (default 5).",
-          "format": "uint8",
-          "maximum": 255,
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "enum": [
+            1,
+            3,
+            5,
+            10
+          ],
+          "type": "integer"
         }
       },
       "required": [

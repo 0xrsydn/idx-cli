@@ -1,6 +1,7 @@
 //! Tool inputs. String enums are validated by idx-core's `FromStr`, so the
 //! accepted values and error messages match the CLI; the schemas list them.
 
+use idx_core::analysis::bandar::TIERS;
 use idx_core::api::types::{Interval, Period};
 use idx_core::broker::types::{BrokerBoard, BrokerInvestor};
 use idx_core::flow::types::FlowSource;
@@ -155,6 +156,7 @@ pub struct BandarParams {
     pub scope: BrokerScope,
     /// Tier behind the headline signal: 1, 3, 5 or 10 brokers per side (default 5).
     #[serde(default)]
+    #[schemars(schema_with = "top_schema")]
     pub top: Option<u8>,
 }
 
@@ -254,4 +256,8 @@ fn board_schema(_: &mut SchemaGenerator) -> Schema {
 
 fn flow_source_schema(_: &mut SchemaGenerator) -> Schema {
     string_enum(FlowSource::ALL.map(FlowSource::as_str).to_vec())
+}
+
+fn top_schema(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({ "type": "integer", "enum": TIERS })
 }

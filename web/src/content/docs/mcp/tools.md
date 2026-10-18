@@ -22,7 +22,7 @@ Bandarmology for one or more IDX tickers from the broker summary: for the top 1,
 | `investor` | `all` / `foreign` / `domestic` | no | Whose trades to count, by investor domicile (default "all"). |
 | `symbols` | array of string | yes | IDX tickers, e.g. ["BBCA", "BBRI"]; the `.JK` suffix is optional. At most 20. |
 | `to` | string | no | Last session of the range, YYYY-MM-DD (default today). |
-| `top` | integer | no | Tier behind the headline signal: 1, 3, 5 or 10 brokers per side (default 5). |
+| `top` | `1` / `3` / `5` / `10` | no | Tier behind the headline signal: 1, 3, 5 or 10 brokers per side (default 5). |
 
 ## `analyze_stock`
 
