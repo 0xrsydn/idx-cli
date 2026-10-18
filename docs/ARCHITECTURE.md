@@ -51,6 +51,8 @@ command parses arguments, makes one idx-core call, and renders the result.
 ### Dual Provider Model
 - **MSN Finance** — default provider. Rich data: quotes, fundamentals, profile, earnings, financials, sentiment, insights, news, screener, and explicit price-only chart history for supported IDX windows.
 - **Yahoo Finance** — default/auto history source. Reliable OHLCV data via `/v8/finance/chart/`.
+- **IPOT (Indo Premier)** — broker summaries, whichever provider is selected
+  (`BrokerSummaryProvider`). See [Broker Summaries](#broker-summaries).
 
 ### MSN Endpoints
 - `https://assets.msn.com/service/`: quotes, charts, equities, earnings,
@@ -83,6 +85,22 @@ WIB as the fallback.
   when the initial batch is incomplete, and rejects a still-truncated response.
 - Full-list screen caches use an `all` key, separate from older limited results.
 
+### Broker Summaries
+- `GET https://www.indopremier.com/module/saham/include/data-brokersummary.php`
+  takes `code`, `start`/`end` (`MM/DD/YYYY`), `fd` (`all|F|D`) and `board`
+  (`all|RG|TN|NG`). It needs no login and answers an HTML fragment: the top 10
+  buyers and top 10 sellers ranked by lots (gross, so a broker can be on both
+  sides), plus range totals. `api/ipot/parse.rs` parses it purely.
+- Figures of a million and more arrive abbreviated (`1.6 M`); they are scaled
+  in decimal and the summary's `rounded` flag says so. `F. NVal` ignores the
+  investor and board filters, so `foreign_net_value` is null for a filtered
+  summary.
+- An unknown code is a 200 with `Invalid stock code!` (`SYMBOLNOTFOUND`). The
+  server also answers spurious nginx 404s for seconds at a time, so the client
+  retries 404 and 5xx with backoff. A range without trades is an empty summary.
+- Data is end of day: IDX hides broker codes during trading. Summaries that
+  ended before today are cached for 7 days, today's for 5 minutes. Broker
+  names come from `broker/codes.tsv` (IDX `GetBrokerCodeList`).
 
 ### Capability Gating
 ```
@@ -92,6 +110,7 @@ HistoryProvider    = separate trait, not all providers implement
 Factory functions:
   default_provider(kind) → Box<dyn MarketDataProvider>
   history_provider(kind, mode, verbose) → Result<(ProviderKind, Box<dyn HistoryProvider>)>
+  broker_provider() → Box<dyn BrokerSummaryProvider>
 ```
 
 ## Ownership Module (SQLite-backed)

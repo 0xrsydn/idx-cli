@@ -1,3 +1,4 @@
+pub mod ipot;
 #[cfg(feature = "testing")]
 pub mod mock;
 pub mod msn;
@@ -6,6 +7,7 @@ pub mod yahoo;
 
 use chrono::FixedOffset;
 
+use crate::broker::types::BrokerQuery;
 use crate::config::{HistoryProviderKind, ProviderKind};
 use crate::error::IdxError;
 use types::{
@@ -39,6 +41,17 @@ pub trait HistoryProvider {
         period: &Period,
         interval: &Interval,
     ) -> Result<Vec<Bar>, IdxError>;
+}
+
+/// Which brokers bought and sold a stock: a separate capability, served by
+/// IPOT whichever market provider is selected.
+pub trait BrokerSummaryProvider {
+    /// `code` is the bare IDX code, e.g. `BBCA`.
+    fn broker_summary(
+        &self,
+        code: &str,
+        query: &BrokerQuery,
+    ) -> Result<ipot::BrokerSummaryRaw, IdxError>;
 }
 
 pub trait FundamentalsProvider {
@@ -256,6 +269,23 @@ fn build_selected_provider(
 
 fn msn_capability_error(subject: &str) -> IdxError {
     IdxError::Unsupported(format!("{subject}: command requires --provider msn"))
+}
+
+pub fn broker_provider() -> Box<dyn BrokerSummaryProvider> {
+    #[cfg(feature = "testing")]
+    if mock::enabled() {
+        return Box::new(mock::MockBrokerProvider);
+    }
+    Box::new(ipot::IpotProvider::new())
+}
+
+/// Today in WIB, the date IDX trades on.
+pub(crate) fn today_wib() -> chrono::NaiveDate {
+    #[cfg(feature = "testing")]
+    if let Some(today) = mock::today() {
+        return today;
+    }
+    chrono::Utc::now().with_timezone(&idx_offset()).date_naive()
 }
 
 /// The provider that serves history for `provider` under `history_mode`.

@@ -4,6 +4,7 @@
 
 pub mod analysis;
 pub mod api;
+pub mod broker;
 pub mod cache;
 mod client;
 pub mod config;

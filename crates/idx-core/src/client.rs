@@ -86,6 +86,10 @@ impl Idx {
         crate::market::Market { idx: self }
     }
 
+    pub fn broker(&self) -> crate::broker::Broker<'_> {
+        crate::broker::Broker { idx: self }
+    }
+
     pub fn financial(&self) -> crate::financial::Financial<'_> {
         crate::financial::Financial { idx: self }
     }
