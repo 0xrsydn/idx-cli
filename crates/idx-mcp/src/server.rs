@@ -115,7 +115,8 @@ impl IdxServer {
 impl IdxServer {
     #[tool(
         description = "Latest quotes (price, change, volume, 52-week range, market cap) \
-for one or more IDX tickers."
+for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true \
+when that is before the latest IDX session, so the price is not that session's close."
     )]
     async fn get_quotes(&self, params: Parameters<SymbolsParams>) -> ToolResult {
         let symbols = match checked_symbols(params.0.symbols) {

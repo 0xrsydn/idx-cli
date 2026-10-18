@@ -94,19 +94,29 @@ pub fn print_quotes(quotes: &[Quote], no_color: bool) -> Result<(), IdxError> {
 }
 
 /// A quote whose last trade is over a week old is almost always a suspended
-/// stock; say so under the table instead of letting it pass as current.
+/// stock; say so under the table instead of letting it pass as current. One
+/// from before the latest session is usually the provider lagging the close.
 fn stale_quote_notes(quotes: &[Quote], now: chrono::DateTime<chrono::Utc>) -> Vec<String> {
     quotes
         .iter()
         .filter_map(|q| {
             let as_of = q.as_of?;
-            (now.signed_duration_since(as_of) > chrono::Duration::days(7)).then(|| {
-                format!(
+            if now.signed_duration_since(as_of) > chrono::Duration::days(7) {
+                Some(format!(
                     "Note: {} last traded on {}; this price is not current.",
                     q.symbol,
                     as_of.date_naive()
-                )
-            })
+                ))
+            } else if q.behind_session {
+                Some(format!(
+                    "Note: {} last traded on {}, before the latest IDX session; \
+                     this price may be out of date.",
+                    q.symbol,
+                    as_of.date_naive()
+                ))
+            } else {
+                None
+            }
         })
         .collect()
 }
@@ -1399,6 +1409,7 @@ mod tests {
             prev_close: None,
             avg_volume: None,
             as_of: Some(chrono::DateTime::parse_from_rfc3339(as_of).unwrap()),
+            behind_session: false,
         }
     }
 
@@ -1415,6 +1426,30 @@ mod tests {
         assert_eq!(
             stale_quote_notes(&quotes, now),
             vec!["Note: WIKA.JK last traded on 2025-02-17; this price is not current."]
+        );
+    }
+
+    #[test]
+    fn notes_quotes_behind_the_latest_session() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-16T16:53:00+07:00")
+            .unwrap()
+            .to_utc();
+        let mut behind = quote_as_of("BBCA.JK", "2026-10-15T16:15:00+07:00");
+        behind.behind_session = true;
+        let mut suspended = quote_as_of("WIKA.JK", "2025-02-17T16:14:58+07:00");
+        suspended.behind_session = true;
+        let quotes = [
+            behind,
+            suspended,
+            quote_as_of("BBRI.JK", "2026-10-16T16:15:00+07:00"),
+        ];
+        assert_eq!(
+            stale_quote_notes(&quotes, now),
+            vec![
+                "Note: BBCA.JK last traded on 2026-10-15, before the latest IDX session; \
+                 this price may be out of date.",
+                "Note: WIKA.JK last traded on 2025-02-17; this price is not current.",
+            ]
         );
     }
 

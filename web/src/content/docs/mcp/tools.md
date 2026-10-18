@@ -107,7 +107,7 @@ OHLCV price history for one IDX ticker.
 
 ## `get_quotes`
 
-Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers.
+Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |

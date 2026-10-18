@@ -70,6 +70,7 @@ pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, Id
         prev_close,
         avg_volume: round_u64(quote.average_volume),
         as_of: crate::api::parse_as_of(quote.time_last_traded.as_deref()),
+        behind_session: false,
     })
 }
 
@@ -718,6 +719,7 @@ pub(super) fn parse_screener_results(raw: &RawScreenerResponse) -> Result<Vec<Qu
                 prev_close,
                 avg_volume: round_u64(q.average_volume),
                 as_of: crate::api::parse_as_of(q.time_last_traded.as_deref()),
+                behind_session: false,
             })
         })
         .collect();

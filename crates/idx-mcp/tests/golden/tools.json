@@ -397,7 +397,7 @@
     "name": "get_price_history"
   },
   {
-    "description": "Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers.",
+    "description": "Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {

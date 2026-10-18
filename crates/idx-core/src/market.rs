@@ -4,8 +4,10 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::str::FromStr;
 
+use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Utc, Weekday};
+
 use crate::api::types::{Interval, Ohlc, Period, Quote};
-use crate::api::{history_provider, history_source};
+use crate::api::{history_provider, history_source, idx_offset};
 use crate::client::{CachePolicy, CacheSpec, Fetched, Idx, cached_fetch};
 use crate::config::{HistoryProviderKind, ProviderKind};
 use crate::error::IdxError;
@@ -48,6 +50,10 @@ impl Market<'_> {
                 || idx.provider.market().quote(&resolved),
                 Ok,
             )?);
+        }
+        let session = latest_session(Utc::now());
+        for quote in &mut quotes {
+            mark_behind_session(&mut quote.data, session);
         }
         Ok(quotes)
     }
@@ -131,8 +137,36 @@ impl Market<'_> {
         )?;
         sort_screener_quotes(&mut fetched.data, filter);
         fetched.data.truncate(limit);
+        let session = latest_session(Utc::now());
+        for quote in &mut fetched.data {
+            mark_behind_session(quote, session);
+        }
         Ok(fetched)
     }
+}
+
+/// When IDX's post-trading session ends, in WIB; MSN stamps a day's closing
+/// quote with this time.
+const SESSION_END: NaiveTime = NaiveTime::from_hms_opt(16, 15, 0).expect("valid time");
+
+/// The latest weekday whose IDX session has ended by `now`. Exchange holidays
+/// are not known offline, so on a weekday holiday this is the holiday itself.
+pub fn latest_session(now: DateTime<Utc>) -> NaiveDate {
+    let now = now.with_timezone(&idx_offset());
+    let mut day = now.date_naive();
+    if now.time() < SESSION_END {
+        day -= Duration::days(1);
+    }
+    while matches!(day.weekday(), Weekday::Sat | Weekday::Sun) {
+        day -= Duration::days(1);
+    }
+    day
+}
+
+fn mark_behind_session(quote: &mut Quote, session: NaiveDate) {
+    quote.behind_session = quote
+        .as_of
+        .is_some_and(|as_of| as_of.with_timezone(&idx_offset()).date_naive() < session);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -320,7 +354,9 @@ fn sort_screener_quotes(quotes: &mut [Quote], filter: ScreenFilter) {
 
 #[cfg(test)]
 mod tests {
-    use super::{ScreenFilter, ScreenRegion, sort_screener_quotes};
+    use super::{
+        ScreenFilter, ScreenRegion, latest_session, mark_behind_session, sort_screener_quotes,
+    };
     use crate::api::types::Quote;
     use crate::error::IdxError;
 
@@ -339,6 +375,53 @@ mod tests {
             prev_close: None,
             avg_volume: None,
             as_of: None,
+            behind_session: false,
+        }
+    }
+
+    fn wib(raw: &str) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339(&format!("{raw}+07:00"))
+            .unwrap()
+            .to_utc()
+    }
+
+    fn day(raw: &str) -> chrono::NaiveDate {
+        chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d").unwrap()
+    }
+
+    #[test]
+    fn latest_session_is_the_last_weekday_past_the_post_trading_close() {
+        // 2026-10-16 is a Friday.
+        for (now, session) in [
+            ("2026-10-16T16:53:00", "2026-10-16"),
+            ("2026-10-16T16:15:00", "2026-10-16"),
+            ("2026-10-16T16:14:59", "2026-10-15"),
+            ("2026-10-16T00:30:00", "2026-10-15"),
+            ("2026-10-17T12:00:00", "2026-10-16"),
+            ("2026-10-18T23:59:59", "2026-10-16"),
+            ("2026-10-19T10:00:00", "2026-10-16"),
+            ("2026-10-19T16:15:00", "2026-10-19"),
+        ] {
+            assert_eq!(latest_session(wib(now)), day(session), "now {now}");
+        }
+    }
+
+    #[test]
+    fn quote_from_before_the_latest_session_is_behind_it() {
+        // Issue #50: at 16:53 WIB on the 16th, MSN still served the 15th.
+        let session = latest_session(wib("2026-10-16T16:53:00"));
+        for (as_of, behind) in [
+            (Some("2026-10-15T16:15:00+07:00"), true),
+            (Some("2026-10-16T16:15:00+07:00"), false),
+            (Some("2026-10-16T09:15:00Z"), false),
+            (Some("2026-10-15T17:30:00Z"), false),
+            (Some("2025-02-17T16:14:58+07:00"), true),
+            (None, false),
+        ] {
+            let mut quote = sample_quote("BBCA.JK", None);
+            quote.as_of = as_of.map(|t| chrono::DateTime::parse_from_rfc3339(t).unwrap());
+            mark_behind_session(&mut quote, session);
+            assert_eq!(quote.behind_session, behind, "as_of {as_of:?}");
         }
     }
 
