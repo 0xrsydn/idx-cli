@@ -163,10 +163,21 @@ fn cell(td: ElementRef) -> Option<(String, Option<String>)> {
     Some((clean(&text), class))
 }
 
-/// The `MM/DD/YYYY` value of the one input with this id.
+/// Whether `element` sits in plain divs only, as IPOT's table and date
+/// inputs do; inside anything else (details, dialog, noscript, object,
+/// select, ...) it may not show.
+fn in_divs(element: ElementRef) -> bool {
+    element
+        .ancestors()
+        .filter_map(ElementRef::wrap)
+        .all(|ancestor| matches!(ancestor.value().name(), "div" | "html"))
+}
+
+/// The `MM/DD/YYYY` value of the one input with this id, in plain divs.
 fn input_date(page: &Html, id: &str) -> Option<NaiveDate> {
-    let value = only(page.root_element(), &format!("input#{id}"))?.attr("value")?;
-    NaiveDate::parse_from_str(value.trim(), "%m/%d/%Y").ok()
+    let input =
+        only(page.root_element(), &format!("input#{id}")).filter(|input| in_divs(*input))?;
+    NaiveDate::parse_from_str(input.attr("value")?.trim(), "%m/%d/%Y").ok()
 }
 
 /// Whether anything in the page is hidden by markup alone (`hidden`, an
@@ -200,6 +211,9 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     }
     let table = only(page.root_element(), "table")
         .ok_or_else(|| parse_error("no single table in the page"))?;
+    if !in_divs(table) {
+        return Err(parse_error("the table is not in plain page markup"));
+    }
     let body = only(table, "tbody").ok_or_else(|| parse_error("no single table body"))?;
     let mut raw = BrokerSummaryRaw {
         from: input_date(&page, "startDateBrokerSummary"),
@@ -490,6 +504,22 @@ mod tests {
                     1,
                 ),
             ),
+            (
+                "the table in a select",
+                DAY.replacen("<table", "<select><table", 1).replacen(
+                    "</table>",
+                    "</table></select>",
+                    1,
+                ),
+            ),
+            (
+                "the table in closed details",
+                DAY.replacen("<table", "<details><table", 1).replacen(
+                    "</table>",
+                    "</table></details>",
+                    1,
+                ),
+            ),
             ("no table", "</tbody><tbody>".to_string()),
             // Text a browser would not show, or not as one figure or code.
             (
@@ -589,16 +619,6 @@ mod tests {
                     1,
                 ),
             ),
-            // The HTML standard keeps a table inside a select since its 2025
-            // select parsing change; html5ever and current browsers agree.
-            (
-                "the table in a select",
-                DAY.replacen("<table", "<select><table", 1).replacen(
-                    "</table>",
-                    "</table></select>",
-                    1,
-                ),
-            ),
             (
                 "a script after the table",
                 DAY.replacen("</tbody>", "</tbody><script></script>", 1),
@@ -625,6 +645,12 @@ mod tests {
             summary(&second_start).from,
             None,
             "an id twice is no echoed date"
+        );
+        let closed = DAY.replacen("<input", "<details><input", 1);
+        assert_eq!(
+            summary(&closed).from,
+            None,
+            "a date in closed details is not shown"
         );
     }
 }
