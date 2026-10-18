@@ -92,7 +92,12 @@ WIB as the fallback.
   takes `code`, `start`/`end` (`MM/DD/YYYY`), `fd` (`all|F|D`) and `board`
   (`all|RG|TN|NG`). It needs no login and answers an HTML fragment: the top 10
   buyers and top 10 sellers ranked by lots (gross, so a broker can be on both
-  sides), plus range totals. `api/ipot/parse.rs` parses it purely.
+  sides), plus range totals. `api/ipot/parse.rs` parses it purely, with
+  html5ever (`scraper`), so it reads the cells, date inputs and footer a
+  browser would build: a hand-written reader kept disagreeing with HTML on
+  crafted markup in the 0.4.0 review. A table whose rows don't line up
+  (missing cells, ranks out of order, a broker after a blank row, a second
+  body) rejects the page, and the dates it echoes must match the request.
 - Figures of a million and more arrive abbreviated (`1.6 M`); they are scaled
   in decimal and the summary's `rounded` flag says so. `F. NVal` ignores the
   investor and board filters, so `foreign_net_value` is null for a summary of

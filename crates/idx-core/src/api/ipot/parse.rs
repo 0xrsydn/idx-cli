@@ -5,9 +5,11 @@
 //! seller code, lots, value, average. Each code sits in a
 //! `<span class="text-local|text-foreign|text-bumn">`; the footer holds
 //! `T. Val`, `F. NVal`, `T.Lot` and `Avg`, and the date inputs echo the
-//! range the source applied.
+//! range the source applied. The page is parsed with html5ever, so markup
+//! reads as a browser builds it.
 
 use chrono::NaiveDate;
+use scraper::{ElementRef, Html, Selector};
 
 use crate::broker::types::{BrokerFlow, BrokerKind};
 use crate::error::IdxError;
@@ -77,51 +79,6 @@ pub fn parse_figure(text: &str) -> Option<(i64, bool)> {
     Some((if negative { -value } else { value }, exponent > 0))
 }
 
-struct Cell {
-    class: Option<String>,
-    text: String,
-}
-
-fn strip_tags(html: &str) -> String {
-    let mut out = String::with_capacity(html.len());
-    let mut in_tag = false;
-    for ch in html.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => out.push(ch),
-            _ => {}
-        }
-    }
-    out.replace("&nbsp;", " ").trim().to_string()
-}
-
-fn cells(row: &str) -> Vec<Cell> {
-    let mut out = Vec::new();
-    let mut rest = row;
-    while let Some(start) = rest.find("<td") {
-        let after = &rest[start..];
-        let Some(open_end) = after.find('>') else {
-            break;
-        };
-        let inner_start = open_end + 1;
-        let Some(close) = after[inner_start..].find("</td>") else {
-            break;
-        };
-        let inner = &after[inner_start..inner_start + close];
-        let class = inner.find("class=\"").and_then(|at| {
-            let value = &inner[at + 7..];
-            value.find('"').map(|end| value[..end].to_string())
-        });
-        out.push(Cell {
-            class,
-            text: strip_tags(inner),
-        });
-        rest = &after[inner_start + close + 5..];
-    }
-    out
-}
-
 fn broker_kind(class: Option<&str>) -> Option<BrokerKind> {
     match class?.strip_prefix("text-")? {
         "local" => Some(BrokerKind::Local),
@@ -131,174 +88,59 @@ fn broker_kind(class: Option<&str>) -> Option<BrokerKind> {
     }
 }
 
-/// Whether `body` (lowercased) is exactly the markup IPOT serves, which
-/// reads the same in any HTML parser:
-///
-/// ```text
-/// body  := ws (row ws)*
-/// row   := "<tr>" ws (cell ws){9} "</tr>"
-/// cell  := <td attrs> ws (<span attrs> text "</span>" | text) ws "</td>"
-/// attrs := (" " name '="' value '"')*      value without " < >
-/// text  := no "<", and no "&" except "&nbsp;"
-/// ```
-///
-/// Anything else (comments, other tags, unclosed or stray tags, odd
-/// spacing or quoting inside tags) rejects the page rather than risk
-/// reading cells differently from how the page shows them.
-fn canonical_rows(body: &str) -> bool {
-    let mut rest = body.trim_start();
-    while !rest.is_empty() {
-        let Some(after) = canonical_row(rest) else {
-            return false;
-        };
-        rest = after.trim_start();
-    }
-    true
+/// The text an element shows, `&nbsp;` as a space, trimmed.
+fn shown_text(element: ElementRef) -> String {
+    element
+        .text()
+        .collect::<String>()
+        .replace('\u{a0}', " ")
+        .trim()
+        .to_string()
 }
 
-fn canonical_row(row: &str) -> Option<&str> {
-    let mut rest = row.strip_prefix("<tr>")?;
-    for _ in 0..9 {
-        rest = canonical_cell(rest.trim_start())?;
-    }
-    rest.trim_start().strip_prefix("</tr>")
+fn selector(css: &str) -> Selector {
+    Selector::parse(css).expect("a valid selector")
 }
 
-fn canonical_cell(cell: &str) -> Option<&str> {
-    let rest = open_tag(cell, "td")?.trim_start();
-    let rest = if rest.starts_with("<span") {
-        plain_text(open_tag(rest, "span")?)?
-            .strip_prefix("</span>")?
-            .trim_start()
-    } else {
-        plain_text(rest)?
-    };
-    rest.strip_prefix("</td>")
-}
-
-/// The rest after `<name attrs>`.
-fn open_tag<'a>(markup: &'a str, name: &str) -> Option<&'a str> {
-    let mut rest = markup.strip_prefix('<')?.strip_prefix(name)?;
-    loop {
-        if let Some(after) = rest.strip_prefix('>') {
-            return Some(after);
-        }
-        rest = rest.strip_prefix(' ')?;
-        let name_len = rest
-            .bytes()
-            .take_while(|b| b.is_ascii_lowercase() || *b == b'-')
-            .count();
-        if name_len == 0 {
-            return None;
-        }
-        rest = rest[name_len..].strip_prefix("=\"")?;
-        let end = rest.find(['"', '<', '>'])?;
-        rest = rest[end..].strip_prefix('"')?;
+/// The one element matching `css` within `scope`; `None` for none or more.
+fn only<'a>(scope: ElementRef<'a>, css: &str) -> Option<ElementRef<'a>> {
+    let selector = selector(css);
+    let mut found = scope.select(&selector);
+    match (found.next(), found.next()) {
+        (Some(one), None) => Some(one),
+        _ => None,
     }
 }
 
-/// The rest after text without markup or character references.
-fn plain_text(text: &str) -> Option<&str> {
-    let end = text.find('<').unwrap_or(text.len());
-    let mut refs = text[..end].match_indices('&');
-    (!text[..end].contains('>') && refs.all(|(at, _)| text[at..].starts_with("&nbsp;")))
-        .then_some(&text[end..])
+fn parse_error(what: &str) -> IdxError {
+    IdxError::ParseError(format!("ipot broker summary: {what}"))
 }
 
-/// Elements whose content is not markup; IPOT's page ends with one empty
-/// script, after everything read here.
-const RAW_TEXT: [&str; 11] = [
-    "<script",
-    "<style",
-    "<textarea",
-    "<template",
-    "<noscript",
-    "<title",
-    "<iframe",
-    "<xmp",
-    "<plaintext",
-    "<noembed",
-    "<noframes",
-];
-
-/// The page's markup as a browser reads it, up to the first raw-text
-/// element: comments removed. A comment of an unusual form (`<!-->`,
-/// `<!--->`, `--!>`), an unclosed one, or other `<!` / `<?` markup rejects
-/// the page.
-fn visible_markup(html: &str) -> Option<String> {
-    let mut out = String::with_capacity(html.len());
-    let mut rest = html;
-    while let Some(at) = rest.find("<!--") {
-        out.push_str(&rest[..at]);
-        let comment = &rest[at + "<!--".len()..];
-        let end = comment.find("-->")?;
-        let text = &comment[..end];
-        if text.starts_with('>') || text.starts_with("->") || text.contains("--!>") {
-            return None;
-        }
-        rest = &comment[end + "-->".len()..];
-    }
-    out.push_str(rest);
-    let lower = out.to_ascii_lowercase();
-    let cut = RAW_TEXT
-        .iter()
-        .filter_map(|tag| lower.find(tag))
-        .min()
-        .unwrap_or(lower.len());
-    let read = &lower[..cut];
-    let other = read
-        .match_indices("<!")
-        .any(|(at, _)| !read[at..].starts_with("<!doctype"));
-    if other || read.contains("<?") {
-        return None;
-    }
-    out.truncate(cut);
-    Some(out)
+/// The `MM/DD/YYYY` value of the input with this id, the first one in the
+/// page as `getElementById` finds it.
+fn input_date(page: &Html, id: &str) -> Option<NaiveDate> {
+    let value = page
+        .select(&selector(&format!("input#{id}")))
+        .next()?
+        .attr("value")?;
+    NaiveDate::parse_from_str(value.trim(), "%m/%d/%Y").ok()
 }
 
-/// The `MM/DD/YYYY` value of the input with this id.
-fn input_date(html: &str, id: &str) -> Option<NaiveDate> {
-    let at = html.find(&format!("id=\"{id}\""))?;
-    let tag_start = html[..at].rfind('<')?;
-    let tag_end = at + html[at..].find('>')?;
-    let tag = &html[tag_start..tag_end];
-    let value = &tag[tag.find("value=\"")? + 7..];
-    NaiveDate::parse_from_str(&value[..value.find('"')?], "%m/%d/%Y").ok()
-}
-
-/// Text after `label` up to the next tag, e.g. `6.6 T` for `T. Val :`.
-fn footer<'a>(html: &'a str, label: &str) -> Option<&'a str> {
-    let rest = &html[html.find(label)? + label.len()..];
-    Some(rest[..rest.find('<')?].trim())
-}
-
+/// The page is read as a browser builds it from the fragment (html5ever),
+/// so markup it would not show as table cells or footer text, such as
+/// comments, attributes or other elements' content, is never read as such.
 pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
-    let page = visible_markup(html).ok_or_else(|| {
-        IdxError::ParseError("ipot broker summary: unexpected markup in the page".to_string())
-    })?;
-    let html = page.as_str();
-    if html.to_ascii_lowercase().contains("invalid stock code") {
+    let page = Html::parse_fragment(html);
+    let shown = shown_text(page.root_element()).to_ascii_lowercase();
+    if shown.contains("invalid stock code") {
         return Ok(IpotPage::Invalid);
     }
-    // Tags are matched case-insensitively on a lowercased copy; ASCII
-    // lowercasing keeps byte offsets, so slices of it index `html` too.
-    let lower = html.to_ascii_lowercase();
-    let body = lower.find("<tbody>").and_then(|start| {
-        lower[start..]
-            .find("</tbody>")
-            .map(|len| (start + "<tbody>".len(), start + len))
-    });
-    let single = lower.matches("<tbody").count() == 1 && lower.matches("</tbody").count() == 1;
-    let Some((body_start, body_end)) =
-        body.filter(|(start, end)| single && canonical_rows(&lower[*start..*end]))
-    else {
-        return Err(IdxError::ParseError(
-            "ipot broker summary: no single plain table in the page".to_string(),
-        ));
-    };
+    let table = only(page.root_element(), "table")
+        .ok_or_else(|| parse_error("no single table in the page"))?;
+    let body = only(table, "tbody").ok_or_else(|| parse_error("no single table body"))?;
     let mut raw = BrokerSummaryRaw {
-        from: input_date(&html[..body_start], "startDateBrokerSummary"),
-        to: input_date(&html[..body_start], "endDateBrokerSummary"),
+        from: input_date(&page, "startDateBrokerSummary"),
+        to: input_date(&page, "endDateBrokerSummary"),
         ..BrokerSummaryRaw::default()
     };
     let mut rounded = false;
@@ -308,61 +150,61 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
             value
         })
     };
-    // The body is whole rows (see `canonical_rows`); ranks must run in
-    // order, and a broker after a side's blank rows rejects the page.
+    // Rows must be whole and ranked in order: a skipped or merged row would
+    // shift brokers between ranks. A broker after a side's blank rows
+    // rejects the page too.
+    let span = selector("span");
     let (mut buyers_ended, mut sellers_ended) = (false, false);
-    let mut rank = 0;
-    let mut at = body_start;
-    while at < body_end {
-        let rest = &lower[at..body_end];
-        if rest.trim_start().is_empty() {
-            break;
-        }
-        let end = rest
-            .find("</tr>")
-            .map_or(rest.len(), |end| end + "</tr>".len());
-        let original = &html[at..at + end];
-        at += end;
-        rank += 1;
-        let row = cells(original);
-        if row.len() != 9 || row[4].text.parse::<u32>().ok() != Some(rank) {
-            return Err(IdxError::ParseError(format!(
-                "ipot broker summary: unexpected row {rank} ({} cells, rank {:?})",
-                row.len(),
-                row.get(4).map(|cell| cell.text.as_str())
-            )));
+    for (index, row) in body.child_elements().enumerate() {
+        let rank = index as u32 + 1;
+        let cells: Vec<ElementRef> = row.child_elements().collect();
+        let whole = row.value().name() == "tr"
+            && cells.len() == 9
+            && cells.iter().all(|cell| cell.value().name() == "td");
+        if !whole || shown_text(cells[4]).parse::<u32>().ok() != Some(rank) {
+            return Err(parse_error(&format!("unexpected row {rank}")));
         }
         for (side, at, ended) in [
             (&mut raw.buyers, 0, &mut buyers_ended),
             (&mut raw.sellers, 5, &mut sellers_ended),
         ] {
-            let code = row[at].text.to_ascii_uppercase();
+            let code = shown_text(cells[at]).to_ascii_uppercase();
             if code.is_empty() {
                 *ended = true;
                 continue;
             }
             if *ended {
-                return Err(IdxError::ParseError(format!(
-                    "ipot broker summary: broker {code:?} after a blank row"
-                )));
+                return Err(parse_error(&format!("broker {code:?} after a blank row")));
             }
             if code.len() != 2 || !code.bytes().all(|b| b.is_ascii_alphanumeric()) {
-                return Err(IdxError::ParseError(format!(
-                    "ipot broker summary: unexpected broker code {code:?}"
-                )));
+                return Err(parse_error(&format!("unexpected broker code {code:?}")));
             }
+            let class = cells[at]
+                .select(&span)
+                .next()
+                .and_then(|span| span.attr("class"));
             side.push(BrokerFlow {
                 rank,
                 code,
                 name: None,
-                kind: broker_kind(row[at].class.as_deref()),
-                lots: figure(&row[at + 1].text),
-                value: figure(&row[at + 2].text),
-                average_price: figure(&row[at + 3].text),
+                kind: broker_kind(class),
+                lots: figure(&shown_text(cells[at + 1])),
+                value: figure(&shown_text(cells[at + 2])),
+                average_price: figure(&shown_text(cells[at + 3])),
             });
         }
     }
-    let mut total = |label: &str| footer(&html[body_end..], label).and_then(&mut figure);
+    // The footer's figures, e.g. `T. Val : 6.6 T`, each in its own span.
+    let footer: Vec<String> = table
+        .select(&selector("tfoot span"))
+        .map(shown_text)
+        .collect();
+    let mut total = |label: &str| {
+        footer
+            .iter()
+            .find_map(|text| text.strip_prefix(label))
+            .and_then(&mut figure)
+    };
     raw.total_value = total("T. Val :");
     raw.foreign_net_value = total("F. NVal :");
     raw.total_lots = total("T.Lot :");
@@ -482,102 +324,184 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_parse_broker_summary_rejects_rows_that_would_shift_ranks() {
-        let first_cell = "<td align=\"center\"><span class=\"text-local\">MG</span></td>";
-        let short_row = DAY.replacen(first_cell, "", 1);
-        let skipped_rank = DAY.replacen(
-            "<td align=\"center\">1</td>",
-            "<td align=\"center\">2</td>",
-            1,
-        );
-        let gap = DAY.replacen(">XL<", "><", 1);
-        // Rank 1 without its cell ends parses to no cells at all.
+    /// The BBCA October 16 page with `edit` applied around its rows: `rows`
+    /// holds where each `</tr>` of the body starts.
+    fn mutated(edit: impl Fn(&str, &[usize]) -> String) -> String {
         let body = DAY.find("<tbody>").unwrap();
-        let first_row_end = body + DAY[body..].find("</tr>").unwrap();
-        let unclosed = DAY[..body].to_string()
-            + &DAY[body..first_row_end].replace("</td>", "")
-            + &DAY[first_row_end..];
-        // Rank 9 left open and rank 10 without cell ends: rank 10 would
-        // vanish into rank 9.
         let rows: Vec<usize> = DAY[body..]
             .match_indices("</tr>")
             .map(|(at, _)| body + at)
             .collect();
-        let merged = DAY[..rows[8]].to_string()
-            + &DAY[rows[8] + "</tr>".len()..rows[9]].replace("</td>", "")
-            + &DAY[rows[9]..];
-        // An extra row in uppercase tags before rank 5.
-        let rank5 = DAY[..rows[4]].rfind("<tr>").unwrap();
-        let extra_row = DAY[rank5..rows[4] + "</tr>".len()]
-            .replace("<tr>", "<TR>")
-            .replace("<td", "<TD");
-        let uppercase = DAY[..rank5].to_string() + &extra_row + &DAY[rank5..];
-        // A stray tbody end, and rank 5's cells hidden in a comment or an
-        // attribute.
-        let early_end = DAY[..rows[3] + "</tr>".len()].to_string()
-            + "</TbOdY>"
-            + &DAY[rows[3] + "</tr>".len()..];
-        let rank5_cells = &DAY[rank5 + "<tr>".len()..rows[4]];
-        let hidden = |wrap: &dyn Fn(&str) -> String| {
-            DAY[..rank5].to_string() + &wrap(rank5_cells) + &DAY[rows[4] + "</tr>".len()..]
-        };
-        let commented = hidden(&|cells| format!("<tr><!--{cells}--></tr>"));
-        let in_attribute = hidden(&|cells| format!("<tr data-x='{cells}'></tr>"));
-        let after_quoted_end = hidden(&|cells| format!("<tr data-x='>{cells}'></tr>"));
-        // Closing tags with a space, a cell under another tag name, and a
-        // character reference a browser would decode.
+        edit(DAY, &rows)
+    }
+
+    /// Rank 5's row (`<tr>` to `</tr>`), and its cells alone.
+    fn rank5(page: &str, rows: &[usize]) -> (usize, usize, usize) {
+        let start = page[..rows[4]].rfind("<tr>").unwrap();
+        (start, start + "<tr>".len(), rows[4])
+    }
+
+    #[test]
+    fn test_parse_broker_summary_rejects_rows_that_do_not_line_up() {
+        let first_cell = "<td align=\"center\"><span class=\"text-local\">MG</span></td>";
         let lots = "<span class=\"text-up\">828,163 </span>";
-        let spaced_row_end = DAY.replacen(lots, &format!("</tr >{lots}"), 1);
-        let spaced_cell_end = DAY.replacen(lots, &format!("</td >{lots}"), 1);
-        let other_tag = DAY.replacen(
-            "<td align=\"center\">5</td>",
-            "<td-x align=\"center\">5</td>",
-            1,
-        );
-        let reference = DAY.replacen(">828,163 <", ">8&#50;8,163 <", 1);
-        // A '>' a browser shows as text, the table inside a comment, and an
-        // abrupt `<!-->` that a browser closes at once, so rows 9 and 10 stay
-        // visible.
-        let angle = DAY.replacen(">828,163 <", ">8>28,163 <", 1);
-        let tbody_start = DAY.find("<tbody>").unwrap();
-        let tbody_end = DAY.find("</tbody>").unwrap() + "</tbody>".len();
-        let commented_table = DAY[..tbody_start].to_string()
-            + "<!--"
-            + &DAY[tbody_start..tbody_end]
-            + "-->"
-            + &DAY[tbody_end..];
-        let row8_end = rows[7] + "</tr>".len();
-        let abrupt = DAY[..row8_end].to_string()
-            + "<!-->"
-            + &DAY[row8_end..rows[9] + "</tr>".len()]
-            + "-->"
-            + &DAY[rows[9] + "</tr>".len()..];
-        for page in [
-            short_row,
-            skipped_rank,
-            gap,
-            unclosed,
-            merged,
-            uppercase,
-            early_end,
-            commented,
-            in_attribute,
-            after_quoted_end,
-            spaced_row_end,
-            spaced_cell_end,
-            other_tag,
-            reference,
-            angle,
-            commented_table,
-            abrupt,
-            "</tbody><tbody>".to_string(),
-        ] {
+        let hide_rank5 = |wrap: fn(&str) -> String| {
+            mutated(|page, rows| {
+                let (start, cells, end) = rank5(page, rows);
+                page[..start].to_string() + &wrap(&page[cells..end]) + &page[end + 5..]
+            })
+        };
+        let pages = [
+            ("a missing cell", DAY.replacen(first_cell, "", 1)),
+            (
+                "a rank out of order",
+                DAY.replacen(
+                    "<td align=\"center\">1</td>",
+                    "<td align=\"center\">2</td>",
+                    1,
+                ),
+            ),
+            ("a broker after a blank row", DAY.replacen(">XL<", "><", 1)),
+            (
+                "a duplicate rank-5 row",
+                mutated(|page, rows| {
+                    let (start, _, end) = rank5(page, rows);
+                    page[..start].to_string()
+                        + &page[start..end + 5].to_uppercase()
+                        + &page[start..]
+                }),
+            ),
+            (
+                "a table body ended early",
+                mutated(|page, rows| {
+                    page[..rows[3] + 5].to_string() + "</TbOdY>" + &page[rows[3] + 5..]
+                }),
+            ),
+            (
+                "cells in a comment",
+                hide_rank5(|cells| format!("<tr><!--{cells}--></tr>")),
+            ),
+            (
+                "cells in an attribute",
+                hide_rank5(|cells| format!("<tr data-x='{cells}'></tr>")),
+            ),
+            (
+                "cells after a quoted '>'",
+                hide_rank5(|cells| format!("<tr data-x='>{cells}'></tr>")),
+            ),
+            (
+                "a row ended mid-cell",
+                DAY.replacen(lots, &format!("</tr >{lots}"), 1),
+            ),
+            (
+                "a cell under another tag",
+                DAY.replacen(
+                    "<td align=\"center\">5</td>",
+                    "<td-x align=\"center\">5</td>",
+                    1,
+                ),
+            ),
+            (
+                "the table in a comment",
+                DAY.replacen("<tbody>", "<!--<tbody>", 1)
+                    .replacen("</tbody>", "</tbody>-->", 1),
+            ),
+            (
+                "a table inside the table",
+                DAY.replacen("<tbody>", "<table></table><tbody>", 1),
+            ),
+            (
+                "the body in svg",
+                DAY.replacen("<tbody>", "<svg><tbody>", 1).replacen(
+                    "</tbody>",
+                    "</tbody></svg>",
+                    1,
+                ),
+            ),
+            ("no table", "</tbody><tbody>".to_string()),
+        ];
+        for (what, page) in pages {
             assert!(
                 matches!(parse_broker_summary(&page), Err(IdxError::ParseError(_))),
-                "{}",
-                &page[..page.len().min(80)]
+                "{what}"
             );
         }
+    }
+
+    #[test]
+    fn test_parse_broker_summary_reads_what_a_browser_shows() {
+        let original = summary(DAY);
+        // Markup a browser repairs or decodes to the same table.
+        let same = [
+            (
+                "rank 1 without cell ends",
+                mutated(|page, rows| {
+                    let start = page[..rows[0]].rfind("<tr>").unwrap();
+                    page[..start].to_string()
+                        + &page[start..rows[0]].replace("</td>", "")
+                        + &page[rows[0]..]
+                }),
+            ),
+            (
+                "rank 9 left open, rank 10 without cell ends",
+                mutated(|page, rows| {
+                    page[..rows[8]].to_string()
+                        + &page[rows[8] + 5..rows[9]].replace("</td>", "")
+                        + &page[rows[9]..]
+                }),
+            ),
+            (
+                "a character reference",
+                DAY.replacen(">828,163 <", ">8&#50;8,163 <", 1),
+            ),
+            (
+                "an abrupt comment",
+                mutated(|page, rows| {
+                    page[..rows[7] + 5].to_string() + "<!-->" + &page[rows[7] + 5..]
+                }),
+            ),
+            (
+                "a decoy attribute before the date",
+                DAY.replacen(
+                    "id=\"startDateBrokerSummary\"",
+                    "id=\"startDateBrokerSummary\" data-value=\"01/01/2001\"",
+                    1,
+                ),
+            ),
+            (
+                "a decoy total outside the footer",
+                DAY.replacen(
+                    "</tbody>",
+                    "</tbody><div data-note=\"T. Val : 1 <x>\"></div>",
+                    1,
+                ),
+            ),
+            // The HTML standard keeps a table inside a select since its 2025
+            // select parsing change; html5ever and current browsers agree.
+            (
+                "the table in a select",
+                DAY.replacen("<table", "<select><table", 1).replacen(
+                    "</table>",
+                    "</table></select>",
+                    1,
+                ),
+            ),
+            (
+                "a script after the table",
+                DAY.replacen("</tbody>", "</tbody><script></script>", 1),
+            ),
+        ];
+        for (what, page) in same {
+            assert_eq!(summary(&page), original, "{what}");
+        }
+        // Markup a browser shows differently: the figure it shows, not ours.
+        let angle = summary(&DAY.replacen(">828,163 <", ">8>28,163 <", 1));
+        assert_eq!(angle.buyers[4].lots, None);
+        let lots = "<span class=\"text-up\">828,163 </span>";
+        let early_cell_end = summary(&DAY.replacen(lots, &format!("</td >{lots}"), 1));
+        assert_eq!(early_cell_end.buyers[4].lots, None);
+        let commented_date =
+            summary(&DAY.replacen("value=\"10/16/2026\"", "value=\"10/<!--x-->16/2026\"", 1));
+        assert_eq!(commented_date.from, None);
     }
 }
