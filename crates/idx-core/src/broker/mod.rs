@@ -8,6 +8,7 @@ use std::sync::OnceLock;
 
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
+use crate::api::ipot::BrokerSummaryRaw;
 use crate::api::{broker_provider, today_wib};
 use crate::client::{CachePolicy, CacheSpec, Fetched, Idx, cached_fetch};
 use crate::error::IdxError;
@@ -80,28 +81,7 @@ impl Broker<'_> {
             },
             policy,
             || provider.broker_summary(&code, query),
-            |raw| {
-                let filtered =
-                    (query.investor, query.board) != (BrokerInvestor::All, BrokerBoard::All);
-                let mut summary = BrokerSummary {
-                    symbol: resolved.clone(),
-                    from: raw.from.unwrap_or(query.from),
-                    to: raw.to.unwrap_or(query.to),
-                    investor: query.investor,
-                    board: query.board,
-                    buyers: raw.buyers,
-                    sellers: raw.sellers,
-                    total_value: raw.total_value,
-                    total_lots: raw.total_lots,
-                    average_price: raw.average_price,
-                    foreign_net_value: raw.foreign_net_value.filter(|_| !filtered),
-                    rounded: raw.rounded,
-                };
-                for flow in summary.buyers.iter_mut().chain(summary.sellers.iter_mut()) {
-                    flow.name = broker_name(&flow.code).map(str::to_string);
-                }
-                Ok(summary)
-            },
+            |raw| Ok(summary_from_raw(&resolved, query, raw)),
         )
     }
 
@@ -157,6 +137,33 @@ impl Broker<'_> {
     }
 }
 
+/// The public summary of one parsed page. With one investor side selected,
+/// the page's footer covers only part of the trades the lists show (foreign
+/// buying, not foreign selling), so no totals are given; `F. NVal` ignores
+/// both filters, so the foreign net goes with any filter.
+fn summary_from_raw(symbol: &str, query: &BrokerQuery, raw: BrokerSummaryRaw) -> BrokerSummary {
+    let one_side = query.investor != BrokerInvestor::All;
+    let filtered = one_side || query.board != BrokerBoard::All;
+    let mut summary = BrokerSummary {
+        symbol: symbol.to_string(),
+        from: raw.from.unwrap_or(query.from),
+        to: raw.to.unwrap_or(query.to),
+        investor: query.investor,
+        board: query.board,
+        buyers: raw.buyers,
+        sellers: raw.sellers,
+        total_value: raw.total_value.filter(|_| !one_side),
+        total_lots: raw.total_lots.filter(|_| !one_side),
+        average_price: raw.average_price.filter(|_| !one_side),
+        foreign_net_value: raw.foreign_net_value.filter(|_| !filtered),
+        rounded: raw.rounded,
+    };
+    for flow in summary.buyers.iter_mut().chain(summary.sellers.iter_mut()) {
+        flow.name = broker_name(&flow.code).map(str::to_string);
+    }
+    summary
+}
+
 fn check_range(query: &BrokerQuery, today: NaiveDate) -> Result<(), IdxError> {
     if query.from > query.to {
         return Err(IdxError::InvalidInput(format!(
@@ -200,6 +207,44 @@ mod tests {
         assert_eq!(broker_name("cc"), Some("MANDIRI SEKURITAS"));
         assert_eq!(broker_name("XL"), Some("STOCKBIT SEKURITAS DIGITAL"));
         assert_eq!(broker_name("??"), None);
+    }
+
+    #[test]
+    fn test_summary_from_raw_drops_totals_that_do_not_cover_the_lists() {
+        let day = date(2026, 10, 16);
+        let read = |name: &str| {
+            let html = std::fs::read_to_string(format!("tests/fixtures/{name}")).unwrap();
+            crate::api::ipot::summary_from_html("BBCA", &html).unwrap()
+        };
+        let all = summary_from_raw(
+            "BBCA.JK",
+            &query(day, day),
+            read("ipot_brokersummary_bbca_20261016.html"),
+        );
+        assert_eq!(all.total_value, Some(6_600_000_000_000));
+        assert_eq!(all.foreign_net_value, Some(-2_300_000_000_000));
+        assert_eq!(all.sellers[0].name.as_deref(), Some("MANDIRI SEKURITAS"));
+
+        // Foreign, regular board: the footer's 1.6 T is less than the 2.0 T
+        // its top seller alone sold.
+        let foreign = BrokerQuery {
+            investor: BrokerInvestor::Foreign,
+            board: BrokerBoard::Regular,
+            ..query(day, day)
+        };
+        let raw = read("ipot_brokersummary_bbca_20261016_foreign_regular.html");
+        assert!(raw.total_value < raw.sellers[0].value);
+        let filtered = summary_from_raw("BBCA.JK", &foreign, raw);
+        assert_eq!(
+            (
+                filtered.total_value,
+                filtered.total_lots,
+                filtered.average_price
+            ),
+            (None, None, None)
+        );
+        assert_eq!(filtered.foreign_net_value, None);
+        assert_eq!(filtered.sellers[0].value, Some(2_000_000_000_000));
     }
 
     #[test]

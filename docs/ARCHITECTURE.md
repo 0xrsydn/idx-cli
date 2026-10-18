@@ -94,7 +94,9 @@ WIB as the fallback.
 - Figures of a million and more arrive abbreviated (`1.6 M`); they are scaled
   in decimal and the summary's `rounded` flag says so. `F. NVal` ignores the
   investor and board filters, so `foreign_net_value` is null for a filtered
-  summary.
+  summary. With `fd=F` or `fd=D` the footer covers only that side's buying
+  (BBCA 2026-10-16 foreign: `T. Val` 1.6 T while seller CC alone sold
+  2.0 T), so totals are null for an investor-filtered summary.
 - An unknown code is a 200 with `Invalid stock code!` (`SYMBOLNOTFOUND`). The
   server also answers spurious nginx 404s for seconds at a time, so the client
   retries 404 and 5xx with backoff. A range without trades is an empty summary.

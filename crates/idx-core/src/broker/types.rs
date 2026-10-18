@@ -123,11 +123,15 @@ pub struct BrokerSummary {
     pub buyers: Vec<BrokerFlow>,
     /// Top sellers by lots, most first (up to 10).
     pub sellers: Vec<BrokerFlow>,
-    /// Value traded over the range, whole IDR.
+    /// Value traded over the range on the selected board, whole IDR. `None`
+    /// with one investor side selected: the source's footer then covers only
+    /// that side's buying, not the trades the lists show.
     pub total_value: Option<i64>,
-    /// Lots traded over the range.
+    /// Lots traded over the range on the selected board; `None` as for
+    /// `total_value`.
     pub total_lots: Option<i64>,
-    /// Average traded price, whole IDR; `None` when nothing traded.
+    /// Average traded price, whole IDR; `None` when nothing traded, or as
+    /// for `total_value`.
     pub average_price: Option<i64>,
     /// Foreign buy value minus foreign sell value over the range, whole IDR,
     /// across all boards. The source does not apply the investor or board
