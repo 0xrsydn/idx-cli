@@ -135,10 +135,12 @@ pub fn check_top(top: u8) -> Result<u8, IdxError> {
     }
 }
 
-/// `part` in basis points of `whole`; `None` without a positive whole.
+/// `part` in basis points of `whole`, truncated toward zero so a negative
+/// reading never reaches a threshold its magnitude has not; `None` without
+/// a positive whole.
 fn bps(part: i64, whole: Option<i64>) -> Option<i64> {
     let whole = whole.filter(|whole| *whole > 0)?;
-    i64::try_from((i128::from(part) * 10_000).div_euclid(i128::from(whole))).ok()
+    i64::try_from(i128::from(part) * 10_000 / i128::from(whole)).ok()
 }
 
 /// Sum of `field` over `flows`; `None` when any flow lacks it.
@@ -324,6 +326,37 @@ mod tests {
         assert_eq!(report.foreign_net_bps, Some(-1000));
         assert_eq!(report.both_sides, vec!["AA".to_string()]);
         assert_eq!(report.method, METHOD);
+    }
+
+    #[test]
+    fn test_bandar_tier_thresholds_are_symmetric_for_sign() {
+        let reading = |buy: i64, sell: i64| {
+            let s = summary(
+                vec![flow("AA", Some(buy), 100)],
+                vec![flow("BB", Some(sell), 100)],
+                2_100_000_000,
+            );
+            let tier = bandar_tier(&s, 1);
+            (tier.imbalance_bps, tier.signal)
+        };
+        // -4.9952% and -14.9952% stay short of the thresholds, like their
+        // mirror images.
+        assert_eq!(
+            reading(504_300_000, 609_200_000),
+            (Some(-499), Some(BandarSignal::Neutral))
+        );
+        assert_eq!(
+            reading(609_200_000, 504_300_000),
+            (Some(499), Some(BandarSignal::Neutral))
+        );
+        assert_eq!(
+            reading(504_300_000, 819_200_000),
+            (Some(-1499), Some(BandarSignal::Distribution))
+        );
+        assert_eq!(
+            reading(819_200_000, 504_300_000),
+            (Some(1499), Some(BandarSignal::Accumulation))
+        );
     }
 
     #[test]

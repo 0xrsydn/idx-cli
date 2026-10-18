@@ -2632,9 +2632,9 @@ fn bandar_reads_the_broker_summary_tiers() {
     let top5 = &report["tiers"][2];
     assert_eq!(top5["buy_value"], 2_939_500_000_000_i64);
     assert_eq!(top5["sell_value"], 4_540_400_000_000_i64);
-    assert_eq!(top5["imbalance_bps"], -2426);
+    assert_eq!(top5["imbalance_bps"], -2425);
     assert_eq!(report["top"], 5);
-    assert_eq!(report["imbalance_bps"], -2426);
+    assert_eq!(report["imbalance_bps"], -2425);
     assert_eq!(report["signal"], "big_distribution");
     assert_eq!(
         report["both_sides"],
@@ -2714,6 +2714,10 @@ fn bandar_errors_follow_the_output_contract() {
                 "--date".into(),
                 "2999-01-01".into(),
             ],
+            "INVALIDINPUT",
+        ),
+        (
+            vec!["BBCA".to_string(), "--investor".into(), "foreign".into()],
             "INVALIDINPUT",
         ),
     ] {

@@ -68,7 +68,8 @@ traded. The headline tier (`--top`, default 5) gives the signal:
 | -15% or less | big distribution |
 
 Several symbols give a screen ranked by that figure (at most 100, one request
-each), and it takes the same date and filter flags as `broker`. It is a
+each), and it takes the same date and board flags as `broker` (all investors
+only: the summary has no total for one side). It is a
 heuristic: a broker trades for many clients, and a broker on both sides of
 the summary is listed, since its gross figures overstate which way it traded.
 The JSON names the rules in `method` (`top_concentration_v1`).

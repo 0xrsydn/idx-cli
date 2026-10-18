@@ -205,7 +205,8 @@ traded (`imbalance_bps`), with a `signal` from big_accumulation (>= +1500) throu
 (within +-500) to big_distribution (<= -1500), headlined by `top` (default 5). Reports come \
 strongest accumulation first; tickers that fail are listed under `failures`. A heuristic over \
 end-of-day broker codes: brokers trade for many clients, and `both_sides` lists brokers whose \
-gross figures overstate their direction. `method` names the rules applied."
+gross figures overstate their direction. `method` names the rules applied. `investor` must be \
+`all`: the summary has no total for one investor side."
     )]
     async fn analyze_bandar(&self, params: Parameters<BandarParams>) -> ToolResult {
         let BandarParams {

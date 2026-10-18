@@ -31,6 +31,19 @@ pub struct Comparison {
     pub failures: Vec<(String, IdxError)>,
 }
 
+/// Readings weigh brokers against the value traded, which the source does
+/// not total for one investor side.
+fn check_investor(investor: BrokerInvestor) -> Result<(), IdxError> {
+    if investor == BrokerInvestor::All {
+        Ok(())
+    } else {
+        Err(IdxError::InvalidInput(format!(
+            "bandar needs --investor all: the broker summary has no total for {} investors alone",
+            investor.as_str()
+        )))
+    }
+}
+
 /// Bandar readings for several symbols, strongest accumulation first;
 /// symbols that failed are listed with their error.
 pub struct BandarScreen {
@@ -57,6 +70,7 @@ impl Analysis<'_> {
         policy: CachePolicy,
     ) -> Result<Fetched<BandarReport>, IdxError> {
         let top = check_top(query.top)?;
+        check_investor(query.investor)?;
         let summary =
             self.idx
                 .broker()
@@ -73,6 +87,7 @@ impl Analysis<'_> {
         policy: CachePolicy,
     ) -> Result<BandarScreen, IdxError> {
         check_top(query.top)?;
+        check_investor(query.investor)?;
         let mut reports = Vec::new();
         let mut failures = Vec::new();
         for symbol in symbols {

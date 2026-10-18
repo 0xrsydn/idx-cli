@@ -355,7 +355,7 @@ Examples:
 ### `idx stocks bandar`
 
 ```text
-Bandarmology from the broker summary: the top 1, 3, 5 and 10 buyers' value against the same number of sellers', as a share of value traded, with a signal from big accumulation to big distribution. Several symbols give a screen ranked by the headline tier (at most 100, one request each). A heuristic over end-of-day broker codes, not advice.
+Bandarmology from the broker summary: the top 1, 3, 5 and 10 buyers' value against the same number of sellers', as a share of value traded, with a signal from big accumulation to big distribution. Several symbols give a screen ranked by the headline tier (at most 100, one request each). Counts all investors (`--investor` must be `all`). A heuristic over end-of-day broker codes, not advice.
 
 Usage: idx stocks bandar [OPTIONS] <SYMBOLS>...
 
