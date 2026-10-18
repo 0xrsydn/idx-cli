@@ -201,8 +201,59 @@ fn open_tag<'a>(markup: &'a str, name: &str) -> Option<&'a str> {
 fn plain_text(text: &str) -> Option<&str> {
     let end = text.find('<').unwrap_or(text.len());
     let mut refs = text[..end].match_indices('&');
-    refs.all(|(at, _)| text[at..].starts_with("&nbsp;"))
+    (!text[..end].contains('>') && refs.all(|(at, _)| text[at..].starts_with("&nbsp;")))
         .then_some(&text[end..])
+}
+
+/// Elements whose content is not markup; IPOT's page ends with one empty
+/// script, after everything read here.
+const RAW_TEXT: [&str; 11] = [
+    "<script",
+    "<style",
+    "<textarea",
+    "<template",
+    "<noscript",
+    "<title",
+    "<iframe",
+    "<xmp",
+    "<plaintext",
+    "<noembed",
+    "<noframes",
+];
+
+/// The page's markup as a browser reads it, up to the first raw-text
+/// element: comments removed. A comment of an unusual form (`<!-->`,
+/// `<!--->`, `--!>`), an unclosed one, or other `<!` / `<?` markup rejects
+/// the page.
+fn visible_markup(html: &str) -> Option<String> {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(at) = rest.find("<!--") {
+        out.push_str(&rest[..at]);
+        let comment = &rest[at + "<!--".len()..];
+        let end = comment.find("-->")?;
+        let text = &comment[..end];
+        if text.starts_with('>') || text.starts_with("->") || text.contains("--!>") {
+            return None;
+        }
+        rest = &comment[end + "-->".len()..];
+    }
+    out.push_str(rest);
+    let lower = out.to_ascii_lowercase();
+    let cut = RAW_TEXT
+        .iter()
+        .filter_map(|tag| lower.find(tag))
+        .min()
+        .unwrap_or(lower.len());
+    let read = &lower[..cut];
+    let other = read
+        .match_indices("<!")
+        .any(|(at, _)| !read[at..].starts_with("<!doctype"));
+    if other || read.contains("<?") {
+        return None;
+    }
+    out.truncate(cut);
+    Some(out)
 }
 
 /// The `MM/DD/YYYY` value of the input with this id.
@@ -222,6 +273,10 @@ fn footer<'a>(html: &'a str, label: &str) -> Option<&'a str> {
 }
 
 pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
+    let page = visible_markup(html).ok_or_else(|| {
+        IdxError::ParseError("ipot broker summary: unexpected markup in the page".to_string())
+    })?;
+    let html = page.as_str();
     if html.to_ascii_lowercase().contains("invalid stock code") {
         return Ok(IpotPage::Invalid);
     }
@@ -242,8 +297,8 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
         ));
     };
     let mut raw = BrokerSummaryRaw {
-        from: input_date(html, "startDateBrokerSummary"),
-        to: input_date(html, "endDateBrokerSummary"),
+        from: input_date(&html[..body_start], "startDateBrokerSummary"),
+        to: input_date(&html[..body_start], "endDateBrokerSummary"),
         ..BrokerSummaryRaw::default()
     };
     let mut rounded = false;
@@ -260,7 +315,7 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     let mut at = body_start;
     while at < body_end {
         let rest = &lower[at..body_end];
-        if rest.trim().is_empty() {
+        if rest.trim_start().is_empty() {
             break;
         }
         let end = rest
@@ -307,7 +362,7 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
             });
         }
     }
-    let mut total = |label: &str| footer(html, label).and_then(&mut figure);
+    let mut total = |label: &str| footer(&html[body_end..], label).and_then(&mut figure);
     raw.total_value = total("T. Val :");
     raw.foreign_net_value = total("F. NVal :");
     raw.total_lots = total("T.Lot :");
@@ -481,6 +536,23 @@ mod tests {
             1,
         );
         let reference = DAY.replacen(">828,163 <", ">8&#50;8,163 <", 1);
+        // A '>' a browser shows as text, the table inside a comment, and an
+        // abrupt `<!-->` that a browser closes at once, so rows 9 and 10 stay
+        // visible.
+        let angle = DAY.replacen(">828,163 <", ">8>28,163 <", 1);
+        let tbody_start = DAY.find("<tbody>").unwrap();
+        let tbody_end = DAY.find("</tbody>").unwrap() + "</tbody>".len();
+        let commented_table = DAY[..tbody_start].to_string()
+            + "<!--"
+            + &DAY[tbody_start..tbody_end]
+            + "-->"
+            + &DAY[tbody_end..];
+        let row8_end = rows[7] + "</tr>".len();
+        let abrupt = DAY[..row8_end].to_string()
+            + "<!-->"
+            + &DAY[row8_end..rows[9] + "</tr>".len()]
+            + "-->"
+            + &DAY[rows[9] + "</tr>".len()..];
         for page in [
             short_row,
             skipped_rank,
@@ -496,6 +568,9 @@ mod tests {
             spaced_cell_end,
             other_tag,
             reference,
+            angle,
+            commented_table,
+            abrupt,
             "</tbody><tbody>".to_string(),
         ] {
             assert!(
