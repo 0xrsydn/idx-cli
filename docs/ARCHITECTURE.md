@@ -53,6 +53,8 @@ command parses arguments, makes one idx-core call, and renders the result.
 - **Yahoo Finance** — default/auto history source. Reliable OHLCV data via `/v8/finance/chart/`.
 - **IPOT (Indo Premier)** — broker summaries, whichever provider is selected
   (`BrokerSummaryProvider`). See [Broker Summaries](#broker-summaries).
+- **IDX (idx.co.id)** — the daily trading summary behind foreign flow
+  (`TradingSummaryProvider`). See [Foreign Flow](#foreign-flow).
 
 ### MSN Endpoints
 - `https://assets.msn.com/service/`: quotes, charts, equities, earnings,
@@ -109,6 +111,22 @@ WIB as the fallback.
   fzn0x/idx. A tier with a missing figure has no reading; missing values are
   never summed as zero. A change to the rules gets a new method name.
 
+### Foreign Flow
+- `GET https://www.idx.co.id/primary/TradingSummary/GetStockSummary`
+  `?length=9999&start=0&date=YYYYMMDD` answers one JSON row per stock for the
+  session: prices, volume, value, `ForeignBuy`/`ForeignSell` (shares) and
+  non-regular volume and value. A day without trading has no rows; rows dated
+  another day are dropped. `api/idx/parse.rs` parses it purely.
+- Cloudflare rejects most TLS fingerprints (in October 2026 only
+  `curl_safari184` passed), so the request uses curl-impersonate's profile
+  fallback with a 30 s limit. A challenge page fails that profile, not the
+  parse.
+- Each session is cached whole (every stock) by date: 30 days once past,
+  5 minutes for today. `Flow::foreign` walks weekdays without requesting
+  weekends; offline, `--days` skips uncached sessions while a `--from/--to`
+  range fails on one. `foreign_net_value` is net shares at the session's
+  average price (value over volume), an estimate.
+
 ### Capability Gating
 ```
 MarketDataProvider = QuoteProvider + FundamentalsProvider
@@ -118,6 +136,7 @@ Factory functions:
   default_provider(kind) → Box<dyn MarketDataProvider>
   history_provider(kind, mode, verbose) → Result<(ProviderKind, Box<dyn HistoryProvider>)>
   broker_provider() → Box<dyn BrokerSummaryProvider>
+  trading_summary_provider() → Box<dyn TradingSummaryProvider>
 ```
 
 ## Ownership Module (SQLite-backed)

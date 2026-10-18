@@ -11,6 +11,7 @@ pub mod config;
 pub mod curl_impersonate;
 pub mod error;
 pub mod financial;
+pub mod flow;
 #[cfg(feature = "ownership")]
 pub mod investor;
 pub mod market;

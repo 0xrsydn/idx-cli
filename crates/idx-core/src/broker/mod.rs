@@ -84,7 +84,7 @@ impl Broker<'_> {
         query: &BrokerQuery,
         policy: CachePolicy,
     ) -> Result<Fetched<BrokerSummary>, IdxError> {
-        let (resolved, code) = self.idx_code(symbol)?;
+        let (resolved, code) = self.idx.idx_code(symbol, "a broker summary")?;
         let today = today_wib();
         check_range(query, today)?;
         let key = format!(
@@ -123,7 +123,7 @@ impl Broker<'_> {
         board: BrokerBoard,
         policy: CachePolicy,
     ) -> Result<Fetched<BrokerSummary>, IdxError> {
-        let (resolved, _) = self.idx_code(symbol)?;
+        let (resolved, _) = self.idx.idx_code(symbol, "a broker summary")?;
         let today = today_wib();
         for back in 0..LATEST_LOOKBACK_DAYS {
             let day = today - Duration::days(back);
@@ -152,17 +152,6 @@ impl Broker<'_> {
         Err(IdxError::NoMarketData(format!(
             "{resolved}: no trades in the last {LATEST_LOOKBACK_DAYS} days"
         )))
-    }
-
-    /// The resolved symbol and the bare IDX code IPOT takes.
-    fn idx_code(&self, symbol: &str) -> Result<(String, String), IdxError> {
-        let resolved = self.idx.resolve(symbol)?;
-        match resolved.strip_suffix(".JK") {
-            Some(code) if !code.is_empty() => Ok((resolved.clone(), code.to_string())),
-            _ => Err(IdxError::Unsupported(format!(
-                "{resolved}: broker summaries cover IDX (.JK) stocks only"
-            ))),
-        }
     }
 }
 

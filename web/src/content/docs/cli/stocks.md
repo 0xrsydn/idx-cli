@@ -47,6 +47,24 @@ codes during trading. Buyers and sellers are ranked separately on gross
 lots, so a broker can appear on both sides. The source rounds figures of a
 million and more to one decimal, and the output says so.
 
+## Foreign flow
+
+```bash
+idx stocks flow BBCA
+idx stocks flow BBCA --days 20
+idx stocks flow BBCA --from 2026-10-01 --to 2026-10-16
+```
+
+What foreign investors bought and sold, session by session: buy, sell and
+net volume in shares, the net value at each session's average price (an
+estimate), and the share of value traded outside the regular board. The
+footer gives the net over the range and foreign investors' share of trading.
+Without dates it shows the latest 10 sessions (`--days`, at most 60).
+
+The data is IDX's own daily trading summary. Each session is one request to
+idx.co.id, cached afterwards for every stock, and needs
+[curl-impersonate](/start/install/) to pass the site's bot protection.
+
 ## Bandarmology
 
 ```bash
@@ -108,7 +126,7 @@ idx stocks screen --filter high-dividend | jq -r '.[].symbol' | idx stocks compa
 ## Providers
 
 MSN is the default for quotes, company data and screening; Yahoo serves
-price history, and Indo Premier (IPOT) serves broker summaries whichever
-provider is selected. Switch with `IDX_PROVIDER=msn|yahoo` and
+price history. Indo Premier (IPOT) serves broker summaries and IDX's own site
+serves foreign flow, whichever provider is selected. Switch with `IDX_PROVIDER=msn|yahoo` and
 `IDX_HISTORY_PROVIDER=auto|yahoo|msn`, or the matching
 [config keys](/start/config/).

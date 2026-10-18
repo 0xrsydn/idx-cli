@@ -11,6 +11,7 @@ use idx_core::broker::types::BrokerRange;
 use idx_core::config::CoreConfig;
 use idx_core::error::IdxError;
 use idx_core::financial::{EarningsFilter, StatementFilter};
+use idx_core::flow::types::FlowRange;
 use idx_core::investor::{HolderSource, Investor};
 use idx_core::market::{ScreenFilter, ScreenQuery, ScreenRegion};
 use idx_core::ownership::types::ChangeRow;
@@ -25,8 +26,8 @@ use tokio::sync::Semaphore;
 
 use crate::params::{
     AnalysisKind, AnalyzeParams, BandarParams, BrokerParams, ChangesParams, CompanyParams,
-    CompanySection, EntityParams, HistoryParams, ScreenParams, SearchParams, ShareholdersParams,
-    SymbolsParams, SyncParams,
+    CompanySection, EntityParams, FlowParams, HistoryParams, ScreenParams, SearchParams,
+    ShareholdersParams, SymbolsParams, SyncParams,
 };
 
 const SYNC_TOOL: &str = "ownership_sync";
@@ -235,6 +236,28 @@ gross figures overstate their direction. `method` names the rules applied. `inve
                 .bandar_screen(&symbols, &query, CachePolicy::Default)?;
             let reports: &[Fetched<BandarReport>] = &screen.reports;
             Ok(json!({ "reports": reports, "failures": failures_json(&screen.failures) }))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Foreign investors' buying and selling of one IDX ticker, session by \
+session (oldest first), from IDX's daily trading summary: foreign buy, sell and net volume in \
+shares, `foreign_net_value` (net shares at the session's average price, an estimate, IDR), \
+`change_bps`, and `non_regular_bps` (share of value traded outside the regular board). Totals \
+cover the whole range; `foreign_share_bps` is foreign investors' share of trading. End of day."
+    )]
+    async fn get_foreign_flow(&self, params: Parameters<FlowParams>) -> ToolResult {
+        let FlowParams {
+            symbol,
+            days,
+            from,
+            to,
+        } = params.0;
+        self.live(move |idx| {
+            let flow = idx.flow();
+            let range = FlowRange::from_args(days, from.as_deref(), to.as_deref(), flow.today())?;
+            flow.foreign(&symbol, range, CachePolicy::Default)
         })
         .await
     }

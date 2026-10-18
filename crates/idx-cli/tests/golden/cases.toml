@@ -244,7 +244,7 @@ name = "yahoo-fundamental"
 args = ["stocks", "fundamental", "BBCA"]
 env = { IDX_PROVIDER = "yahoo" }
 
-# --- stocks: broker summaries (IPOT) -------------------------------------------
+# --- stocks: broker summaries (IPOT) and foreign flow (IDX) --------------------
 
 [[case]]
 name = "stocks-broker"
@@ -266,6 +266,16 @@ args = ["stocks", "bandar", "BBCA", "--date", "2026-10-16"]
 name = "stocks-bandar-screen"
 formats = ["table", "json", "jsonl"]
 args = ["stocks", "bandar", "BBCA,BBRI,TLKM", "--date", "2026-10-16", "--top", "3"]
+
+[[case]]
+name = "stocks-flow"
+formats = ["table", "json", "jsonl"]
+args = ["stocks", "flow", "BBCA", "--from", "2026-10-12", "--to", "2026-10-16"]
+
+[[case]]
+name = "stocks-flow-latest"
+args = ["stocks", "flow", "TLKM", "--days", "3"]
+env = { IDX_MOCK_TODAY = "2026-10-18" }
 
 [[case]]
 name = "error-broker-unknown-symbol"

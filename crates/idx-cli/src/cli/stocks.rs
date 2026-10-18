@@ -5,8 +5,8 @@ use clap::{Args, Subcommand};
 use crate::config::{HistoryProviderKind, IdxConfig};
 use crate::output::{
     render_bandar, render_broker_summary, render_compare, render_earnings, render_financials,
-    render_fundamental, render_growth, render_history, render_insights, render_news,
-    render_profile, render_quotes, render_risk, render_screener, render_sentiment,
+    render_foreign_flow, render_fundamental, render_growth, render_history, render_insights,
+    render_news, render_profile, render_quotes, render_risk, render_screener, render_sentiment,
     render_technical, render_valuation,
 };
 use idx_core::analysis::BandarQuery;
@@ -15,6 +15,7 @@ use idx_core::api::types::{Interval, Period};
 use idx_core::broker::types::{BrokerBoard, BrokerInvestor, BrokerRange};
 use idx_core::error::IdxError;
 use idx_core::financial::{EarningsFilter, StatementFilter, StatementKind};
+use idx_core::flow::types::FlowRange;
 use idx_core::market::ScreenQuery;
 use idx_core::{CachePolicy, Idx, runtime};
 
@@ -220,6 +221,27 @@ heuristic over end-of-day broker codes, not advice.",
         #[arg(long, default_value_t = DEFAULT_TOP)]
         top: u8,
     },
+    #[command(
+        about = "Foreign buying and selling of a stock, session by session",
+        long_about = "Foreign buying and selling of a stock, session by session, from IDX's daily \
+trading summary: foreign buy, sell and net volume, the net value at the session's average \
+price, and the share of value traded outside the regular board. End of day. Each session is \
+one request to idx.co.id, which needs curl-impersonate.",
+        after_help = "Examples:\n  idx stocks flow BBCA\n  idx stocks flow BBCA --days 20\n  idx stocks flow BBCA --from 2026-10-01 --to 2026-10-16\n  idx -o json stocks flow BBCA | jq '.foreign_net'"
+    )]
+    Flow {
+        /// Single ticker symbol (e.g. BBCA).
+        symbol: String,
+        /// Latest sessions to show (default 10, at most 60).
+        #[arg(long, conflicts_with_all = ["from", "to"])]
+        days: Option<usize>,
+        /// First session of a range, YYYY-MM-DD (at most 92 days).
+        #[arg(long)]
+        from: Option<String>,
+        /// Last session of the range, YYYY-MM-DD. Default: today.
+        #[arg(long, requires = "from")]
+        to: Option<String>,
+    },
     #[command(about = "Get company profile")]
     Profile { symbol: String },
     #[command(
@@ -360,6 +382,17 @@ pub fn handle(
             }
             let reports: Vec<_> = screen.reports.into_iter().map(|r| r.data).collect();
             render_bandar(&reports, symbols.len() > 1, format, no_color)
+        }
+        StocksSubcommand::Flow {
+            symbol,
+            days,
+            from,
+            to,
+        } => {
+            let range =
+                FlowRange::from_args(*days, from.as_deref(), to.as_deref(), idx.flow().today())?;
+            let flow = idx.flow().foreign(symbol, range, policy)?;
+            render_foreign_flow(&flow.data, format)
         }
         StocksSubcommand::Profile { symbol } => {
             let profile = idx.financial().profile(symbol, policy)?;

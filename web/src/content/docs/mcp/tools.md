@@ -63,6 +63,17 @@ Company data for one IDX ticker: profile, financial statements, earnings, analys
 | `sections` | array of `profile` / `financials` / `earnings` / `sentiment` / `insights` / `news` | no | Sections to fetch (default: all). |
 | `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
 
+## `get_foreign_flow`
+
+Foreign investors' buying and selling of one IDX ticker, session by session (oldest first), from IDX's daily trading summary: foreign buy, sell and net volume in shares, `foreign_net_value` (net shares at the session's average price, an estimate, IDR), `change_bps`, and `non_regular_bps` (share of value traded outside the regular board). Totals cover the whole range; `foreign_share_bps` is foreign investors' share of trading. End of day.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `days` | integer | no | Latest sessions (default 10, at most 60). Omit when giving from/to. |
+| `from` | string | no | First session of a range, YYYY-MM-DD (at most 92 days). |
+| `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
+| `to` | string | no | Last session of the range, YYYY-MM-DD (default today). |
+
 ## `get_investor_holdings`
 
 Every IDX holding (above 1%) of one investor, matched by name.

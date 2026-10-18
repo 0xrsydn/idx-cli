@@ -16,6 +16,7 @@ use idx_core::api::types::{
 };
 use idx_core::broker::types::{BrokerBoard, BrokerFlow, BrokerInvestor, BrokerKind, BrokerSummary};
 use idx_core::error::IdxError;
+use idx_core::flow::types::ForeignFlow;
 
 pub fn format_idr(value: i64) -> String {
     let sign = if value.is_negative() { "-" } else { "" };
@@ -1183,6 +1184,79 @@ pub fn print_bandar_screen(reports: &[BandarReport], no_color: bool) -> Result<(
         );
     }
     println!("{}", bandar_method_note(top));
+    Ok(())
+}
+
+fn format_signed_compact(value: Option<i64>) -> String {
+    value
+        .map(|value| {
+            let text = format_compact(value);
+            if value > 0 { format!("+{text}") } else { text }
+        })
+        .unwrap_or_else(|| "-".to_string())
+}
+
+pub fn print_foreign_flow(flow: &ForeignFlow) -> Result<(), IdxError> {
+    let span = if flow.from == flow.to {
+        flow.from.to_string()
+    } else {
+        format!("{} to {}", flow.from, flow.to)
+    };
+    let sessions = flow.days.len();
+    println!(
+        "{}",
+        format!(
+            "Foreign flow for {}, {span} ({sessions} session{})",
+            terminal_safe(&flow.symbol),
+            if sessions == 1 { "" } else { "s" }
+        )
+        .bold()
+    );
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec![
+            "DATE",
+            "CLOSE",
+            "CHG%",
+            "VALUE",
+            "FOREIGN BUY",
+            "FOREIGN SELL",
+            "FOREIGN NET",
+            "NET VALUE",
+            "NON-REG",
+        ]);
+    for day in &flow.days {
+        table.add_row(vec![
+            cell(day.date),
+            cell(day.close.map(format_idr).unwrap_or_else(|| "-".to_string())),
+            cell(format_bps_pct(day.change_bps)),
+            cell(format_compact_option(day.value)),
+            cell(format_compact_option(day.foreign_buy)),
+            cell(format_compact_option(day.foreign_sell)),
+            cell(format_signed_compact(day.foreign_net)),
+            cell(format_signed_compact(day.foreign_net_value)),
+            cell(format_bps_share(day.non_regular_bps)),
+        ]);
+    }
+    println!("{table}");
+    let mut summary = format!(
+        "Net foreign: {} shares, about {} IDR",
+        format_signed_compact(flow.foreign_net),
+        format_signed_compact(flow.foreign_net_value)
+    );
+    if let Some(share) = flow.foreign_share_bps {
+        summary.push_str(&format!(
+            "; foreign investors made up {} of trading",
+            format_bps_share(Some(share))
+        ));
+    }
+    println!("{summary}.");
+    println!(
+        "Volumes are shares. Net value is estimated at each session's average price; \
+NON-REG is the share of value traded outside the regular board (negotiated and cash)."
+    );
     Ok(())
 }
 

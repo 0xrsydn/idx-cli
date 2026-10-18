@@ -11,6 +11,13 @@ history lives in git.
 - `screen presets` / `screen run <PRESET>`: built-in screener presets
   (graduate `screen` out of `stocks` only if these grow into a richer workflow)
 - Multi-period financial statements (today `financials` is single-period)
+- Order book (bid/offer depth): no free, login-free source exists. IDX sells
+  delayed depth to vendors and Stockbit's needs a user login. Revisit if a
+  permitted source appears; do not ship the closing best bid/offer as one.
+- Bandarmology follow-ups: a daily series (per-session readings and the
+  cumulative top-N net) and a price-move phase (quiet accumulation, markup),
+  calibration of the `top_concentration_v1` thresholds across more sessions,
+  and a market-wide foreign flow screen from one IDX trading summary
 - News beyond MSN in `news` / `get_company` (`docs/IDX_NEWS.md`): Google News
   RSS per ticker, and IDX disclosures and exchange news through a
   maintainer-published feed
@@ -26,6 +33,11 @@ history lives in git.
 - Composite `analyze` command (quote, fundamentals, ownership, sentiment)
 
 ## Known limits
+- `stocks broker` and `stocks bandar` show only IPOT's top 10 buyers and
+  sellers, ranked by gross lots, with figures of a million and more rounded
+  to one decimal.
+- `stocks flow` depends on IDX's Cloudflare passing a curl-impersonate
+  profile (only `curl_safari184` in October 2026).
 - Yahoo can return `429` from datacenter IPs; requests retry with backoff but
   can still fail.
 - `stocks technical` reports the SMA200 trend as unavailable when fewer than

@@ -9,12 +9,13 @@ use idx_core::config::CoreConfig;
 use idx_core::investor::{ImportSource, Investor};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 13] = [
+const TOOLS: [&str; 14] = [
     "analyze_bandar",
     "analyze_stock",
     "compare_stocks",
     "get_broker_summary",
     "get_company",
+    "get_foreign_flow",
     "get_investor_holdings",
     "get_ownership_changes",
     "get_price_history",
@@ -275,6 +276,14 @@ fn live_tools_wrap_data_with_freshness() {
     assert_eq!(bandar["failures"][0]["symbol"], "ZZZZ.JK");
     assert_eq!(bandar["failures"][0]["code"], "SYMBOLNOTFOUND");
 
+    let flow = client.ok(
+        "get_foreign_flow",
+        json!({"symbol": "BBCA", "from": "2026-10-12", "to": "2026-10-16"}),
+    );
+    assert_fetched(&flow);
+    assert_eq!(flow["source"], "idx");
+    assert_eq!(flow["data"]["days"].as_array().unwrap().len(), 5);
+
     let compared = client.ok("compare_stocks", json!({"symbols": ["BBCA", "BBRI"]}));
     assert_eq!(compared["reports"].as_array().unwrap().len(), 2);
     assert_eq!(compared["failures"], json!([]));
@@ -311,6 +320,11 @@ fn errors_carry_cli_codes() {
         ),
         ("analyze_bandar", json!({"symbols": ["BBCA"], "top": 4})),
         ("analyze_bandar", json!({"symbols": []})),
+        ("get_foreign_flow", json!({"symbol": "BBCA", "days": 61})),
+        (
+            "get_foreign_flow",
+            json!({"symbol": "BBCA", "days": 3, "from": "2026-10-12"}),
+        ),
     ] {
         let (is_error, body) = client.call(tool, arguments);
         assert!(is_error, "{tool}: {body}");

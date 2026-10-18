@@ -2726,3 +2726,134 @@ fn bandar_errors_follow_the_output_contract() {
         run_error_json(&mut cmd, code);
     }
 }
+
+#[test]
+fn foreign_flow_reads_sessions_oldest_first() {
+    let flow = run_success_json(
+        mock_bin("flow-json")
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args(["-o", "json", "stocks", "flow", "BBCA", "--days", "3"]),
+    );
+    assert_eq!(flow["symbol"], "BBCA.JK");
+    let dates: Vec<&str> = flow["days"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|day| day["date"].as_str().unwrap())
+        .collect();
+    assert_eq!(dates, ["2026-10-14", "2026-10-15", "2026-10-16"]);
+    let last = &flow["days"][2];
+    assert_eq!(last["close"], 5175);
+    assert_eq!(last["change_bps"], -1481);
+    assert_eq!(last["foreign_net"], 309_392_800_i64 - 757_227_900_i64);
+    assert_eq!(flow["from"], "2026-10-14");
+
+    // A range skips the weekend and the Saturday without trading.
+    let range = run_success_json(
+        mock_bin("flow-range")
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args([
+                "-o",
+                "json",
+                "stocks",
+                "flow",
+                "BBCA",
+                "--from",
+                "2026-10-12",
+                "--to",
+                "2026-10-17",
+            ]),
+    );
+    assert_eq!(range["days"].as_array().unwrap().len(), 5);
+    let net: i64 = range["days"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|day| day["foreign_net"].as_i64().unwrap())
+        .sum();
+    assert_eq!(range["foreign_net"], net);
+}
+
+#[test]
+fn foreign_flow_offline_uses_cached_sessions_only() {
+    let root = test_env_dir("flow-offline");
+    run_success_json(
+        mock_bin_with_root(&root)
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args([
+                "-o",
+                "json",
+                "stocks",
+                "flow",
+                "BBCA",
+                "--from",
+                "2026-10-15",
+                "--to",
+                "2026-10-16",
+            ]),
+    );
+    // Another stock's flow for the same sessions needs no new request.
+    let offline = run_success_json(
+        mock_bin_with_root(&root)
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args([
+                "-o",
+                "json",
+                "--offline",
+                "stocks",
+                "flow",
+                "TLKM",
+                "--days",
+                "5",
+            ]),
+    );
+    assert_eq!(offline["from"], "2026-10-15");
+    assert_eq!(offline["days"].as_array().unwrap().len(), 2);
+    run_error_json(
+        mock_bin_with_root(&root)
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args([
+                "-o",
+                "json",
+                "--offline",
+                "stocks",
+                "flow",
+                "TLKM",
+                "--from",
+                "2026-10-12",
+                "--to",
+                "2026-10-16",
+            ]),
+        "CACHEMISS",
+    );
+}
+
+#[test]
+fn foreign_flow_errors_follow_the_output_contract() {
+    for (args, code) in [
+        (vec!["ZZZZ", "--days", "2"], "SYMBOLNOTFOUND"),
+        (vec!["BBCA.US"], "UNSUPPORTED"),
+        (vec!["BBCA", "--days", "61"], "INVALIDINPUT"),
+        (vec!["BBCA", "--days", "0"], "INVALIDINPUT"),
+        (
+            vec!["BBCA", "--days", "3", "--from", "2026-10-12"],
+            "INVALIDINPUT",
+        ),
+        (
+            vec!["BBCA", "--from", "2026-06-01", "--to", "2026-10-16"],
+            "INVALIDINPUT",
+        ),
+    ] {
+        let mut cmd = mock_bin("flow-errors");
+        cmd.env("IDX_MOCK_TODAY", "2026-10-18")
+            .args(["-o", "json", "stocks", "flow"])
+            .args(&args);
+        run_error_json(&mut cmd, code);
+    }
+    let mut failing = mock_bin("flow-provider-error");
+    failing
+        .env("IDX_MOCK_ERROR", "1")
+        .env("IDX_MOCK_TODAY", "2026-10-18")
+        .args(["-o", "json", "stocks", "flow", "BBCA"]);
+    run_error_json(&mut failing, "PROVIDERUNAVAILABLE");
+}

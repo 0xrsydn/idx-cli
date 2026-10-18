@@ -158,6 +158,21 @@ pub struct BandarParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct FlowParams {
+    /// IDX ticker, e.g. "BBCA".
+    pub symbol: String,
+    /// Latest sessions (default 10, at most 60). Omit when giving from/to.
+    #[serde(default)]
+    pub days: Option<usize>,
+    /// First session of a range, YYYY-MM-DD (at most 92 days).
+    #[serde(default)]
+    pub from: Option<String>,
+    /// Last session of the range, YYYY-MM-DD (default today).
+    #[serde(default)]
+    pub to: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ShareholdersParams {
     /// IDX ticker, e.g. "BBCA".
     pub ticker: String,

@@ -3,7 +3,8 @@
 
 use super::types::{Bar, Fundamentals, Interval, Period, Quote};
 use super::{
-    BrokerSummaryProvider, FundamentalsProvider, HistoryProvider, QuoteProvider, ipot, msn, yahoo,
+    BrokerSummaryProvider, FundamentalsProvider, HistoryProvider, QuoteProvider,
+    TradingSummaryProvider, idx, ipot, msn, yahoo,
 };
 use crate::broker::types::{BrokerBoard, BrokerInvestor, BrokerQuery};
 use crate::config::ProviderKind;
@@ -162,5 +163,28 @@ impl BrokerSummaryProvider for MockBrokerProvider {
         let html = std::fs::read_to_string(format!("tests/fixtures/{name}.html"))
             .unwrap_or_else(|_| "Invalid stock code!".to_string());
         ipot::summary_from_html(code, &html)
+    }
+}
+
+/// Trading summaries from `tests/fixtures/idx_stocksummary_<date>.json`; a
+/// date without a fixture had no trading.
+pub struct MockTradingSummaryProvider;
+
+impl TradingSummaryProvider for MockTradingSummaryProvider {
+    fn stock_summary(
+        &self,
+        date: chrono::NaiveDate,
+    ) -> Result<Vec<crate::flow::types::StockDay>, IdxError> {
+        if std::env::var("IDX_MOCK_ERROR").is_ok() {
+            return Err(IdxError::ProviderUnavailable);
+        }
+        let path = format!(
+            "tests/fixtures/idx_stocksummary_{}.json",
+            date.format("%Y%m%d")
+        );
+        match std::fs::read_to_string(path) {
+            Ok(raw) => idx::parse_stock_summary(&raw, date),
+            Err(_) => Ok(Vec::new()),
+        }
     }
 }

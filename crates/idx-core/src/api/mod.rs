@@ -1,3 +1,4 @@
+pub mod idx;
 pub mod ipot;
 #[cfg(feature = "testing")]
 pub mod mock;
@@ -52,6 +53,15 @@ pub trait BrokerSummaryProvider {
         code: &str,
         query: &BrokerQuery,
     ) -> Result<ipot::BrokerSummaryRaw, IdxError>;
+}
+
+/// Every stock's trading summary for one session (IDX's own site).
+pub trait TradingSummaryProvider {
+    /// Empty for a day without trading.
+    fn stock_summary(
+        &self,
+        date: chrono::NaiveDate,
+    ) -> Result<Vec<crate::flow::types::StockDay>, IdxError>;
 }
 
 pub trait FundamentalsProvider {
@@ -277,6 +287,14 @@ pub fn broker_provider() -> Box<dyn BrokerSummaryProvider> {
         return Box::new(mock::MockBrokerProvider);
     }
     Box::new(ipot::IpotProvider::new())
+}
+
+pub fn trading_summary_provider() -> Box<dyn TradingSummaryProvider> {
+    #[cfg(feature = "testing")]
+    if mock::enabled() {
+        return Box::new(mock::MockTradingSummaryProvider);
+    }
+    Box::new(idx::IdxSiteProvider)
 }
 
 /// Today in WIB, the date IDX trades on.

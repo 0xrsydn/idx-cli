@@ -54,7 +54,9 @@ nix develop --command scripts/live-smoke.sh --compare ./old/bin/idx  # A/B again
 scripts/live-smoke.sh --dry-run
 ```
 
-- `stocks`: every `stocks` command for one ticker, plus `compare BUMI,ADRO,AIMS`,
+- `stocks`: every `stocks` command for one ticker (`broker`, `bandar` and
+  `flow` on the new binary only, so an older `--compare` build that predates
+  them is fine), plus `compare BUMI,ADRO,AIMS`,
   whose MSN key ratios contain non-finite values.
 - `ownership`: `discover`, then imports the newest supported report into a temp
   DB and lists `releases`. IDX sits behind Cloudflare and returns `403` to many

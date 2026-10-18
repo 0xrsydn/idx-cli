@@ -68,6 +68,7 @@ Commands:
   fundamental  Run full fundamental analysis on a stock
   broker       Which brokers bought and sold a stock
   bandar       Bandarmology: is buying more concentrated than selling
+  flow         Foreign buying and selling of a stock, session by session
   profile      Get company profile
   financials   Get financial statements
   earnings     Get earnings report
@@ -427,6 +428,57 @@ Examples:
   idx stocks bandar BBCA --from 2026-10-12 --to 2026-10-16 --top 3
   idx stocks bandar BBCA,BBRI,BMRI,TLKM
   idx stocks screen --filter high-volume | jq -r '.[].symbol' | idx stocks bandar -
+```
+
+### `idx stocks flow`
+
+```text
+Foreign buying and selling of a stock, session by session, from IDX's daily trading summary: foreign buy, sell and net volume, the net value at the session's average price, and the share of value traded outside the regular board. End of day. Each session is one request to idx.co.id, which needs curl-impersonate.
+
+Usage: idx stocks flow [OPTIONS] <SYMBOL>
+
+Arguments:
+  <SYMBOL>
+          Single ticker symbol (e.g. BBCA)
+
+Options:
+      --days <DAYS>
+          Latest sessions to show (default 10, at most 60)
+
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --from <FROM>
+          First session of a range, YYYY-MM-DD (at most 92 days)
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+      --to <TO>
+          Last session of the range, YYYY-MM-DD. Default: today
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx stocks flow BBCA
+  idx stocks flow BBCA --days 20
+  idx stocks flow BBCA --from 2026-10-01 --to 2026-10-16
+  idx -o json stocks flow BBCA | jq '.foreign_net'
 ```
 
 ### `idx stocks profile`
