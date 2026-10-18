@@ -62,5 +62,35 @@
     "prompt": "Search the KSEI ownership database for investors named Salim.",
     "expect_tools": [{"name": "search_investors", "args": {"query": "Salim"}}],
     "expect_text": []
+  },
+  {
+    "id": "broker",
+    "prompt": "Which brokers bought and sold the most BBCA on 2026-10-16?",
+    "expect_tools": [{"name": "get_broker_summary", "args": {"symbol": "BBCA", "date": "2026-10-16"}}],
+    "expect_text": ["\\bMG\\b"],
+    "live": {
+      "prompt": "Which brokers bought and sold the most BBCA in the latest session?",
+      "expect_tools": [{"name": "get_broker_summary", "args": {"symbol": "BBCA"}}]
+    }
+  },
+  {
+    "id": "bandar",
+    "prompt": "Were the big brokers (bandar) accumulating or distributing BBCA on 2026-10-16?",
+    "expect_tools": [{"name": "analyze_bandar", "args": {"symbols": ["BBCA"], "date": "2026-10-16"}}],
+    "expect_text": ["(?i)distribut"],
+    "live": {
+      "prompt": "Are the big brokers (bandar) accumulating or distributing BBCA lately?",
+      "expect_tools": [{"name": "analyze_bandar", "args": {"symbols": ["BBCA"]}}]
+    }
+  },
+  {
+    "id": "flow",
+    "prompt": "What was the net foreign flow in BBCA from 2026-10-12 to 2026-10-16?",
+    "expect_tools": [{"name": "get_foreign_flow", "args": {"symbol": "BBCA", "from": "2026-10-12", "to": "2026-10-16"}}],
+    "expect_text": ["(?i)foreign"],
+    "live": {
+      "prompt": "What has the net foreign flow in BBCA been over the last 10 sessions?",
+      "expect_tools": [{"name": "get_foreign_flow", "args": {"symbol": "BBCA"}}]
+    }
   }
 ]
