@@ -141,6 +141,7 @@ fn cell(td: ElementRef) -> Option<(String, Option<String>)> {
         return None;
     }
     let mut text = String::new();
+    let mut span_text = None;
     let mut class = None;
     for child in td.children() {
         match child.value() {
@@ -154,47 +155,159 @@ fn cell(td: ElementRef) -> Option<(String, Option<String>)> {
                 if !only_attrs(span, &["class"]) {
                     return None;
                 }
-                text.push_str(&leaf_text(span)?);
+                span_text = Some(leaf_text(span)?);
                 class = Some(value.to_string());
             }
             _ => return None,
         }
     }
-    Some((clean(&text), class))
+    match span_text {
+        // The span holds all the cell shows, so its class is the code's.
+        Some(inner) if clean(&text).is_empty() => Some((clean(&inner), class)),
+        Some(_) => None,
+        None => Some((clean(&text), None)),
+    }
 }
 
-/// Whether `element` sits in plain divs only, as IPOT's table and date
-/// inputs do; inside anything else (details, dialog, noscript, object,
-/// select, ...) it may not show.
-fn in_divs(element: ElementRef) -> bool {
-    element
-        .ancestors()
-        .filter_map(ElementRef::wrap)
-        .all(|ancestor| matches!(ancestor.value().name(), "div" | "html"))
+/// Each element IPOT's page uses with the attributes it gives it, the class
+/// tokens it uses, and the attribute values that change what shows (recorded
+/// 2026-10). Markup outside this list, whatever it would do (hide, move or
+/// replace content: `hidden`, `popover`, `template`, other styles ...),
+/// rejects the page. Rules in the site's stylesheet cannot be seen here.
+const ELEMENTS: [(&str, &[&str]); 15] = [
+    ("html", &[]),
+    ("button", &["class", "onclick", "type"]),
+    ("div", &["class", "id", "style"]),
+    (
+        "input",
+        &["class", "id", "name", "placeholder", "type", "value"],
+    ),
+    ("option", &["selected", "value"]),
+    ("script", &["src"]),
+    ("select", &["class", "id"]),
+    ("span", &["class"]),
+    (
+        "table",
+        &["border", "cellpadding", "cellspacing", "class", "width"],
+    ),
+    ("thead", &[]),
+    ("tbody", &[]),
+    ("tfoot", &[]),
+    ("tr", &["class"]),
+    ("th", &["align", "colspan"]),
+    ("td", &["align"]),
+];
+const CLASSES: [&str; 36] = [
+    "bdr-t",
+    "btn",
+    "btn-block",
+    "btn-default",
+    "btn-xs-input",
+    "col",
+    "col-sm-1",
+    "col-sm-2",
+    "col-sm-3",
+    "col-xs-2",
+    "col-xs-5",
+    "form-control",
+    "fsize12",
+    "input-xs",
+    "mincol-3",
+    "ml5",
+    "mr5",
+    "mt15",
+    "nm",
+    "noborder",
+    "pa5",
+    "pt20",
+    "row",
+    "table",
+    "table-hover",
+    "table-responsive",
+    "table-summary",
+    "text-",
+    "text-bumn",
+    "text-center",
+    "text-down",
+    "text-foreign",
+    "text-local",
+    "text-up",
+    "valign-middle",
+    "visible-xs",
+];
+const PINNED: [(&str, &str, &str); 4] = [
+    ("input", "type", "text"),
+    ("button", "type", "button"),
+    ("div", "style", "height:50px;"),
+    ("th", "colspan", "9"),
+];
+
+/// Whether every element and attribute in the page is one IPOT uses.
+fn known_markup(page: &Html) -> bool {
+    page.root_element().descendent_elements().all(|element| {
+        let name = element.value().name();
+        let Some((_, attrs)) = ELEMENTS.iter().find(|(known, _)| *known == name) else {
+            return false;
+        };
+        element.value().attrs().all(|(attr, value)| {
+            attrs.contains(&attr)
+                && PINNED
+                    .iter()
+                    .filter(|(on, pinned, _)| *on == name && *pinned == attr)
+                    .all(|(_, _, only)| *only == value)
+                && (attr != "class"
+                    || value
+                        .split_whitespace()
+                        .all(|class| CLASSES.contains(&class)))
+        })
+    })
 }
 
-/// The `MM/DD/YYYY` value of the one input with this id, in plain divs.
+/// Whether `element`'s ancestors are exactly `path` (name and class, nearest
+/// first), then the page root: where IPOT places its table and date inputs.
+fn placed(element: ElementRef, path: &[(&str, &str)]) -> bool {
+    let ancestors: Vec<ElementRef> = element.ancestors().filter_map(ElementRef::wrap).collect();
+    ancestors.len() == path.len() + 1
+        && ancestors.iter().zip(path).all(|(ancestor, (name, class))| {
+            ancestor.value().name() == *name && ancestor.attr("class") == Some(*class)
+        })
+}
+
+const TABLE_PATH: [(&str, &str); 1] = [("div", "table-responsive")];
+const INPUT_PATH: [(&str, &str); 3] = [
+    ("div", "col col-xs-5 col-sm-3"),
+    ("div", "row mincol-3"),
+    ("div", "pa5"),
+];
+
+/// The `MM/DD/YYYY` value of the one input with this id, where IPOT puts it.
 fn input_date(page: &Html, id: &str) -> Option<NaiveDate> {
-    let input =
-        only(page.root_element(), &format!("input#{id}")).filter(|input| in_divs(*input))?;
+    let input = only(page.root_element(), &format!("input#{id}"))
+        .filter(|input| placed(*input, &INPUT_PATH))?;
     NaiveDate::parse_from_str(input.attr("value")?.trim(), "%m/%d/%Y").ok()
 }
 
-/// Whether anything in the page is hidden by markup alone (`hidden`, an
-/// inline `display`/`visibility` style) or inert (`template`). Styling from
-/// the site's own stylesheet cannot be seen here.
-fn hides_content(page: &Html) -> bool {
-    page.root_element().descendent_elements().any(|element| {
-        let style = element
-            .attr("style")
-            .unwrap_or_default()
-            .to_ascii_lowercase()
-            .replace(' ', "");
-        element.value().name() == "template"
-            || element.attr("hidden").is_some()
-            || style.contains("display:none")
-            || style.contains("visibility:hidden")
-    })
+/// The only child element of `parent`, when it is a `name`.
+fn sole_child<'a>(parent: ElementRef<'a>, name: &str) -> Option<ElementRef<'a>> {
+    let mut children = parent.child_elements();
+    match (children.next(), children.next()) {
+        (Some(child), None) if child.value().name() == name => Some(child),
+        _ => None,
+    }
+}
+
+/// The footer's texts, e.g. `T. Val : 6.6 T`, from `tfoot > tr > th > div >
+/// span` as IPOT writes it, each span holding text only.
+fn footer_texts(tfoot: ElementRef) -> Option<Vec<String>> {
+    let div = sole_child(sole_child(sole_child(tfoot, "tr")?, "th")?, "div")?;
+    div.child_elements()
+        .map(|span| {
+            (span.value().name() == "span")
+                .then(|| leaf_text(span))
+                .flatten()
+        })
+        .map(|text| text.map(|text| clean(&text)))
+        .collect()
 }
 
 /// The page is read as a browser builds it from the fragment (html5ever),
@@ -206,15 +319,20 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     if shown.to_ascii_lowercase().contains("invalid stock code") {
         return Ok(IpotPage::Invalid);
     }
-    if hides_content(&page) {
-        return Err(parse_error("hidden or inert markup in the page"));
+    if !known_markup(&page) {
+        return Err(parse_error("markup the page does not use"));
     }
     let table = only(page.root_element(), "table")
-        .ok_or_else(|| parse_error("no single table in the page"))?;
-    if !in_divs(table) {
-        return Err(parse_error("the table is not in plain page markup"));
+        .filter(|table| placed(*table, &TABLE_PATH))
+        .ok_or_else(|| parse_error("no single table where the page puts it"))?;
+    let parts: Vec<ElementRef> = table.child_elements().collect();
+    let [_, body, tfoot] = parts[..] else {
+        return Err(parse_error("unexpected table parts"));
+    };
+    let names: Vec<&str> = parts.iter().map(|part| part.value().name()).collect();
+    if names != ["thead", "tbody", "tfoot"] {
+        return Err(parse_error("unexpected table parts"));
     }
-    let body = only(table, "tbody").ok_or_else(|| parse_error("no single table body"))?;
     let mut raw = BrokerSummaryRaw {
         from: input_date(&page, "startDateBrokerSummary"),
         to: input_date(&page, "endDateBrokerSummary"),
@@ -271,15 +389,7 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
             });
         }
     }
-    // The footer's figures, e.g. `T. Val : 6.6 T`, each in its own span
-    // holding text only, each label once.
-    let mut footer = Vec::new();
-    for span in table.select(&selector("tfoot span")) {
-        let text = leaf_text(span)
-            .filter(|_| only_attrs(span, &["class"]))
-            .ok_or_else(|| parse_error("unexpected footer markup"))?;
-        footer.push(clean(&text));
-    }
+    let footer = footer_texts(tfoot).ok_or_else(|| parse_error("unexpected footer markup"))?;
     for label in ["T. Val :", "F. NVal :", "T.Lot :", "Avg :"] {
         if footer.iter().filter(|text| text.starts_with(label)).count() > 1 {
             return Err(parse_error(&format!("{label} twice in the footer")));
@@ -624,33 +734,83 @@ mod tests {
                 DAY.replacen("</tbody>", "</tbody><script></script>", 1),
             ),
         ];
+        // Each page is rejected or read as shown; never read as other data.
+        let read = |page: &str| match parse_broker_summary(page) {
+            Ok(IpotPage::Summary(raw)) => Some(raw),
+            Err(IdxError::ParseError(_)) => None,
+            other => panic!("{other:?}"),
+        };
         for (what, page) in same {
-            assert_eq!(summary(&page), original, "{what}");
+            if let Some(raw) = read(&page) {
+                assert_eq!(raw, original, "{what}");
+            }
         }
         // Markup a browser shows differently: the figure it shows, not ours.
-        let angle = summary(&DAY.replacen(">828,163 <", ">8>28,163 <", 1));
-        assert_eq!(angle.buyers[4].lots, None);
         let lots = "<span class=\"text-up\">828,163 </span>";
-        let early_cell_end = summary(&DAY.replacen(lots, &format!("</td >{lots}"), 1));
-        assert_eq!(early_cell_end.buyers[4].lots, None);
-        let commented_date =
-            summary(&DAY.replacen("value=\"10/16/2026\"", "value=\"10/<!--x-->16/2026\"", 1));
-        assert_eq!(commented_date.from, None);
-        let second_start = DAY.replacen(
-            "</tbody>",
-            "</tbody><input id=\"startDateBrokerSummary\" value=\"10/15/2026\">",
-            1,
-        );
-        assert_eq!(
-            summary(&second_start).from,
-            None,
-            "an id twice is no echoed date"
-        );
-        let closed = DAY.replacen("<input", "<details><input", 1);
-        assert_eq!(
-            summary(&closed).from,
-            None,
-            "a date in closed details is not shown"
-        );
+        let shown_otherwise = [
+            (
+                "a '>' in a figure",
+                DAY.replacen(">828,163 <", ">8>28,163 <", 1),
+            ),
+            (
+                "a cell ended early",
+                DAY.replacen(lots, &format!("</td >{lots}"), 1),
+            ),
+        ];
+        for (what, page) in shown_otherwise {
+            if let Some(raw) = read(&page) {
+                assert_eq!(raw.buyers[4].lots, None, "{what}");
+            }
+        }
+        let dates_shown_otherwise = [
+            (
+                "a comment in the date",
+                DAY.replacen("value=\"10/16/2026\"", "value=\"10/<!--x-->16/2026\"", 1),
+            ),
+            (
+                "the date input twice",
+                DAY.replacen(
+                    "</tbody>",
+                    "</tbody><input id=\"startDateBrokerSummary\" value=\"10/15/2026\">",
+                    1,
+                ),
+            ),
+            (
+                "the date input in details",
+                DAY.replacen("<input", "<details><input", 1),
+            ),
+            (
+                "a hidden date input",
+                DAY.replacen("type=\"text\"", "type=\"hidden\"", 1),
+            ),
+        ];
+        for (what, page) in dates_shown_otherwise {
+            if let Some(raw) = read(&page) {
+                assert_eq!(raw.from, None, "{what}");
+            }
+        }
+        // Ways to hide or relabel what IPOT shows, all outside its markup.
+        let hidden = [
+            ("a popover", format!("<div popover>{DAY}</div>")),
+            (
+                "an inline style",
+                DAY.replacen("<table ", "<table style=\"display:&#9;none\" ", 1),
+            ),
+            (
+                "a total in details",
+                DAY.replacen("T. Val : 6.6 T", "<details>T. Val : 6.6 T</details>", 1),
+            ),
+            (
+                "a code beside its span",
+                DAY.replacen(
+                    "<span class=\"text-local\">MG</span>",
+                    "M<span class=\"text-foreign\"></span>G",
+                    1,
+                ),
+            ),
+        ];
+        for (what, page) in hidden {
+            assert!(read(&page).is_none(), "{what}");
+        }
     }
 }
