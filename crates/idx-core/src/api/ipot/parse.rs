@@ -131,23 +131,78 @@ fn broker_kind(class: Option<&str>) -> Option<BrokerKind> {
     }
 }
 
-/// Whether `body` (lowercased) holds only `tr`, `td` and `span` tags, each
-/// closed before the next `<`: no comments, other elements, or markup
-/// inside attributes that the row checks could miscount.
-fn plain_markup(body: &str) -> bool {
-    body.match_indices('<').all(|(at, _)| {
-        let tag = &body[at + 1..];
-        let Some(end) = tag.find('>') else {
+/// Whether `body` (lowercased) is exactly the markup IPOT serves, which
+/// reads the same in any HTML parser:
+///
+/// ```text
+/// body  := ws (row ws)*
+/// row   := "<tr>" ws (cell ws){9} "</tr>"
+/// cell  := <td attrs> ws (<span attrs> text "</span>" | text) ws "</td>"
+/// attrs := (" " name '="' value '"')*      value without " < >
+/// text  := no "<", and no "&" except "&nbsp;"
+/// ```
+///
+/// Anything else (comments, other tags, unclosed or stray tags, odd
+/// spacing or quoting inside tags) rejects the page rather than risk
+/// reading cells differently from how the page shows them.
+fn canonical_rows(body: &str) -> bool {
+    let mut rest = body.trim_start();
+    while !rest.is_empty() {
+        let Some(after) = canonical_row(rest) else {
             return false;
         };
-        let inner = &tag[..end];
-        let name: String = inner
-            .trim_start_matches('/')
-            .chars()
-            .take_while(char::is_ascii_alphanumeric)
-            .collect();
-        !inner.contains('<') && matches!(name.as_str(), "tr" | "td" | "span")
-    })
+        rest = after.trim_start();
+    }
+    true
+}
+
+fn canonical_row(row: &str) -> Option<&str> {
+    let mut rest = row.strip_prefix("<tr>")?;
+    for _ in 0..9 {
+        rest = canonical_cell(rest.trim_start())?;
+    }
+    rest.trim_start().strip_prefix("</tr>")
+}
+
+fn canonical_cell(cell: &str) -> Option<&str> {
+    let rest = open_tag(cell, "td")?.trim_start();
+    let rest = if rest.starts_with("<span") {
+        plain_text(open_tag(rest, "span")?)?
+            .strip_prefix("</span>")?
+            .trim_start()
+    } else {
+        plain_text(rest)?
+    };
+    rest.strip_prefix("</td>")
+}
+
+/// The rest after `<name attrs>`.
+fn open_tag<'a>(markup: &'a str, name: &str) -> Option<&'a str> {
+    let mut rest = markup.strip_prefix('<')?.strip_prefix(name)?;
+    loop {
+        if let Some(after) = rest.strip_prefix('>') {
+            return Some(after);
+        }
+        rest = rest.strip_prefix(' ')?;
+        let name_len = rest
+            .bytes()
+            .take_while(|b| b.is_ascii_lowercase() || *b == b'-')
+            .count();
+        if name_len == 0 {
+            return None;
+        }
+        rest = rest[name_len..].strip_prefix("=\"")?;
+        let end = rest.find(['"', '<', '>'])?;
+        rest = rest[end..].strip_prefix('"')?;
+    }
+}
+
+/// The rest after text without markup or character references.
+fn plain_text(text: &str) -> Option<&str> {
+    let end = text.find('<').unwrap_or(text.len());
+    let mut refs = text[..end].match_indices('&');
+    refs.all(|(at, _)| text[at..].starts_with("&nbsp;"))
+        .then_some(&text[end..])
 }
 
 /// The `MM/DD/YYYY` value of the input with this id.
@@ -180,7 +235,7 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     });
     let single = lower.matches("<tbody").count() == 1 && lower.matches("</tbody").count() == 1;
     let Some((body_start, body_end)) =
-        body.filter(|(start, end)| single && plain_markup(&lower[*start..*end]))
+        body.filter(|(start, end)| single && canonical_rows(&lower[*start..*end]))
     else {
         return Err(IdxError::ParseError(
             "ipot broker summary: no single plain table in the page".to_string(),
@@ -198,9 +253,8 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
             value
         })
     };
-    // A skipped or merged row would shift brokers between ranks, so the body
-    // must be whole rows only, each one `<tr>` of nine closed cells, ranked
-    // in order, and a broker after a side's blank rows rejects the page.
+    // The body is whole rows (see `canonical_rows`); ranks must run in
+    // order, and a broker after a side's blank rows rejects the page.
     let (mut buyers_ended, mut sellers_ended) = (false, false);
     let mut rank = 0;
     let mut at = body_start;
@@ -212,17 +266,11 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
         let end = rest
             .find("</tr>")
             .map_or(rest.len(), |end| end + "</tr>".len());
-        let piece = &rest[..end];
         let original = &html[at..at + end];
         at += end;
         rank += 1;
-        let whole_row = piece.trim_start().starts_with("<tr")
-            && piece.ends_with("</tr>")
-            && piece.matches("<tr").count() == 1
-            && piece.matches("<td").count() == 9
-            && piece.matches("</td>").count() == 9;
         let row = cells(original);
-        if !whole_row || row.len() != 9 || row[4].text.parse::<u32>().ok() != Some(rank) {
+        if row.len() != 9 || row[4].text.parse::<u32>().ok() != Some(rank) {
             return Err(IdxError::ParseError(format!(
                 "ipot broker summary: unexpected row {rank} ({} cells, rank {:?})",
                 row.len(),
@@ -421,6 +469,18 @@ mod tests {
         };
         let commented = hidden(&|cells| format!("<tr><!--{cells}--></tr>"));
         let in_attribute = hidden(&|cells| format!("<tr data-x='{cells}'></tr>"));
+        let after_quoted_end = hidden(&|cells| format!("<tr data-x='>{cells}'></tr>"));
+        // Closing tags with a space, a cell under another tag name, and a
+        // character reference a browser would decode.
+        let lots = "<span class=\"text-up\">828,163 </span>";
+        let spaced_row_end = DAY.replacen(lots, &format!("</tr >{lots}"), 1);
+        let spaced_cell_end = DAY.replacen(lots, &format!("</td >{lots}"), 1);
+        let other_tag = DAY.replacen(
+            "<td align=\"center\">5</td>",
+            "<td-x align=\"center\">5</td>",
+            1,
+        );
+        let reference = DAY.replacen(">828,163 <", ">8&#50;8,163 <", 1);
         for page in [
             short_row,
             skipped_rank,
@@ -431,6 +491,11 @@ mod tests {
             early_end,
             commented,
             in_attribute,
+            after_quoted_end,
+            spaced_row_end,
+            spaced_cell_end,
+            other_tag,
+            reference,
             "</tbody><tbody>".to_string(),
         ] {
             assert!(
