@@ -115,7 +115,11 @@ WIB as the fallback.
 - `GET https://www.idx.co.id/primary/TradingSummary/GetStockSummary`
   `?length=9999&start=0&date=YYYYMMDD` answers one JSON row per stock for the
   session: prices, volume, value, `ForeignBuy`/`ForeignSell` (shares) and
-  non-regular volume and value. A day without trading has no rows; rows dated
+  non-regular volume and value. `Volume`, `Value` and the foreign figures are
+  the regular board only: IPOT's regular-board total for BBCA on 2026-10-16
+  matches `Value`, and in a week of every stock no foreign figure exceeded
+  regular volume. `non_regular_bps` is therefore over regular plus
+  non-regular value. A day without trading has no rows; rows dated
   another day are dropped. `api/idx/parse.rs` parses it purely.
 - Cloudflare rejects most TLS fingerprints (in October 2026 only
   `curl_safari184` passed), so the request uses curl-impersonate's profile

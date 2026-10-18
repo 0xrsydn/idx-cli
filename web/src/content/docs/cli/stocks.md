@@ -57,7 +57,8 @@ idx stocks flow BBCA --from 2026-10-01 --to 2026-10-16
 
 What foreign investors bought and sold, session by session: buy, sell and
 net volume in shares, the net value at each session's average price (an
-estimate), and the share of value traded outside the regular board. The
+estimate), and the share of all value traded outside the regular board.
+Volume, value and the foreign figures are IDX's regular-board figures. The
 footer gives the net over the range and foreign investors' share of trading.
 Without dates it shows the latest 10 sessions (`--days`, at most 60).
 

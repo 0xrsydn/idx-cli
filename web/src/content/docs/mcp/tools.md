@@ -65,7 +65,7 @@ Company data for one IDX ticker: profile, financial statements, earnings, analys
 
 ## `get_foreign_flow`
 
-Foreign investors' buying and selling of one IDX ticker, session by session (oldest first), from IDX's daily trading summary: foreign buy, sell and net volume in shares, `foreign_net_value` (net shares at the session's average price, an estimate, IDR), `change_bps`, and `non_regular_bps` (share of value traded outside the regular board). Totals cover the whole range; `foreign_share_bps` is foreign investors' share of trading. End of day.
+Foreign investors' buying and selling of one IDX ticker, session by session (oldest first), from IDX's daily trading summary: foreign buy, sell and net volume in shares, `foreign_net_value` (net shares at the session's average price, an estimate, IDR), `change_bps`, and `non_regular_bps` (share of all value traded outside the regular board). Volume, value and foreign figures are the regular board. Totals cover the whole range; `foreign_share_bps` is foreign investors' share of regular-board trading. End of day.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |

@@ -1254,8 +1254,9 @@ pub fn print_foreign_flow(flow: &ForeignFlow) -> Result<(), IdxError> {
     }
     println!("{summary}.");
     println!(
-        "Volumes are shares. Net value is estimated at each session's average price; \
-NON-REG is the share of value traded outside the regular board (negotiated and cash)."
+        "Volume, value and foreign figures are the regular board, volumes in shares. Net value \
+is estimated at each session's average price; NON-REG is the share of all value traded \
+outside the regular board (negotiated and cash)."
     );
     Ok(())
 }

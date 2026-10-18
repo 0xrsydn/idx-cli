@@ -10,7 +10,10 @@ use crate::error::IdxError;
 pub const DEFAULT_SESSIONS: usize = 10;
 
 /// One stock's trading summary for one session, as IDX publishes it.
-/// Prices are whole IDR, volumes are shares.
+/// Prices are whole IDR, volumes are shares. Volume, value and the foreign
+/// figures cover the regular board only (across a week of every stock, no
+/// foreign figure exceeded regular volume, even where non-regular volume was
+/// more than twice it); the non-regular figures cover the rest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StockDay {
     /// Bare IDX code, e.g. `BBCA`.
@@ -21,7 +24,7 @@ pub struct StockDay {
     pub low: Option<i64>,
     pub close: Option<i64>,
     pub volume: Option<i64>,
-    /// Value traded, whole IDR, all boards.
+    /// Value traded on the regular board, whole IDR.
     pub value: Option<i64>,
     pub frequency: Option<i64>,
     /// Shares bought by foreign investors.
@@ -80,11 +83,11 @@ pub struct ForeignFlowDay {
     pub close: Option<i64>,
     /// Close against the previous close, basis points.
     pub change_bps: Option<i64>,
-    /// Shares traded.
+    /// Shares traded on the regular board.
     pub volume: Option<i64>,
-    /// Value traded, whole IDR.
+    /// Value traded on the regular board, whole IDR.
     pub value: Option<i64>,
-    /// Shares foreign investors bought.
+    /// Shares foreign investors bought (regular board).
     pub foreign_buy: Option<i64>,
     /// Shares foreign investors sold.
     pub foreign_sell: Option<i64>,
@@ -94,7 +97,7 @@ pub struct ForeignFlowDay {
     /// whole IDR: an estimate.
     pub foreign_net_value: Option<i64>,
     /// Value traded outside the regular board (negotiated and cash), basis
-    /// points of the session's value.
+    /// points of all value traded (regular plus non-regular).
     pub non_regular_bps: Option<i64>,
 }
 
@@ -112,6 +115,6 @@ pub struct ForeignFlow {
     /// Sum of the sessions' estimated net values, whole IDR.
     pub foreign_net_value: Option<i64>,
     /// Foreign buys and sells over twice the volume: foreign investors'
-    /// share of trading, basis points.
+    /// share of regular-board trading, basis points.
     pub foreign_share_bps: Option<i64>,
 }

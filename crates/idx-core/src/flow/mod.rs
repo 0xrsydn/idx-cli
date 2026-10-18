@@ -184,10 +184,11 @@ fn flow_day(row: &StockDay) -> ForeignFlowDay {
         foreign_sell: row.foreign_sell,
         foreign_net,
         foreign_net_value,
+        // `value` is the regular board only; the share is of all trading.
         non_regular_bps: row
             .non_regular_value
             .zip(row.value)
-            .and_then(|(part, whole)| bps(part, whole)),
+            .and_then(|(part, regular)| bps(part, part.checked_add(regular)?)),
     }
 }
 
@@ -255,7 +256,8 @@ mod tests {
         );
         // 400 shares at 1,100 (value over volume).
         assert_eq!(first.foreign_net_value, Some(440_000));
-        assert_eq!(first.non_regular_bps, Some(1000));
+        // 110,000 of 1,100,000 regular plus 110,000 non-regular.
+        assert_eq!(first.non_regular_bps, Some(909));
         assert_eq!(flow.days[1].change_bps, Some(-500));
         assert_eq!(
             (flow.foreign_net, flow.foreign_net_value),
@@ -276,6 +278,17 @@ mod tests {
         assert_eq!(flow.days[1].foreign_net, None);
         assert_eq!((flow.foreign_net, flow.foreign_share_bps), (None, None));
         assert!(foreign_flow("TEST.JK", &[]).is_none());
+    }
+
+    #[test]
+    fn test_non_regular_share_is_of_all_trading() {
+        let raw = include_str!("../../tests/fixtures/idx_stocksummary_20261014.json");
+        let date = NaiveDate::from_ymd_opt(2026, 10, 14).unwrap();
+        let rows = crate::api::idx::parse_stock_summary(raw, date).unwrap();
+        let bbri: Vec<StockDay> = rows.into_iter().filter(|row| row.code == "BBRI").collect();
+        let flow = foreign_flow("BBRI.JK", &bbri).unwrap();
+        // 172.3B non-regular against 338.5B regular: 33.74%, not 50.91%.
+        assert_eq!(flow.days[0].non_regular_bps, Some(3374));
     }
 
     #[test]
