@@ -149,14 +149,16 @@ fn cell(td: ElementRef) -> Option<(String, Option<String>)> {
             Node::Comment(_) => {}
             Node::Element(element) if element.name() == "span" && class.is_none() => {
                 let span = ElementRef::wrap(child)?;
-                let value = span.attr("class").filter(|value| {
-                    value.starts_with("text-") && value.split_whitespace().count() == 1
-                })?;
+                // One class token, as the browser splits it.
+                let mut tokens = span.attr("class")?.split_whitespace();
+                let token = tokens
+                    .next()
+                    .filter(|token| token.starts_with("text-") && tokens.next().is_none())?;
                 if !only_attrs(span, &["class"]) {
                     return None;
                 }
                 span_text = Some(leaf_text(span)?);
-                class = Some(value.to_string());
+                class = Some(token.to_string());
             }
             _ => return None,
         }
@@ -355,7 +357,12 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     // The columns must be labelled as IPOT labels them, in its order.
     let headers: Option<Vec<String>> = sole_child(head, "tr").and_then(|row| {
         row.child_elements()
-            .map(|th| (th.value().name() == "th").then(|| leaf_text(th)).flatten())
+            .map(|th| {
+                // Only `align`: a span would move the columns under the labels.
+                (th.value().name() == "th" && only_attrs(th, &["align"]))
+                    .then(|| leaf_text(th))
+                    .flatten()
+            })
             .map(|text| text.map(|text| clean(&text)))
             .collect()
     });
@@ -851,6 +858,14 @@ mod tests {
                 "<div>".repeat(4_000) + &"</div>".repeat(4_000) + DAY,
             ),
             (
+                "a column label spanning columns",
+                DAY.replacen(
+                    "<th align=\"right\">B.Lot</th>",
+                    "<th align=\"right\" colspan=\"9\">B.Lot</th>",
+                    1,
+                ),
+            ),
+            (
                 "swapped column labels",
                 DAY.replacen(">B.Lot<", ">B.Tmp<", 1)
                     .replacen(">B.Val<", ">B.Lot<", 1)
@@ -860,6 +875,12 @@ mod tests {
         for (what, page) in hidden.into_iter().chain(more) {
             assert!(read(&page).is_none(), "{what}");
         }
+        let spaced_class = DAY.replacen("class=\"text-foreign\"", "class=\" text-foreign \"", 1);
+        assert_eq!(
+            read(&spaced_class),
+            Some(original.clone()),
+            "class spacing shows the same"
+        );
         let script_text = DAY.replacen("></script>", ">/* invalid stock code */</script>", 1);
         assert_eq!(
             read(&script_text),
