@@ -93,6 +93,14 @@ fn clean(text: &str) -> String {
     text.replace('\u{a0}', " ").trim().to_string()
 }
 
+/// Class tokens as HTML splits them: on ASCII whitespace only, so a
+/// no-break space stays part of a token.
+fn class_tokens(value: &str) -> impl Iterator<Item = &str> {
+    value
+        .split(['\t', '\n', '\x0c', '\r', ' '])
+        .filter(|token| !token.is_empty())
+}
+
 fn selector(css: &str) -> Selector {
     Selector::parse(css).expect("a valid selector")
 }
@@ -150,7 +158,7 @@ fn cell(td: ElementRef) -> Option<(String, Option<String>)> {
             Node::Element(element) if element.name() == "span" && class.is_none() => {
                 let span = ElementRef::wrap(child)?;
                 // One class token, as the browser splits it.
-                let mut tokens = span.attr("class")?.split_whitespace();
+                let mut tokens = class_tokens(span.attr("class")?);
                 let token = tokens
                     .next()
                     .filter(|token| token.starts_with("text-") && tokens.next().is_none())?;
@@ -257,10 +265,7 @@ fn known_markup(page: &Html) -> bool {
                     .iter()
                     .filter(|(on, pinned, _)| *on == name && *pinned == attr)
                     .all(|(_, _, only)| *only == value)
-                && (attr != "class"
-                    || value
-                        .split_whitespace()
-                        .all(|class| CLASSES.contains(&class)))
+                && (attr != "class" || class_tokens(value).all(|class| CLASSES.contains(&class)))
         })
     })
 }
@@ -271,7 +276,12 @@ fn placed(element: ElementRef, path: &[(&str, &str)]) -> bool {
     let ancestors: Vec<ElementRef> = element.ancestors().filter_map(ElementRef::wrap).collect();
     ancestors.len() == path.len() + 1
         && ancestors.iter().zip(path).all(|(ancestor, (name, class))| {
-            ancestor.value().name() == *name && ancestor.attr("class") == Some(*class)
+            let mut found: Vec<&str> =
+                class_tokens(ancestor.attr("class").unwrap_or_default()).collect();
+            let mut wanted: Vec<&str> = class_tokens(class).collect();
+            found.sort_unstable();
+            wanted.sort_unstable();
+            ancestor.value().name() == *name && found == wanted
         })
 }
 
@@ -283,11 +293,42 @@ const INPUT_PATH: [(&str, &str); 3] = [
 ];
 
 /// The `MM/DD/YYYY` value of the one input with this id, where IPOT puts it.
-fn input_date(page: &Html, id: &str) -> Option<NaiveDate> {
-    let input = only(page.root_element(), &format!("input#{id}"))
-        .filter(|input| placed(*input, &INPUT_PATH))?;
-    NaiveDate::parse_from_str(input.attr("value")?.trim(), "%m/%d/%Y").ok()
+fn input_date(input: ElementRef) -> Option<NaiveDate> {
+    // A text input drops line breaks from its value before showing it.
+    let value = input.attr("value")?.replace(['\r', '\n'], "");
+    NaiveDate::parse_from_str(value.trim(), "%m/%d/%Y").ok()
 }
+
+/// The range the page echoes: IPOT's start and end date inputs, in that
+/// order, each with its id and name where IPOT puts it. Either missing,
+/// repeated or out of place gives no dates.
+fn echoed_dates(page: &Html) -> (Option<NaiveDate>, Option<NaiveDate>) {
+    let inputs: Vec<ElementRef> = page
+        .root_element()
+        .descendent_elements()
+        .filter(|element| {
+            element.value().name() == "input"
+                && DATE_INPUTS
+                    .iter()
+                    .any(|(id, _)| element.attr("id") == Some(*id))
+        })
+        .collect();
+    let in_place = inputs.len() == DATE_INPUTS.len()
+        && inputs.iter().zip(DATE_INPUTS).all(|(input, (id, name))| {
+            input.attr("id") == Some(id)
+                && input.attr("name") == Some(name)
+                && placed(*input, &INPUT_PATH)
+        });
+    match inputs[..] {
+        [start, end] if in_place => (input_date(start), input_date(end)),
+        _ => (None, None),
+    }
+}
+
+const DATE_INPUTS: [(&str, &str); 2] = [
+    ("startDateBrokerSummary", "startDate"),
+    ("endDateBrokerSummary", "endDate"),
+];
 
 /// The only child element of `parent`, when it is a `name`.
 fn sole_child<'a>(parent: ElementRef<'a>, name: &str) -> Option<ElementRef<'a>> {
@@ -373,9 +414,10 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     if names != ["thead", "tbody", "tfoot"] {
         return Err(parse_error("unexpected table parts"));
     }
+    let (from, to) = echoed_dates(&page);
     let mut raw = BrokerSummaryRaw {
-        from: input_date(&page, "startDateBrokerSummary"),
-        to: input_date(&page, "endDateBrokerSummary"),
+        from,
+        to,
         ..BrokerSummaryRaw::default()
     };
     let mut rounded = false;
@@ -409,6 +451,15 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
         ] {
             let code = cells[at].0.to_ascii_uppercase();
             if code.is_empty() {
+                // A blank side shows no figures either.
+                if cells[at + 1..at + 4]
+                    .iter()
+                    .any(|(text, _)| !text.is_empty())
+                {
+                    return Err(parse_error(&format!(
+                        "figures without a broker in row {rank}"
+                    )));
+                }
                 *ended = true;
                 continue;
             }
@@ -880,6 +931,49 @@ mod tests {
             read(&spaced_class),
             Some(original.clone()),
             "class spacing shows the same"
+        );
+        // The round-12 audit: class tokens split on ASCII space only; a
+        // date's line breaks dropped as an input drops them; ancestor
+        // classes as a set; dates by id, name and order; no figures beside
+        // a blank code.
+        let nbsp_class = DAY.replacen(
+            "class=\"text-foreign\">KZ",
+            "class=\"text-foreign&nbsp;\">KZ",
+            1,
+        );
+        assert!(
+            read(&nbsp_class).is_none(),
+            "a no-break space is part of a class token"
+        );
+        let broken_date = DAY.replacen("value=\"10/16/2026\"", "value=\"1&#10;0/16/20&#13;26\"", 1);
+        assert_eq!(
+            read(&broken_date),
+            Some(original.clone()),
+            "line breaks in a date"
+        );
+        let reordered = DAY.replacen(
+            "class=\"col col-xs-5 col-sm-3\"",
+            "class=\" col-sm-3 col-xs-5\tcol \"",
+            1,
+        );
+        assert_eq!(
+            read(&reordered),
+            Some(original.clone()),
+            "ancestor classes in another order"
+        );
+        let swapped = RANGE
+            .replacen("startDateBrokerSummary", "TMP", 1)
+            .replacen("endDateBrokerSummary", "startDateBrokerSummary", 1)
+            .replacen("TMP", "endDateBrokerSummary", 1);
+        let raw = read(&swapped).unwrap();
+        assert_eq!((raw.from, raw.to), (None, None), "date inputs swapped");
+        // Rank 10's buyer AK, in the last row, so no broker follows it.
+        let last_ak = DAY.rfind(">AK<").unwrap();
+        let blank_code_with_figures =
+            DAY[..last_ak].to_string() + "><" + &DAY[last_ak + ">AK<".len()..];
+        assert!(
+            read(&blank_code_with_figures).is_none(),
+            "figures beside a blank broker code"
         );
         let script_text = DAY.replacen("></script>", ">/* invalid stock code */</script>", 1);
         assert_eq!(
