@@ -296,24 +296,42 @@ fn sole_child<'a>(parent: ElementRef<'a>, name: &str) -> Option<ElementRef<'a>> 
     }
 }
 
-/// The footer's texts, e.g. `T. Val : 6.6 T`, from `tfoot > tr > th > div >
-/// span` as IPOT writes it, each span holding text only.
-fn footer_texts(tfoot: ElementRef) -> Option<Vec<String>> {
+const MAX_PAGE_BYTES: usize = 64 * 1024;
+const MAX_PAGE_TAGS: usize = 2_000;
+
+/// The footer's labels, in the order IPOT writes them.
+const FOOTER: [&str; 4] = ["T. Val :", "F. NVal :", "T.Lot :", "Avg :"];
+
+/// The footer's figures after their labels (`6.6 T` for `T. Val : 6.6 T`),
+/// from `tfoot > tr > th > div` holding exactly IPOT's four text-only spans
+/// in order, with nothing else shown between them.
+fn footer_figures(tfoot: ElementRef) -> Option<[String; 4]> {
     let div = sole_child(sole_child(sole_child(tfoot, "tr")?, "th")?, "div")?;
-    div.child_elements()
-        .map(|span| {
-            (span.value().name() == "span")
-                .then(|| leaf_text(span))
-                .flatten()
-        })
-        .map(|text| text.map(|text| clean(&text)))
-        .collect()
+    let mut figures = Vec::new();
+    for child in div.children() {
+        match child.value() {
+            Node::Text(text) if text.trim().is_empty() => {}
+            Node::Comment(_) => {}
+            Node::Element(element) if element.name() == "span" => {
+                let text = clean(&leaf_text(ElementRef::wrap(child)?)?);
+                let label = FOOTER.get(figures.len())?;
+                figures.push(text.strip_prefix(label)?.trim().to_string());
+            }
+            _ => return None,
+        }
+    }
+    figures.try_into().ok()
 }
 
 /// The page is read as a browser builds it from the fragment (html5ever),
 /// so markup it would not show as table cells or footer text, such as
 /// comments, attributes or other elements' content, is never read as such.
 pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
+    // IPOT's page is about 8 KB with under 500 tags. A bound before parsing
+    // keeps HTML tree building (which scans open elements per tag) cheap.
+    if html.len() > MAX_PAGE_BYTES || html.matches('<').count() > MAX_PAGE_TAGS {
+        return Err(parse_error("page larger than IPOT serves"));
+    }
     let page = Html::parse_fragment(html);
     let shown: String = page.root_element().text().collect();
     if shown.to_ascii_lowercase().contains("invalid stock code") {
@@ -389,23 +407,13 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
             });
         }
     }
-    let footer = footer_texts(tfoot).ok_or_else(|| parse_error("unexpected footer markup"))?;
-    for label in ["T. Val :", "F. NVal :", "T.Lot :", "Avg :"] {
-        if footer.iter().filter(|text| text.starts_with(label)).count() > 1 {
-            return Err(parse_error(&format!("{label} twice in the footer")));
-        }
-    }
-    let mut total = |label: &str| {
-        footer
-            .iter()
-            .find_map(|text| text.strip_prefix(label))
-            .and_then(&mut figure)
-    };
-    raw.total_value = total("T. Val :");
-    raw.foreign_net_value = total("F. NVal :");
-    raw.total_lots = total("T.Lot :");
+    let [value, net, lots, average] =
+        footer_figures(tfoot).ok_or_else(|| parse_error("unexpected footer markup"))?;
+    raw.total_value = figure(&value);
+    raw.foreign_net_value = figure(&net);
+    raw.total_lots = figure(&lots);
     // The page prints `Avg : 0` when nothing traded; there is no average then.
-    raw.average_price = total("Avg :").filter(|_| raw.total_lots.is_some_and(|lots| lots > 0));
+    raw.average_price = figure(&average).filter(|_| raw.total_lots.is_some_and(|lots| lots > 0));
     raw.rounded = rounded;
     Ok(IpotPage::Summary(raw))
 }
@@ -809,7 +817,26 @@ mod tests {
                 ),
             ),
         ];
-        for (what, page) in hidden {
+        let total = "<span class=\"fsize12 ml5 mr5\">T. Val : 6.6 T</span>";
+        let more = [
+            (
+                "a total split from its span",
+                DAY.replacen(
+                    total,
+                    "<span class=\"fsize12 ml5 mr5\">T. Val : 6</span>.6 T",
+                    1,
+                ),
+            ),
+            (
+                "a total split over two spans",
+                DAY.replacen(total, "<span>T. Val : 6</span><span>00</span>", 1),
+            ),
+            (
+                "deeply nested divs",
+                "<div>".repeat(4_000) + &"</div>".repeat(4_000) + DAY,
+            ),
+        ];
+        for (what, page) in hidden.into_iter().chain(more) {
             assert!(read(&page).is_none(), "{what}");
         }
     }
