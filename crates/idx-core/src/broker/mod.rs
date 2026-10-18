@@ -15,6 +15,11 @@ use crate::error::IdxError;
 use types::{BrokerBoard, BrokerInvestor, BrokerQuery, BrokerRange, BrokerSummary};
 
 const SOURCE: &str = "ipot";
+/// Cache bucket for normalized summaries, versioned with their shape: a
+/// summary cached before `buy_value`/`sell_value` existed would read back
+/// without them (and an investor-filtered one without its totals), so a new
+/// shape gets a new bucket rather than serving such entries.
+const CACHE_BUCKET: &str = "ipot-broker-v2";
 /// Longest range one summary may cover.
 pub const MAX_RANGE_DAYS: i64 = 366;
 /// Calendar days searched back for the latest session with trades.
@@ -98,7 +103,7 @@ impl Broker<'_> {
         cached_fetch(
             &self.idx.cache,
             CacheSpec {
-                bucket: "ipot-broker",
+                bucket: CACHE_BUCKET,
                 key: &key,
                 ttl_secs: if query.to < today {
                     TTL_CLOSED_SECS
@@ -146,7 +151,7 @@ impl Broker<'_> {
         }
         if policy == CachePolicy::Offline {
             return Err(IdxError::CacheMiss(format!(
-                "ipot-broker/{resolved} (no cached session in the last {LATEST_LOOKBACK_DAYS} days)"
+                "{CACHE_BUCKET}/{resolved} (no cached session in the last {LATEST_LOOKBACK_DAYS} days)"
             )));
         }
         Err(IdxError::NoMarketData(format!(

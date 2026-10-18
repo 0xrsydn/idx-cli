@@ -2933,3 +2933,69 @@ fn bandar_reads_one_investor_side_against_its_own_trading() {
         "{table}"
     );
 }
+
+#[test]
+fn bandar_never_reads_a_broker_summary_cached_in_the_old_shape() {
+    // A summary cached before buy_value/sell_value existed: fresh for a
+    // week, with trades, but no denominators for a reading.
+    let root = test_env_dir("bandar-legacy-cache");
+    let bucket = root.join("cache").join("idx").join("ipot-broker");
+    fs::create_dir_all(&bucket).unwrap();
+    let flow = |code: &str, value: i64| {
+        serde_json::json!({"rank": 1, "code": code, "name": null, "kind": null,
+            "lots": value / 100, "value": value, "average_price": 1})
+    };
+    let legacy = serde_json::json!({
+        "fetched_at": chrono::Utc::now().to_rfc3339(),
+        "ttl_secs": 7 * 24 * 3600,
+        "schema_version": 1,
+        "data": {
+            "symbol": "BBCA.JK", "from": "2026-10-16", "to": "2026-10-16",
+            "investor": "all", "board": "all",
+            "buyers": [flow("AA", 60_000)], "sellers": [flow("BB", 40_000)],
+            "total_value": 100_000, "total_lots": 1_000, "average_price": 100,
+            "foreign_net_value": null, "rounded": false
+        }
+    });
+    fs::write(
+        bucket.join("BBCA-2026-10-16-2026-10-16-all-all.json"),
+        legacy.to_string(),
+    )
+    .unwrap();
+
+    // Offline, the old entry is not served as a complete summary.
+    run_error_json(
+        mock_bin_with_root(&root).args([
+            "-o",
+            "json",
+            "--offline",
+            "stocks",
+            "bandar",
+            "BBCA",
+            "--date",
+            "2026-10-16",
+        ]),
+        "CACHEMISS",
+    );
+    // Online, the summary is fetched again and read in full.
+    let reports = run_success_json(mock_bin_with_root(&root).args([
+        "-o",
+        "json",
+        "stocks",
+        "bandar",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+    ]));
+    assert_eq!(reports[0]["imbalance_bps"], -2425);
+    let table = run_success_stdout(mock_bin_with_root(&root).args([
+        "--no-color",
+        "stocks",
+        "bandar",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+    ]));
+    assert!(!table.contains("No trades."), "{table}");
+    assert!(table.contains("big distribution"), "{table}");
+}
