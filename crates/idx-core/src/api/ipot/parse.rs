@@ -279,8 +279,11 @@ fn placed(element: ElementRef, path: &[(&str, &str)]) -> bool {
             let mut found: Vec<&str> =
                 class_tokens(ancestor.attr("class").unwrap_or_default()).collect();
             let mut wanted: Vec<&str> = class_tokens(class).collect();
+            // As sets: order, spacing and repeats don't change the classes.
             found.sort_unstable();
+            found.dedup();
             wanted.sort_unstable();
+            wanted.dedup();
             ancestor.value().name() == *name && found == wanted
         })
 }
@@ -300,9 +303,8 @@ fn input_date(input: ElementRef) -> Option<NaiveDate> {
 }
 
 /// The range the page echoes: IPOT's start and end date inputs, in that
-/// order, each with its id and name where IPOT puts it. Either missing,
-/// repeated or out of place gives no dates.
-fn echoed_dates(page: &Html) -> (Option<NaiveDate>, Option<NaiveDate>) {
+/// order, each with its id and name where IPOT puts it, both readable.
+fn echoed_dates(page: &Html) -> Option<(NaiveDate, NaiveDate)> {
     let inputs: Vec<ElementRef> = page
         .root_element()
         .descendent_elements()
@@ -320,8 +322,8 @@ fn echoed_dates(page: &Html) -> (Option<NaiveDate>, Option<NaiveDate>) {
                 && placed(*input, &INPUT_PATH)
         });
     match inputs[..] {
-        [start, end] if in_place => (input_date(start), input_date(end)),
-        _ => (None, None),
+        [start, end] if in_place => Some((input_date(start)?, input_date(end)?)),
+        _ => None,
     }
 }
 
@@ -414,10 +416,12 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     if names != ["thead", "tbody", "tfoot"] {
         return Err(parse_error("unexpected table parts"));
     }
-    let (from, to) = echoed_dates(&page);
+    // Without the range it applied, a page's figures could be any session's.
+    let (from, to) =
+        echoed_dates(&page).ok_or_else(|| parse_error("no readable echoed date range"))?;
     let mut raw = BrokerSummaryRaw {
-        from,
-        to,
+        from: Some(from),
+        to: Some(to),
         ..BrokerSummaryRaw::default()
     };
     let mut rounded = false;
@@ -866,9 +870,7 @@ mod tests {
             ),
         ];
         for (what, page) in dates_shown_otherwise {
-            if let Some(raw) = read(&page) {
-                assert_eq!(raw.from, None, "{what}");
-            }
+            assert!(read(&page).is_none(), "{what}");
         }
         // Ways to hide or relabel what IPOT shows, all outside its markup.
         let hidden = [
@@ -965,8 +967,17 @@ mod tests {
             .replacen("startDateBrokerSummary", "TMP", 1)
             .replacen("endDateBrokerSummary", "startDateBrokerSummary", 1)
             .replacen("TMP", "endDateBrokerSummary", 1);
-        let raw = read(&swapped).unwrap();
-        assert_eq!((raw.from, raw.to), (None, None), "date inputs swapped");
+        assert!(read(&swapped).is_none(), "date inputs swapped");
+        let repeated_class = DAY.replacen(
+            "class=\"col col-xs-5 col-sm-3\"",
+            "class=\"col col col-xs-5 col-sm-3\"",
+            1,
+        );
+        assert_eq!(
+            read(&repeated_class),
+            Some(original.clone()),
+            "a repeated ancestor class"
+        );
         // Rank 10's buyer AK, in the last row, so no broker follows it.
         let last_ak = DAY.rfind(">AK<").unwrap();
         let blank_code_with_figures =
