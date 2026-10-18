@@ -9,5 +9,5 @@ exit: 0
 ├╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌┤
 │ BBCA.JK ┆ 2026-10-16 ┆ big distribution ┆ -29.1%      ┆ 30.1%     ┆ 59.2%      ┆ 6.6T  ┆ -2.3T       │
 └─────────┴────────────┴──────────────────┴─────────────┴───────────┴────────────┴───────┴─────────────┘
-Method top_concentration_v1: the top 3 buyers' value minus the top 3 sellers' value, as a share of value traded; 5% or more reads accumulation, 15% or more big (negative: distribution). Brokers trade for many clients, so this is a heuristic, not advice.
+Method top_concentration_v1: the top 3 buyers' share of the value bought minus the top 3 sellers' share of the value sold; 5% or more reads accumulation, 15% or more big (negative: distribution). Brokers trade for many clients, so this is a heuristic, not advice.
 --- stderr

@@ -31,14 +31,15 @@ pub struct Comparison {
     pub failures: Vec<(String, IdxError)>,
 }
 
-/// Readings weigh brokers against the value traded, which the source does
-/// not total for one investor side.
-fn check_investor(investor: BrokerInvestor) -> Result<(), IdxError> {
-    if investor == BrokerInvestor::All {
+/// One investor side is weighed against its own selling, which the source
+/// gives only across all boards.
+fn check_scope(investor: BrokerInvestor, board: BrokerBoard) -> Result<(), IdxError> {
+    if investor == BrokerInvestor::All || board == BrokerBoard::All {
         Ok(())
     } else {
         Err(IdxError::InvalidInput(format!(
-            "bandar needs --investor all: the broker summary has no total for {} investors alone",
+            "bandar for {} investors needs --board all: the broker summary gives one side's \
+selling only across all boards",
             investor.as_str()
         )))
     }
@@ -70,7 +71,7 @@ impl Analysis<'_> {
         policy: CachePolicy,
     ) -> Result<Fetched<BandarReport>, IdxError> {
         let top = check_top(query.top)?;
-        check_investor(query.investor)?;
+        check_scope(query.investor, query.board)?;
         let summary =
             self.idx
                 .broker()
@@ -87,7 +88,7 @@ impl Analysis<'_> {
         policy: CachePolicy,
     ) -> Result<BandarScreen, IdxError> {
         check_top(query.top)?;
-        check_investor(query.investor)?;
+        check_scope(query.investor, query.board)?;
         let mut reports = Vec::new();
         let mut failures = Vec::new();
         for symbol in symbols {

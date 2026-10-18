@@ -207,7 +207,8 @@ does not show broker codes during trading. Without dates, the latest session wit
         long_about = "Bandarmology from the broker summary: the top 1, 3, 5 and 10 buyers' value \
 against the same number of sellers', as a share of value traded, with a signal from big \
 accumulation to big distribution. Several symbols give a screen ranked by the headline tier \
-(at most 100, one request each). Counts all investors (`--investor` must be `all`). A \
+(at most 100, one request each). `--investor foreign|domestic` weighs that side's buyers \
+against its buying and its sellers against its selling (needs `--board all`). A \
 heuristic over end-of-day broker codes, not advice.",
         after_help = "Examples:\n  idx stocks bandar BBCA\n  idx stocks bandar BBCA --from 2026-10-12 --to 2026-10-16 --top 3\n  idx stocks bandar BBCA,BBRI,BMRI,TLKM\n  idx stocks screen --filter high-volume | jq -r '.[].symbol' | idx stocks bandar -"
     )]

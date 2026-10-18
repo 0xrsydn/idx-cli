@@ -2,10 +2,13 @@
 //! brokers than selling? No network; see docs/ARCHITECTURE.md.
 //!
 //! The summary lists the top 10 buyers and the top 10 sellers by gross lots.
-//! For N in 1, 3, 5 and 10 the top N buyers' value is set against the top N
-//! sellers' value, as a share of the value traded:
+//! For N in 1, 3, 5 and 10 the top N buyers' share of the value bought is set
+//! against the top N sellers' share of the value sold. For all investors both
+//! are the value traded, so this is the top N's buy value less their sell
+//! value as a share of it; for one investor side (foreign or domestic), each
+//! is that side's own buying or selling.
 //!
-//! | top-N buy - sell value, % of value | signal             |
+//! | top-N buy share - sell share, %    | signal             |
 //! |------------------------------------|--------------------|
 //! | >= +15                             | `big_accumulation` |
 //! | +5 to +15                          | `accumulation`     |
@@ -79,11 +82,12 @@ pub struct BandarTier {
     pub sell_value: Option<i64>,
     /// `buy_value - sell_value`, whole IDR.
     pub imbalance_value: Option<i64>,
+    /// `buy_share_bps - sell_share_bps`, computed exactly: for all investors,
     /// `imbalance_value` in basis points of the value traded.
     pub imbalance_bps: Option<i64>,
-    /// The top N buyers' share of the value traded, basis points.
+    /// The top N buyers' share of the value bought, basis points.
     pub buy_share_bps: Option<i64>,
-    /// The top N sellers' share of the value traded, basis points.
+    /// The top N sellers' share of the value sold, basis points.
     pub sell_share_bps: Option<i64>,
     /// Volume-weighted average price the top N buyers paid, whole IDR.
     pub buy_average: Option<i64>,
@@ -109,8 +113,12 @@ pub struct BandarReport {
     /// The headline tier's imbalance, basis points of value traded.
     pub imbalance_bps: Option<i64>,
     pub tiers: Vec<BandarTier>,
-    /// Value traded over the range, whole IDR.
+    /// Value traded over the range, whole IDR; `None` for one investor side.
     pub total_value: Option<i64>,
+    /// Value the selected investors bought, whole IDR.
+    pub buy_value: Option<i64>,
+    /// Value the selected investors sold, whole IDR.
+    pub sell_value: Option<i64>,
     /// Average traded price, whole IDR.
     pub average_price: Option<i64>,
     /// Foreign net value, whole IDR; `None` for a filtered summary.
@@ -175,15 +183,28 @@ pub fn bandar_tier(summary: &BrokerSummary, top: u8) -> BandarTier {
     let imbalance_value = buy_value
         .zip(sell_value)
         .and_then(|(buy, sell)| buy.checked_sub(sell));
-    let imbalance_bps = imbalance_value.and_then(|value| bps(value, summary.total_value));
+    let imbalance_bps = match (buy_value, sell_value, summary.buy_value, summary.sell_value) {
+        (Some(buy), Some(sell), Some(bought), Some(sold)) if bought > 0 && sold > 0 => {
+            // buy/bought - sell/sold over one denominator, so equal totals
+            // give exactly (buy - sell) / total.
+            let (buy, sell, bought, sold) = (
+                i128::from(buy),
+                i128::from(sell),
+                i128::from(bought),
+                i128::from(sold),
+            );
+            i64::try_from((buy * sold - sell * bought) * 10_000 / (bought * sold)).ok()
+        }
+        _ => None,
+    };
     BandarTier {
         top,
         buy_value,
         sell_value,
         imbalance_value,
         imbalance_bps,
-        buy_share_bps: buy_value.and_then(|value| bps(value, summary.total_value)),
-        sell_share_bps: sell_value.and_then(|value| bps(value, summary.total_value)),
+        buy_share_bps: buy_value.and_then(|value| bps(value, summary.buy_value)),
+        sell_share_bps: sell_value.and_then(|value| bps(value, summary.sell_value)),
         buy_average: vwap(buyers),
         sell_average: vwap(sellers),
         signal: imbalance_bps.map(BandarSignal::from_imbalance_bps),
@@ -223,6 +244,8 @@ pub fn analyze_bandar(summary: &BrokerSummary, top: u8) -> BandarReport {
         imbalance_bps: headline.imbalance_bps,
         tiers,
         total_value: summary.total_value,
+        buy_value: summary.buy_value,
+        sell_value: summary.sell_value,
         average_price: summary.average_price,
         foreign_net_value: summary.foreign_net_value,
         foreign_net_bps: summary
@@ -262,6 +285,8 @@ mod tests {
             total_value: Some(total),
             total_lots: None,
             average_price: None,
+            buy_value: Some(total),
+            sell_value: Some(total),
             foreign_net_value: Some(-total / 10),
             rounded: false,
         }
@@ -357,6 +382,36 @@ mod tests {
             reading(819_200_000, 504_300_000),
             (Some(1499), Some(BandarSignal::Accumulation))
         );
+    }
+
+    #[test]
+    fn test_bandar_tier_weighs_one_side_against_its_own_buying_and_selling() {
+        // Foreign investors bought 1,000 and sold 4,000: the top buyer took
+        // half of the buying, the top seller a quarter of the selling.
+        let mut s = summary(
+            vec![flow("AA", Some(500), 100)],
+            vec![flow("BB", Some(1_000), 100)],
+            0,
+        );
+        s.investor = BrokerInvestor::Foreign;
+        s.total_value = None;
+        s.buy_value = Some(1_000);
+        s.sell_value = Some(4_000);
+        s.foreign_net_value = Some(-3_000);
+        let report = analyze_bandar(&s, 1);
+        let tier = &report.tiers[0];
+        assert_eq!(
+            (tier.buy_share_bps, tier.sell_share_bps),
+            (Some(5000), Some(2500))
+        );
+        assert_eq!(tier.imbalance_bps, Some(2500));
+        assert_eq!(tier.imbalance_value, Some(-500));
+        assert_eq!(report.signal, Some(BandarSignal::BigAccumulation));
+        assert_eq!(report.foreign_net_bps, None, "no total to weigh it against");
+
+        // Without the selling total (one side on one board) there is no reading.
+        s.sell_value = None;
+        assert_eq!(analyze_bandar(&s, 1).signal, None);
     }
 
     #[test]

@@ -39,8 +39,10 @@ idx stocks broker BBCA --from 2026-10-12 --to 2026-10-16 --board regular
 Which brokers bought and sold a stock: the top 10 buyers and the top 10
 sellers by lots, each with lots, value and average price, plus totals and the
 net foreign value. Without dates it shows the latest session with trades.
-`--investor foreign|domestic` counts only one side's clients, and
-`--board regular` leaves out negotiated block trades.
+`--investor foreign|domestic` counts only one side's clients (each broker row
+is then that broker's foreign or domestic clients' trades, and the footer
+gives what that side bought and sold), and `--board regular` leaves out
+negotiated block trades.
 
 The data comes from Indo Premier (IPOT) and is end of day: IDX hides broker
 codes during trading. Buyers and sellers are ranked separately on gross
@@ -87,8 +89,11 @@ traded. The headline tier (`--top`, default 5) gives the signal:
 | -15% or less | big distribution |
 
 Several symbols give a screen ranked by that figure (at most 100, one request
-each), and it takes the same date and board flags as `broker` (all investors
-only: the summary has no total for one side). It is a
+each), and it takes the same date and filter flags as `broker`. With
+`--investor foreign` (or `domestic`) it reads that side alone: the top buyers'
+share of foreign buying against the top sellers' share of foreign selling.
+That needs `--board all`, since IPOT gives one side's selling only across all
+boards. It is a
 heuristic: a broker trades for many clients, and a broker on both sides of
 the summary is listed, since its gross figures overstate which way it traded.
 The JSON names the rules in `method` (`top_concentration_v1`).

@@ -15,6 +15,6 @@ Signal (top 5): big distribution, -24.2% of value
 └─────┴────────┴──────┴───────┴────────┴─────────┴──────────┴──────────────────┘
 Total 6.6T IDR, average 5,228; foreign net -2.3T (-34.8% of value).
 On both sides: AK, CC, MG, XL, YU, ZP; their gross figures overstate which way they traded.
-Method top_concentration_v1: the top 5 buyers' value minus the top 5 sellers' value, as a share of value traded; 5% or more reads accumulation, 15% or more big (negative: distribution). Brokers trade for many clients, so this is a heuristic, not advice.
+Method top_concentration_v1: the top 5 buyers' share of the value bought minus the top 5 sellers' share of the value sold; 5% or more reads accumulation, 15% or more big (negative: distribution). Brokers trade for many clients, so this is a heuristic, not advice.
 Note: the source rounds figures of a million and more to one decimal.
 --- stderr

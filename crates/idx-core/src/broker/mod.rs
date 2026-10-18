@@ -155,13 +155,27 @@ impl Broker<'_> {
     }
 }
 
-/// The public summary of one parsed page. With one investor side selected,
-/// the page's footer covers only part of the trades the lists show (foreign
-/// buying, not foreign selling), so no totals are given; `F. NVal` ignores
-/// both filters, so the foreign net goes with any filter.
+/// The public summary of one parsed page.
+///
+/// With one investor side selected, the page's footer (`T. Val`) covers only
+/// that side's buying, so it is the side's `buy_value`, not a total of the
+/// trades the lists show. `F. NVal`, the foreign net, ignores both filters:
+/// on all boards it gives the side's selling (foreign buying less the foreign
+/// net; domestic buying plus it), and with a board filter it is dropped.
 fn summary_from_raw(symbol: &str, query: &BrokerQuery, raw: BrokerSummaryRaw) -> BrokerSummary {
     let one_side = query.investor != BrokerInvestor::All;
-    let filtered = one_side || query.board != BrokerBoard::All;
+    let all_boards = query.board == BrokerBoard::All;
+    let foreign_net = raw.foreign_net_value.filter(|_| all_boards);
+    let buy_value = raw.total_value;
+    let sell_value = match query.investor {
+        BrokerInvestor::All => raw.total_value,
+        BrokerInvestor::Foreign => buy_value
+            .zip(foreign_net)
+            .and_then(|(buy, net)| buy.checked_sub(net)),
+        BrokerInvestor::Domestic => buy_value
+            .zip(foreign_net)
+            .and_then(|(buy, net)| buy.checked_add(net)),
+    };
     let mut summary = BrokerSummary {
         symbol: symbol.to_string(),
         from: raw.from.unwrap_or(query.from),
@@ -173,7 +187,9 @@ fn summary_from_raw(symbol: &str, query: &BrokerQuery, raw: BrokerSummaryRaw) ->
         total_value: raw.total_value.filter(|_| !one_side),
         total_lots: raw.total_lots.filter(|_| !one_side),
         average_price: raw.average_price.filter(|_| !one_side),
-        foreign_net_value: raw.foreign_net_value.filter(|_| !filtered),
+        buy_value,
+        sell_value,
+        foreign_net_value: foreign_net,
         rounded: raw.rounded,
     };
     for flow in summary.buyers.iter_mut().chain(summary.sellers.iter_mut()) {
@@ -228,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn test_summary_from_raw_drops_totals_that_do_not_cover_the_lists() {
+    fn test_summary_from_raw_gives_each_side_its_own_totals() {
         let day = date(2026, 10, 16);
         let read = |name: &str| {
             let html = std::fs::read_to_string(format!("tests/fixtures/{name}")).unwrap();
@@ -243,26 +259,68 @@ mod tests {
         assert_eq!(all.foreign_net_value, Some(-2_300_000_000_000));
         assert_eq!(all.sellers[0].name.as_deref(), Some("MANDIRI SEKURITAS"));
 
-        // Foreign, regular board: the footer's 1.6 T is less than the 2.0 T
-        // its top seller alone sold.
-        let foreign = BrokerQuery {
-            investor: BrokerInvestor::Foreign,
-            board: BrokerBoard::Regular,
-            ..query(day, day)
+        assert_eq!(
+            (all.buy_value, all.sell_value),
+            (all.total_value, all.total_value)
+        );
+
+        // Foreign on all boards: the footer's 1.7 T is foreign buying; with
+        // the -2.3 T foreign net, foreign selling is 4.0 T (IDX: about
+        // 3.95 T). Domestic buying 4.9 T makes up the rest of 6.6 T, and its
+        // selling is 2.6 T.
+        let side = |investor, board, name: &str| {
+            let query = BrokerQuery {
+                investor,
+                board,
+                ..query(day, day)
+            };
+            summary_from_raw("BBCA.JK", &query, read(name))
         };
+        let foreign = side(
+            BrokerInvestor::Foreign,
+            BrokerBoard::All,
+            "ipot_brokersummary_bbca_20261016_foreign_all.html",
+        );
+        assert_eq!(
+            (foreign.buy_value, foreign.sell_value),
+            (Some(1_700_000_000_000), Some(4_000_000_000_000))
+        );
+        assert_eq!(foreign.total_value, None);
+        assert_eq!(foreign.foreign_net_value, Some(-2_300_000_000_000));
+        let domestic = side(
+            BrokerInvestor::Domestic,
+            BrokerBoard::All,
+            "ipot_brokersummary_bbca_20261016_domestic_all.html",
+        );
+        assert_eq!(
+            (domestic.buy_value, domestic.sell_value),
+            (Some(4_900_000_000_000), Some(2_600_000_000_000))
+        );
+
+        // Foreign, regular board: the footer's 1.6 T is regular foreign
+        // buying, less than the 2.0 T its top seller alone sold, and the net
+        // covers all boards, so selling cannot be derived.
         let raw = read("ipot_brokersummary_bbca_20261016_foreign_regular.html");
         assert!(raw.total_value < raw.sellers[0].value);
-        let filtered = summary_from_raw("BBCA.JK", &foreign, raw);
+        let regular = side(
+            BrokerInvestor::Foreign,
+            BrokerBoard::Regular,
+            "ipot_brokersummary_bbca_20261016_foreign_regular.html",
+        );
         assert_eq!(
             (
-                filtered.total_value,
-                filtered.total_lots,
-                filtered.average_price
+                regular.total_value,
+                regular.total_lots,
+                regular.average_price
             ),
             (None, None, None)
         );
-        assert_eq!(filtered.foreign_net_value, None);
-        assert_eq!(filtered.sellers[0].value, Some(2_000_000_000_000));
+        assert_eq!(
+            (regular.buy_value, regular.sell_value),
+            (Some(1_600_000_000_000), None)
+        );
+        assert_eq!(regular.foreign_net_value, None);
+        assert_eq!(regular.sellers[0].value, Some(2_000_000_000_000));
     }
 
     #[test]

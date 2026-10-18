@@ -215,9 +215,18 @@ pub struct BrokerSummary {
     /// Average traded price, whole IDR; `None` when nothing traded, or as
     /// for `total_value`.
     pub average_price: Option<i64>,
+    /// Value the selected investors bought over the range on the selected
+    /// board, whole IDR: `total_value` for all investors, and for one side
+    /// the source's footer, which then covers that side's buying.
+    pub buy_value: Option<i64>,
+    /// Value the selected investors sold, whole IDR: `total_value` for all
+    /// investors; for one side on all boards, its buying less its net
+    /// (foreign net, or its negative for domestic investors). `None` for one
+    /// side on one board, where the source gives no net to derive it from.
+    pub sell_value: Option<i64>,
     /// Foreign buy value minus foreign sell value over the range, whole IDR,
-    /// across all boards. The source does not apply the investor or board
-    /// filter to it, so it is `None` for a filtered summary.
+    /// across all boards. The source does not apply the board filter to it,
+    /// so it is `None` for a summary of one board.
     pub foreign_net_value: Option<i64>,
     /// True when the source abbreviated at least one figure (`1.6 M` lots,
     /// `841.2 B` IDR), so those figures carry only one decimal of precision.

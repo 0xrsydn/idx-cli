@@ -952,6 +952,42 @@ pub(crate) fn broker_scope(
     scope
 }
 
+/// What one investor side bought and sold, when a summary covers one side.
+fn side_totals_line(
+    investor: BrokerInvestor,
+    board: BrokerBoard,
+    buy_value: Option<i64>,
+    sell_value: Option<i64>,
+    foreign_net: Option<i64>,
+) -> Option<String> {
+    let side = match investor {
+        BrokerInvestor::All => return None,
+        BrokerInvestor::Foreign => "Foreign",
+        BrokerInvestor::Domestic => "Domestic",
+    };
+    let buy = format_compact_option(buy_value);
+    Some(match sell_value {
+        Some(sell) => {
+            let net = foreign_net
+                .map(|net| match investor {
+                    BrokerInvestor::Domestic => -net,
+                    _ => net,
+                })
+                .map(|net| format!(" (net {:+})", format_compact(net)))
+                .unwrap_or_default();
+            format!(
+                "{side} investors bought {buy} IDR and sold {} IDR{net}.",
+                format_compact(sell)
+            )
+        }
+        None => format!(
+            "{side} investors bought {buy} IDR on the {} board; the source gives one side's \
+selling only across all boards.",
+            board.as_str()
+        ),
+    })
+}
+
 pub fn print_broker_summary(summary: &BrokerSummary) -> Result<(), IdxError> {
     println!(
         "{}",
@@ -995,8 +1031,14 @@ pub fn print_broker_summary(summary: &BrokerSummary) -> Result<(), IdxError> {
             totals.push_str(&format!("; foreign net {:+}", format_compact(net)));
         }
         println!("{totals}.");
-    } else if summary.investor != BrokerInvestor::All {
-        println!("No totals: for one investor side the source totals only that side's buying.");
+    } else if let Some(line) = side_totals_line(
+        summary.investor,
+        summary.board,
+        summary.buy_value,
+        summary.sell_value,
+        summary.foreign_net_value,
+    ) {
+        println!("{line}");
     }
     for (kind, label) in [
         (BrokerKind::Foreign, "Foreign brokers"),
@@ -1049,9 +1091,9 @@ fn format_bandar_signal(signal: Option<BandarSignal>, no_color: bool) -> String 
 
 fn bandar_method_note(top: u8) -> String {
     format!(
-        "Method {BANDAR_METHOD}: the top {top} buyers' value minus the top {top} sellers' value, \
-as a share of value traded; {}% or more reads accumulation, {}% or more big (negative: \
-distribution). Brokers trade for many clients, so this is a heuristic, not advice.",
+        "Method {BANDAR_METHOD}: the top {top} buyers' share of the value bought minus the top \
+{top} sellers' share of the value sold; {}% or more reads accumulation, {}% or more big \
+(negative: distribution). Brokers trade for many clients, so this is a heuristic, not advice.",
         ACCUMULATION_BPS / 100,
         BIG_BPS / 100
     )
@@ -1067,7 +1109,11 @@ pub fn print_bandar_report(report: &BandarReport, no_color: bool) -> Result<(), 
         )
         .bold()
     );
-    if report.total_value.is_none_or(|value| value <= 0) {
+    if report
+        .buy_value
+        .zip(report.sell_value)
+        .is_none_or(|(buy, sell)| buy <= 0 && sell <= 0)
+    {
         println!("No trades.");
         return Ok(());
     }
@@ -1105,18 +1151,28 @@ pub fn print_bandar_report(report: &BandarReport, no_color: bool) -> Result<(), 
         ]);
     }
     println!("{table}");
-    let mut totals = format!("Total {} IDR", format_compact_option(report.total_value));
-    if let Some(average) = report.average_price {
-        totals.push_str(&format!(", average {}", format_idr(average)));
+    if let Some(line) = side_totals_line(
+        report.investor,
+        report.board,
+        report.buy_value,
+        report.sell_value,
+        report.foreign_net_value,
+    ) {
+        println!("{line}");
+    } else {
+        let mut totals = format!("Total {} IDR", format_compact_option(report.total_value));
+        if let Some(average) = report.average_price {
+            totals.push_str(&format!(", average {}", format_idr(average)));
+        }
+        if let Some(net) = report.foreign_net_value {
+            totals.push_str(&format!(
+                "; foreign net {:+} ({} of value)",
+                format_compact(net),
+                format_bps_pct(report.foreign_net_bps)
+            ));
+        }
+        println!("{totals}.");
     }
-    if let Some(net) = report.foreign_net_value {
-        totals.push_str(&format!(
-            "; foreign net {:+} ({} of value)",
-            format_compact(net),
-            format_bps_pct(report.foreign_net_bps)
-        ));
-    }
-    println!("{totals}.");
     if !report.both_sides.is_empty() {
         println!(
             "On both sides: {}; their gross figures overstate which way they traded.",

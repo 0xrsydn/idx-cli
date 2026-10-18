@@ -175,8 +175,11 @@ for one or more IDX tickers."
 by lots over a session or date range, each with lots (1 lot = 100 shares), value and average \
 price in IDR, plus totals. Buyers and sellers are ranked separately and gross, so a broker can \
 appear on both sides. End of day only (IDX hides broker codes during trading); `kind` is the \
-broker's own status (local, foreign, state_owned), not its clients'. `rounded` = true means \
-figures of a million and more carry one decimal of precision."
+broker's own status (local, foreign, state_owned), not its clients'. With `investor` foreign \
+or domestic, each row is that broker's foreign or domestic clients' trades, `total_value` is \
+null, and `buy_value`/`sell_value` give what that side bought and sold (`sell_value` needs \
+`board` all). `rounded` = true means figures of a million and more carry one decimal of \
+precision."
     )]
     async fn get_broker_summary(&self, params: Parameters<BrokerParams>) -> ToolResult {
         let BrokerParams { symbol, scope } = params.0;
@@ -206,8 +209,9 @@ traded (`imbalance_bps`), with a `signal` from big_accumulation (>= +1500) throu
 (within +-500) to big_distribution (<= -1500), headlined by `top` (default 5). Reports come \
 strongest accumulation first; tickers that fail are listed under `failures`. A heuristic over \
 end-of-day broker codes: brokers trade for many clients, and `both_sides` lists brokers whose \
-gross figures overstate their direction. `method` names the rules applied. `investor` must be \
-`all`: the summary has no total for one investor side."
+gross figures overstate their direction. `method` names the rules applied. With `investor` \
+foreign or domestic, shares are of that side's own buying (`buy_value`) and selling \
+(`sell_value`); that needs `board` all."
     )]
     async fn analyze_bandar(&self, params: Parameters<BandarParams>) -> ToolResult {
         let BandarParams {

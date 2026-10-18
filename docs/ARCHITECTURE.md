@@ -95,10 +95,13 @@ WIB as the fallback.
   sides), plus range totals. `api/ipot/parse.rs` parses it purely.
 - Figures of a million and more arrive abbreviated (`1.6 M`); they are scaled
   in decimal and the summary's `rounded` flag says so. `F. NVal` ignores the
-  investor and board filters, so `foreign_net_value` is null for a filtered
-  summary. With `fd=F` or `fd=D` the footer covers only that side's buying
-  (BBCA 2026-10-16 foreign: `T. Val` 1.6 T while seller CC alone sold
-  2.0 T), so totals are null for an investor-filtered summary.
+  investor and board filters, so `foreign_net_value` is null for a summary of
+  one board. With `fd=F` or `fd=D` the footer covers only that
+  side's buying (BBCA 2026-10-16: foreign 1.7 T and domestic 4.9 T of 6.6 T),
+  so `total_value` is null and the footer is `buy_value`. On all boards the
+  side's `sell_value` is its buying less the foreign net (foreign: 1.7 + 2.3
+  = 4.0 T, against IDX's 3.95 T regular) or plus it (domestic); with a board
+  filter it is null.
 - An unknown code is a 200 with `Invalid stock code!` (`SYMBOLNOTFOUND`). The
   server also answers spurious nginx 404s for seconds at a time, so the client
   retries 404 and 5xx with backoff. A range without trades is an empty summary.
@@ -106,8 +109,9 @@ WIB as the fallback.
   ended before today are cached for 7 days, today's for 5 minutes. Broker
   names come from `broker/codes.tsv` (IDX `GetBrokerCodeList`).
 - Bandarmology (`analysis/bandar.rs`, method `top_concentration_v1`) is pure
-  over one summary: for the top 1/3/5/10 per side, buy value minus sell value
-  in basis points of value traded, with thresholds ±500/±1500 bps taken from
+  over one summary: for the top 1/3/5/10 per side, the buyers' share of the
+  value bought minus the sellers' share of the value sold (for all investors,
+  buy value minus sell value in basis points of value traded), with thresholds ±500/±1500 bps taken from
   fzn0x/idx. A tier with a missing figure has no reading; missing values are
   never summed as zero. A change to the rules gets a new method name.
 

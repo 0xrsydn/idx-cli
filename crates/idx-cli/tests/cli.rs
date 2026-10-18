@@ -2499,10 +2499,12 @@ fn broker_summary_json_names_brokers_and_keeps_source_totals() {
         "total_value",
         "total_lots",
         "average_price",
+        "sell_value",
         "foreign_net_value",
     ] {
         assert!(filtered[field].is_null(), "{field}: {filtered}");
     }
+    assert_eq!(filtered["buy_value"], 1_600_000_000_000_i64);
     let table = run_success_stdout(mock_bin("broker-filtered-table").args([
         "stocks",
         "broker",
@@ -2515,7 +2517,27 @@ fn broker_summary_json_names_brokers_and_keeps_source_totals() {
         "regular",
     ]));
     assert!(!table.contains("Total "), "{table}");
-    assert!(table.contains("No totals"), "{table}");
+    assert!(
+        table.contains("Foreign investors bought 1.6T IDR on the regular board"),
+        "{table}"
+    );
+
+    // On all boards, the foreign net gives foreign selling.
+    let foreign = run_success_json(mock_bin("broker-foreign").args([
+        "-o",
+        "json",
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+        "--investor",
+        "foreign",
+    ]));
+    assert!(foreign["total_value"].is_null());
+    assert_eq!(foreign["buy_value"], 1_700_000_000_000_i64);
+    assert_eq!(foreign["sell_value"], 4_000_000_000_000_i64);
+    assert_eq!(foreign["foreign_net_value"], -2_300_000_000_000_i64);
 }
 
 #[test]
@@ -2717,7 +2739,15 @@ fn bandar_errors_follow_the_output_contract() {
             "INVALIDINPUT",
         ),
         (
-            vec!["BBCA".to_string(), "--investor".into(), "foreign".into()],
+            vec![
+                "BBCA".to_string(),
+                "--date".into(),
+                "2026-10-16".into(),
+                "--investor".into(),
+                "foreign".into(),
+                "--board".into(),
+                "regular".into(),
+            ],
             "INVALIDINPUT",
         ),
     ] {
@@ -2856,4 +2886,50 @@ fn foreign_flow_errors_follow_the_output_contract() {
         .env("IDX_MOCK_TODAY", "2026-10-18")
         .args(["-o", "json", "stocks", "flow", "BBCA"]);
     run_error_json(&mut failing, "PROVIDERUNAVAILABLE");
+}
+
+#[test]
+fn bandar_reads_one_investor_side_against_its_own_trading() {
+    let reports = run_success_json(mock_bin("bandar-foreign").args([
+        "-o",
+        "json",
+        "stocks",
+        "bandar",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+        "--investor",
+        "foreign",
+    ]));
+    let report = &reports[0];
+    assert_eq!(report["investor"], "foreign");
+    assert_eq!(report["buy_value"], 1_700_000_000_000_i64);
+    assert_eq!(report["sell_value"], 4_000_000_000_000_i64);
+    let top5 = &report["tiers"][2];
+    // Shares of foreign buying and of foreign selling, each within 100%.
+    let (buy, sell) = (
+        top5["buy_share_bps"].as_i64().unwrap(),
+        top5["sell_share_bps"].as_i64().unwrap(),
+    );
+    assert!(
+        (0..=10_000).contains(&buy) && (0..=10_000).contains(&sell),
+        "{top5}"
+    );
+    assert!((top5["imbalance_bps"].as_i64().unwrap() - (buy - sell)).abs() <= 1);
+    assert!(report["signal"].is_string());
+
+    let table = run_success_stdout(mock_bin("bandar-foreign-table").args([
+        "--no-color",
+        "stocks",
+        "bandar",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+        "--investor",
+        "foreign",
+    ]));
+    assert!(
+        table.contains("Foreign investors bought 1.7T IDR and sold 4.0T IDR (net -2.3T)."),
+        "{table}"
+    );
 }
