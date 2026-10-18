@@ -2495,7 +2495,27 @@ fn broker_summary_json_names_brokers_and_keeps_source_totals() {
     assert_eq!(filtered["investor"], "foreign");
     assert_eq!(filtered["board"], "regular");
     assert_eq!(filtered["buyers"][0]["code"], "KZ");
-    assert!(filtered["foreign_net_value"].is_null());
+    for field in [
+        "total_value",
+        "total_lots",
+        "average_price",
+        "foreign_net_value",
+    ] {
+        assert!(filtered[field].is_null(), "{field}: {filtered}");
+    }
+    let table = run_success_stdout(mock_bin("broker-filtered-table").args([
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+        "--investor",
+        "foreign",
+        "--board",
+        "regular",
+    ]));
+    assert!(!table.contains("Total "), "{table}");
+    assert!(table.contains("No totals"), "{table}");
 }
 
 #[test]

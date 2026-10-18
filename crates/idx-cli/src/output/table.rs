@@ -978,18 +978,22 @@ pub fn print_broker_summary(summary: &BrokerSummary) -> Result<(), IdxError> {
     }
     println!("{table}");
 
-    let mut totals = format!(
-        "Total {} IDR, {} lots",
-        format_compact_option(summary.total_value),
-        format_compact_option(summary.total_lots)
-    );
-    if let Some(average) = summary.average_price {
-        totals.push_str(&format!(", average {}", format_idr(average)));
+    if summary.total_value.is_some() {
+        let mut totals = format!(
+            "Total {} IDR, {} lots",
+            format_compact_option(summary.total_value),
+            format_compact_option(summary.total_lots)
+        );
+        if let Some(average) = summary.average_price {
+            totals.push_str(&format!(", average {}", format_idr(average)));
+        }
+        if let Some(net) = summary.foreign_net_value {
+            totals.push_str(&format!("; foreign net {:+}", format_compact(net)));
+        }
+        println!("{totals}.");
+    } else if summary.investor != BrokerInvestor::All {
+        println!("No totals: for one investor side the source totals only that side's buying.");
     }
-    if let Some(net) = summary.foreign_net_value {
-        totals.push_str(&format!("; foreign net {:+}", format_compact(net)));
-    }
-    println!("{totals}.");
     for (kind, label) in [
         (BrokerKind::Foreign, "Foreign brokers"),
         (BrokerKind::StateOwned, "State-owned brokers"),
