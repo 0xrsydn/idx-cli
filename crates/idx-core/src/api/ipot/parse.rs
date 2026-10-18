@@ -9,7 +9,7 @@
 //! reads as a browser builds it.
 
 use chrono::NaiveDate;
-use scraper::{ElementRef, Html, Selector};
+use scraper::{ElementRef, Html, Node, Selector};
 
 use crate::broker::types::{BrokerFlow, BrokerKind};
 use crate::error::IdxError;
@@ -88,14 +88,9 @@ fn broker_kind(class: Option<&str>) -> Option<BrokerKind> {
     }
 }
 
-/// The text an element shows, `&nbsp;` as a space, trimmed.
-fn shown_text(element: ElementRef) -> String {
-    element
-        .text()
-        .collect::<String>()
-        .replace('\u{a0}', " ")
-        .trim()
-        .to_string()
+/// Text with `&nbsp;` as a space, trimmed.
+fn clean(text: &str) -> String {
+    text.replace('\u{a0}', " ").trim().to_string()
 }
 
 fn selector(css: &str) -> Selector {
@@ -116,14 +111,79 @@ fn parse_error(what: &str) -> IdxError {
     IdxError::ParseError(format!("ipot broker summary: {what}"))
 }
 
-/// The `MM/DD/YYYY` value of the input with this id, the first one in the
-/// page as `getElementById` finds it.
+/// Whether `element` has only attributes named in `allowed`.
+fn only_attrs(element: ElementRef, allowed: &[&str]) -> bool {
+    element
+        .value()
+        .attrs()
+        .all(|(name, _)| allowed.contains(&name))
+}
+
+/// The text of an element whose children are text (and comments) only;
+/// `None` when it holds other elements.
+fn leaf_text(element: ElementRef) -> Option<String> {
+    let mut text = String::new();
+    for child in element.children() {
+        match child.value() {
+            Node::Text(part) => text.push_str(part),
+            Node::Comment(_) => {}
+            _ => return None,
+        }
+    }
+    Some(text)
+}
+
+/// A body cell as IPOT writes it: `<td align>` holding text, or one
+/// `<span class="text-...">` holding text. Its text and the span's class;
+/// `None` for any other shape, which could show other text than it holds.
+fn cell(td: ElementRef) -> Option<(String, Option<String>)> {
+    if !only_attrs(td, &["align"]) {
+        return None;
+    }
+    let mut text = String::new();
+    let mut class = None;
+    for child in td.children() {
+        match child.value() {
+            Node::Text(part) => text.push_str(part),
+            Node::Comment(_) => {}
+            Node::Element(element) if element.name() == "span" && class.is_none() => {
+                let span = ElementRef::wrap(child)?;
+                let value = span.attr("class").filter(|value| {
+                    value.starts_with("text-") && value.split_whitespace().count() == 1
+                })?;
+                if !only_attrs(span, &["class"]) {
+                    return None;
+                }
+                text.push_str(&leaf_text(span)?);
+                class = Some(value.to_string());
+            }
+            _ => return None,
+        }
+    }
+    Some((clean(&text), class))
+}
+
+/// The `MM/DD/YYYY` value of the one input with this id.
 fn input_date(page: &Html, id: &str) -> Option<NaiveDate> {
-    let value = page
-        .select(&selector(&format!("input#{id}")))
-        .next()?
-        .attr("value")?;
+    let value = only(page.root_element(), &format!("input#{id}"))?.attr("value")?;
     NaiveDate::parse_from_str(value.trim(), "%m/%d/%Y").ok()
+}
+
+/// Whether anything in the page is hidden by markup alone (`hidden`, an
+/// inline `display`/`visibility` style) or inert (`template`). Styling from
+/// the site's own stylesheet cannot be seen here.
+fn hides_content(page: &Html) -> bool {
+    page.root_element().descendent_elements().any(|element| {
+        let style = element
+            .attr("style")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .replace(' ', "");
+        element.value().name() == "template"
+            || element.attr("hidden").is_some()
+            || style.contains("display:none")
+            || style.contains("visibility:hidden")
+    })
 }
 
 /// The page is read as a browser builds it from the fragment (html5ever),
@@ -131,9 +191,12 @@ fn input_date(page: &Html, id: &str) -> Option<NaiveDate> {
 /// comments, attributes or other elements' content, is never read as such.
 pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     let page = Html::parse_fragment(html);
-    let shown = shown_text(page.root_element()).to_ascii_lowercase();
-    if shown.contains("invalid stock code") {
+    let shown: String = page.root_element().text().collect();
+    if shown.to_ascii_lowercase().contains("invalid stock code") {
         return Ok(IpotPage::Invalid);
+    }
+    if hides_content(&page) {
+        return Err(parse_error("hidden or inert markup in the page"));
     }
     let table = only(page.root_element(), "table")
         .ok_or_else(|| parse_error("no single table in the page"))?;
@@ -153,22 +216,26 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     // Rows must be whole and ranked in order: a skipped or merged row would
     // shift brokers between ranks. A broker after a side's blank rows
     // rejects the page too.
-    let span = selector("span");
     let (mut buyers_ended, mut sellers_ended) = (false, false);
     for (index, row) in body.child_elements().enumerate() {
         let rank = index as u32 + 1;
-        let cells: Vec<ElementRef> = row.child_elements().collect();
-        let whole = row.value().name() == "tr"
-            && cells.len() == 9
-            && cells.iter().all(|cell| cell.value().name() == "td");
-        if !whole || shown_text(cells[4]).parse::<u32>().ok() != Some(rank) {
+        let tds: Vec<ElementRef> = row.child_elements().collect();
+        let cells: Option<Vec<(String, Option<String>)>> =
+            if row.value().name() == "tr" && !row.value().attrs().any(|_| true) && tds.len() == 9 {
+                tds.iter()
+                    .map(|td| (td.value().name() == "td").then(|| cell(*td)).flatten())
+                    .collect()
+            } else {
+                None
+            };
+        let Some(cells) = cells.filter(|cells| cells[4].0.parse::<u32>().ok() == Some(rank)) else {
             return Err(parse_error(&format!("unexpected row {rank}")));
-        }
+        };
         for (side, at, ended) in [
             (&mut raw.buyers, 0, &mut buyers_ended),
             (&mut raw.sellers, 5, &mut sellers_ended),
         ] {
-            let code = shown_text(cells[at]).to_ascii_uppercase();
+            let code = cells[at].0.to_ascii_uppercase();
             if code.is_empty() {
                 *ended = true;
                 continue;
@@ -179,26 +246,31 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
             if code.len() != 2 || !code.bytes().all(|b| b.is_ascii_alphanumeric()) {
                 return Err(parse_error(&format!("unexpected broker code {code:?}")));
             }
-            let class = cells[at]
-                .select(&span)
-                .next()
-                .and_then(|span| span.attr("class"));
             side.push(BrokerFlow {
                 rank,
                 code,
                 name: None,
-                kind: broker_kind(class),
-                lots: figure(&shown_text(cells[at + 1])),
-                value: figure(&shown_text(cells[at + 2])),
-                average_price: figure(&shown_text(cells[at + 3])),
+                kind: broker_kind(cells[at].1.as_deref()),
+                lots: figure(&cells[at + 1].0),
+                value: figure(&cells[at + 2].0),
+                average_price: figure(&cells[at + 3].0),
             });
         }
     }
-    // The footer's figures, e.g. `T. Val : 6.6 T`, each in its own span.
-    let footer: Vec<String> = table
-        .select(&selector("tfoot span"))
-        .map(shown_text)
-        .collect();
+    // The footer's figures, e.g. `T. Val : 6.6 T`, each in its own span
+    // holding text only, each label once.
+    let mut footer = Vec::new();
+    for span in table.select(&selector("tfoot span")) {
+        let text = leaf_text(span)
+            .filter(|_| only_attrs(span, &["class"]))
+            .ok_or_else(|| parse_error("unexpected footer markup"))?;
+        footer.push(clean(&text));
+    }
+    for label in ["T. Val :", "F. NVal :", "T.Lot :", "Avg :"] {
+        if footer.iter().filter(|text| text.starts_with(label)).count() > 1 {
+            return Err(parse_error(&format!("{label} twice in the footer")));
+        }
+    }
     let mut total = |label: &str| {
         footer
             .iter()
@@ -419,6 +491,47 @@ mod tests {
                 ),
             ),
             ("no table", "</tbody><tbody>".to_string()),
+            // Text a browser would not show, or not as one figure or code.
+            (
+                "a script inside a figure",
+                DAY.replacen(">828,163 <", ">8<script>2</script>28,163 <", 1),
+            ),
+            (
+                "hidden text inside a figure",
+                DAY.replacen(">828,163 <", ">8<span hidden>2</span>8,163 <", 1),
+            ),
+            (
+                "a hidden footer total",
+                DAY.replacen(
+                    "<span class=\"fsize12 ml5 mr5\">T. Val",
+                    "<span hidden>T. Val : 1</span><span class=\"fsize12 ml5 mr5\">T. Val",
+                    1,
+                ),
+            ),
+            (
+                "the table in a template",
+                DAY.replacen("<table", "<template><table", 1).replacen(
+                    "</table>",
+                    "</table></template>",
+                    1,
+                ),
+            ),
+            (
+                "another span before the code",
+                DAY.replacen(
+                    "<span class=\"text-local\">MG</span>",
+                    "<span class=\"text-foreign\"></span><span class=\"text-local\">MG</span>",
+                    1,
+                ),
+            ),
+            (
+                "nested footer spans",
+                DAY.replacen(
+                    "T. Val : 6.6 T",
+                    "<span>x<span>T. Val : 6.6 T</span></span>",
+                    1,
+                ),
+            ),
         ];
         for (what, page) in pages {
             assert!(
@@ -503,5 +616,15 @@ mod tests {
         let commented_date =
             summary(&DAY.replacen("value=\"10/16/2026\"", "value=\"10/<!--x-->16/2026\"", 1));
         assert_eq!(commented_date.from, None);
+        let second_start = DAY.replacen(
+            "</tbody>",
+            "</tbody><input id=\"startDateBrokerSummary\" value=\"10/15/2026\">",
+            1,
+        );
+        assert_eq!(
+            summary(&second_start).from,
+            None,
+            "an id twice is no echoed date"
+        );
     }
 }
