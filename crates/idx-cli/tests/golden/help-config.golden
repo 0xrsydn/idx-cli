@@ -1,6 +1,8 @@
 exit: 0
 --- stdout
-Manage configuration
+Manage configuration in ~/.config/idx/config.toml (or $XDG_CONFIG_HOME/idx/config.toml).
+
+Results print as plain text, even when piped, so `$(idx config path)` works in scripts. Ask for JSON with `-o json`, `IDX_OUTPUT=json`, or `general.output = "json"`.
 
 Usage: idx config [OPTIONS] <COMMAND>
 
@@ -12,11 +14,37 @@ Commands:
   help  Print this message or the help of the given subcommand(s)
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+          
+          [possible values: auto, table, json, jsonl]
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Keys:
+  general.provider, general.history_provider, general.exchange, general.output,
+  general.color, cache.quote_ttl, cache.fundamental_ttl, ownership.db_path,
+  ownership.snapshot_manifest
+
+Examples:
+  idx config init
+  idx config set general.output json
+  idx config get cache.quote_ttl
+  idx config path
 --- stderr

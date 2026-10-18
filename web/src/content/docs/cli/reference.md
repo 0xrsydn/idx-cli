@@ -463,7 +463,9 @@ Examples:
 ## `idx config`
 
 ```text
-Manage configuration
+Manage configuration in ~/.config/idx/config.toml (or $XDG_CONFIG_HOME/idx/config.toml).
+
+Results print as plain text, even when piped, so `$(idx config path)` works in scripts. Ask for JSON with `-o json`, `IDX_OUTPUT=json`, or `general.output = "json"`.
 
 Usage: idx config [OPTIONS] <COMMAND>
 
@@ -475,13 +477,39 @@ Commands:
   help  Print this message or the help of the given subcommand(s)
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Keys:
+  general.provider, general.history_provider, general.exchange, general.output,
+  general.color, cache.quote_ttl, cache.fundamental_ttl, ownership.db_path,
+  ownership.snapshot_manifest
+
+Examples:
+  idx config init
+  idx config set general.output json
+  idx config get cache.quote_ttl
+  idx config path
 ```
 
 ### `idx config init`
@@ -509,7 +537,7 @@ Get a configuration value by key
 Usage: idx config get [OPTIONS] <KEY>
 
 Arguments:
-  <KEY>
+  <KEY>  Key such as general.provider (see `idx config --help`)
 
 Options:
   -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
@@ -529,7 +557,7 @@ Set a configuration value by key
 Usage: idx config set [OPTIONS] <KEY> <VALUE>
 
 Arguments:
-  <KEY>
+  <KEY>    Key such as general.provider (see `idx config --help`)
   <VALUE>
 
 Options:
@@ -633,7 +661,7 @@ Commands:
   sync           Install or refresh a maintained ownership SQLite snapshot
   ticker         Show all holders for a ticker (KSEI + Bing combined)
   entity         Show all holdings for an entity across tickers
-  search         Search entities by name
+  search         Search entities by name or KSEI alias
   cross-holders  Rank entities by cross-ownership breadth
   concentration  Rank tickers by ownership concentration
   flow           Show Bing institutional flow for a ticker
@@ -833,7 +861,7 @@ Show all holdings for an entity across tickers
 Usage: idx ownership entity [OPTIONS] <NAME>
 
 Arguments:
-  <NAME>
+  <NAME>  Entity name or part of one, case-insensitive; the shortest match is shown
 
 Options:
   -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
@@ -843,27 +871,55 @@ Options:
       --offline          Run without network requests
       --no-cache         Bypass local cache
   -h, --help             Print help
+
+Examples:
+  idx ownership entity "ASTRA INTERNATIONAL"
+  idx ownership search astra   # list candidates first
 ```
 
 ### `idx ownership search`
 
 ```text
-Search entities by name
+Search entities by name or KSEI alias.
+
+Matches canonical names and the raw names KSEI prints (e.g. `PT ASTRA INTERNATIONAL TBK`), case-insensitively. Ranked: exact name, exact alias, prefix, then substring.
 
 Usage: idx ownership search [OPTIONS] <QUERY>
 
 Arguments:
   <QUERY>
+          Name, KSEI alias, or part of one
 
 Options:
-      --limit <LIMIT>    [default: 20]
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+      --limit <LIMIT>
+          [default: 20]
+
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx ownership search astra
+  idx ownership search "PT ASTRA INTERNATIONAL TBK" --limit 5
 ```
 
 ### `idx ownership cross-holders`
@@ -927,20 +983,45 @@ Options:
 ### `idx ownership changes`
 
 ```text
-Diff two KSEI releases
+Diff two KSEI releases: new, exited, increased, and decreased holders.
+
+Both dates must be imported releases (`idx ownership releases` lists them), with --from before --to. A holder's accounts in a ticker are summed, so an investor with several accounts compares by its total stake.
 
 Usage: idx ownership changes [OPTIONS] --from <FROM> --to <TO>
 
 Options:
       --from <FROM>
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
+          Earlier release date, YYYY-MM-DD
+
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --no-color
+          Disable colored output
+
       --to <TO>
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+          Later release date, YYYY-MM-DD
+
+  -q, --quiet
+          Suppress non-essential output
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx ownership releases
+  idx ownership changes --from 2026-08-31 --to 2026-09-30
 ```
 
 ### `idx ownership graph`

@@ -15,7 +15,7 @@ Commands:
   sync           Install or refresh a maintained ownership SQLite snapshot
   ticker         Show all holders for a ticker (KSEI + Bing combined)
   entity         Show all holdings for an entity across tickers
-  search         Search entities by name
+  search         Search entities by name or KSEI alias
   cross-holders  Rank entities by cross-ownership breadth
   concentration  Rank tickers by ownership concentration
   flow           Show Bing institutional flow for a ticker

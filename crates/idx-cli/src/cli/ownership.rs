@@ -50,8 +50,15 @@ pub enum OwnershipCommand {
     /// Show all holders for a ticker (KSEI + Bing combined).
     Ticker(TickerArgs),
     /// Show all holdings for an entity across tickers.
+    #[command(
+        after_help = "Examples:\n  idx ownership entity \"ASTRA INTERNATIONAL\"\n  idx ownership search astra   # list candidates first"
+    )]
     Entity(EntityArgs),
-    /// Search entities by name.
+    /// Search entities by name or KSEI alias.
+    #[command(
+        long_about = "Search entities by name or KSEI alias.\n\nMatches canonical names and the raw names KSEI prints (e.g. `PT ASTRA INTERNATIONAL TBK`), case-insensitively. Ranked: exact name, exact alias, prefix, then substring.",
+        after_help = "Examples:\n  idx ownership search astra\n  idx ownership search \"PT ASTRA INTERNATIONAL TBK\" --limit 5"
+    )]
     Search(SearchArgs),
     /// Rank entities by cross-ownership breadth.
     CrossHolders(CrossHolderArgs),
@@ -60,6 +67,10 @@ pub enum OwnershipCommand {
     /// Show Bing institutional flow for a ticker.
     Flow(FlowArgs),
     /// Diff two KSEI releases.
+    #[command(
+        long_about = "Diff two KSEI releases: new, exited, increased, and decreased holders.\n\nBoth dates must be imported releases (`idx ownership releases` lists them), with --from before --to. A holder's accounts in a ticker are summed, so an investor with several accounts compares by its total stake.",
+        after_help = "Examples:\n  idx ownership releases\n  idx ownership changes --from 2026-08-31 --to 2026-09-30"
+    )]
     Changes(ChangesArgs),
     /// Ownership network graph.
     Graph(GraphArgs),
@@ -114,11 +125,13 @@ pub struct TickerArgs {
 
 #[derive(Debug, Args)]
 pub struct EntityArgs {
+    /// Entity name or part of one, case-insensitive; the shortest match is shown.
     pub name: String,
 }
 
 #[derive(Debug, Args)]
 pub struct SearchArgs {
+    /// Name, KSEI alias, or part of one.
     pub query: String,
     #[arg(long, default_value_t = 20)]
     pub limit: usize,
@@ -147,8 +160,10 @@ pub struct FlowArgs {
 
 #[derive(Debug, Args)]
 pub struct ChangesArgs {
+    /// Earlier release date, YYYY-MM-DD.
     #[arg(long)]
     pub from: String,
+    /// Later release date, YYYY-MM-DD.
     #[arg(long)]
     pub to: String,
 }
