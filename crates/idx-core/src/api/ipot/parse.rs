@@ -176,12 +176,14 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     // another shape, a rank out of order, or a broker after a side's blank
     // rows rejects the page.
     let (mut buyers_ended, mut sellers_ended) = (false, false);
-    for (index, row) in html[body_start..body_end].split("</tr>").enumerate() {
-        let row = cells(row);
-        if row.is_empty() {
+    let mut rank = 0;
+    for piece in html[body_start..body_end].split("</tr>") {
+        // Only the space after the last row has no row in it.
+        if !piece.contains("<tr") && !piece.contains("<td") {
             continue;
         }
-        let rank = index as u32 + 1;
+        let row = cells(piece);
+        rank += 1;
         if row.len() != 9 || row[4].text.parse::<u32>().ok() != Some(rank) {
             return Err(IdxError::ParseError(format!(
                 "ipot broker summary: unexpected row {rank} ({} cells, rank {:?})",
@@ -349,7 +351,19 @@ mod tests {
             1,
         );
         let gap = DAY.replacen(">XL<", "><", 1);
-        for page in [short_row, skipped_rank, gap, "</tbody><tbody>".to_string()] {
+        // Rank 1 without its cell ends parses to no cells at all.
+        let body = DAY.find("<tbody>").unwrap();
+        let first_row_end = body + DAY[body..].find("</tr>").unwrap();
+        let unclosed = DAY[..body].to_string()
+            + &DAY[body..first_row_end].replace("</td>", "")
+            + &DAY[first_row_end..];
+        for page in [
+            short_row,
+            skipped_rank,
+            gap,
+            unclosed,
+            "</tbody><tbody>".to_string(),
+        ] {
             assert!(
                 matches!(parse_broker_summary(&page), Err(IdxError::ParseError(_))),
                 "{}",
