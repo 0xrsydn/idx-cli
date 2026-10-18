@@ -433,7 +433,7 @@ Examples:
 ### `idx stocks flow`
 
 ```text
-Foreign buying and selling of a stock, session by session, from IDX's daily trading summary: foreign buy, sell and net volume, the net value at the session's average price, and the share of value traded outside the regular board. End of day. Each session is one request to idx.co.id, which needs curl-impersonate.
+Foreign buying and selling of a stock, session by session, end of day. By default from Indo Premier (IPOT): foreign buy, sell and net value across all boards and foreign investors' share of trading, two plain requests per session. `--source idx` reads IDX's own trading summary instead: exact foreign share counts, the close and the share traded outside the regular board, one request per session to idx.co.id, which needs curl-impersonate and a network IDX's Cloudflare lets through.
 
 Usage: idx stocks flow [OPTIONS] <SYMBOL>
 
@@ -462,6 +462,15 @@ Options:
       --to <TO>
           Last session of the range, YYYY-MM-DD. Default: today
 
+      --source <SOURCE>
+          Where the figures come from
+
+          Possible values:
+          - ipot: Indo Premier's broker summary: foreign buy, sell and net value across all boards, two plain requests per session. Figures of a million and more are rounded to one decimal
+          - idx:  IDX's own trading summary: exact foreign share counts, close and the non-regular share, regular board. Needs curl-impersonate and a network IDX's Cloudflare lets through
+
+          [default: ipot]
+
   -v, --verbose...
           Increase verbosity (-v, -vv)
 
@@ -478,7 +487,8 @@ Examples:
   idx stocks flow BBCA
   idx stocks flow BBCA --days 20
   idx stocks flow BBCA --from 2026-10-01 --to 2026-10-16
-  idx -o json stocks flow BBCA | jq '.foreign_net'
+  idx stocks flow BBCA --source idx
+  idx -o json stocks flow BBCA | jq '.foreign_net_value'
 ```
 
 ### `idx stocks profile`

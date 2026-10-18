@@ -1,0 +1,181 @@
+<div id="modContentBrokerSum"></div>
+
+<!--DATA BROKER SUMMARY-->
+<div class="pa5">
+	<div class="row mincol-3">
+		<div class="col col-xs-5 col-sm-3">
+			<input class="form-control input-xs text-center" id="startDateBrokerSummary" name="startDate" placeholder="DD Month YYYY" value="10/13/2026" type="text">
+		</div>
+		<div class="col col-xs-5 col-sm-3">
+			<input class="form-control input-xs text-center" id="endDateBrokerSummary" name="endDate" placeholder="DD Month YYYY" value="10/13/2026" type="text">
+		</div>
+		<div class="mt15 visible-xs">&nbsp;</div>
+		<div class="col col-xs-5 col-sm-3">
+			<select class="form-control input-xs" id="FDBrokerSummary">
+				<option value="all">All</option>
+				<option value="F" >Foreign</option>
+				<option value="D" >Domestic</option>
+			</select>
+		</div>
+		<div class="col col-xs-5 col-sm-2">
+			<select class="form-control input-xs" id="boardBrokerSummary">
+				<option value="all">All Trade</option>
+				<option value="RG" >Regular</option>
+				<option value="TN" >Tunai</option>
+				<option value="NG" >Nego</option>
+			</select>
+		</div>
+		<div class="col col-xs-2 col-sm-1">
+			<button type="button" class="btn btn-default btn-block btn-xs-input" onClick="quickinfo_brokersummary($('#stockPageCode').val()!==undefined?$('#stockPageCode').val():$('#stockInfoCode').val(),$('#startDateBrokerSummary').val(),$('#endDateBrokerSummary').val(),$('#FDBrokerSummary').val(),$('#boardBrokerSummary').val());">GO</button>
+		</div>
+	</div>
+</div>
+
+
+<div class="table-responsive">
+	<table width="100%" border="0" cellspacing="0" cellpadding="0" class="table table-summary table-hover noborder nm">
+		<thead>
+			<tr>
+				<th align="center">Buyer</th>
+				<th align="right">B.Lot</th>
+				<th align="right">B.Val</th>
+				<th align="right">B.Avg</th>
+				<th align="center">#</th>
+				<th align="center">Seller</th>
+				<th align="right">S.Lot</th>
+				<th align="right">S.Val</th>
+				<th align="right">S.Avg</th>
+			</tr>
+		</thead>
+		<tbody>
+			<tr>
+				<td align="center"><span class="text-foreign">ZP</span></td>
+				<td align="right"><span class="text-up">353,553 </span></td>
+				<td align="right"><span class="text-up">209.7 B</span></td>
+				<td align="right"><span class="text-up">5,931 </span></td>
+				<td align="center">1</td>
+				<td align="center"><span class="text-foreign">ZP</span></td>
+				<td align="right"><span class="text-down">362,463 </span></td>
+				<td align="right"><span class="text-down">215.0 B</span></td>
+				<td align="right"><span class="text-down">5,933 </span></td>
+			</tr>
+			<tr>
+				<td align="center"><span class="text-bumn">CC</span></td>
+				<td align="right"><span class="text-up">123,885 </span></td>
+				<td align="right"><span class="text-up">73.3 B</span></td>
+				<td align="right"><span class="text-up">5,919 </span></td>
+				<td align="center">2</td>
+				<td align="center"><span class="text-bumn">CC</span></td>
+				<td align="right"><span class="text-down">170,087 </span></td>
+				<td align="right"><span class="text-down">100.6 B</span></td>
+				<td align="right"><span class="text-down">5,914 </span></td>
+			</tr>
+			<tr>
+				<td align="center"><span class="text-foreign">BK</span></td>
+				<td align="right"><span class="text-up">119,389 </span></td>
+				<td align="right"><span class="text-up">70.6 B</span></td>
+				<td align="right"><span class="text-up">5,915 </span></td>
+				<td align="center">3</td>
+				<td align="center"><span class="text-foreign">KZ</span></td>
+				<td align="right"><span class="text-down">131,973 </span></td>
+				<td align="right"><span class="text-down">78.2 B</span></td>
+				<td align="right"><span class="text-down">5,922 </span></td>
+			</tr>
+			<tr>
+				<td align="center"><span class="text-local">TP</span></td>
+				<td align="right"><span class="text-up">114,823 </span></td>
+				<td align="right"><span class="text-up">68.1 B</span></td>
+				<td align="right"><span class="text-up">5,931 </span></td>
+				<td align="center">4</td>
+				<td align="center"><span class="text-foreign">AG</span></td>
+				<td align="right"><span class="text-down">113,249 </span></td>
+				<td align="right"><span class="text-down">67.1 B</span></td>
+				<td align="right"><span class="text-down">5,923 </span></td>
+			</tr>
+			<tr>
+				<td align="center"><span class="text-foreign">RX</span></td>
+				<td align="right"><span class="text-up">90,525 </span></td>
+				<td align="right"><span class="text-up">53.7 B</span></td>
+				<td align="right"><span class="text-up">5,931 </span></td>
+				<td align="center">5</td>
+				<td align="center"><span class="text-foreign">AK</span></td>
+				<td align="right"><span class="text-down">99,863 </span></td>
+				<td align="right"><span class="text-down">59.0 B</span></td>
+				<td align="right"><span class="text-down">5,904 </span></td>
+			</tr>
+			<tr>
+				<td align="center"><span class="text-foreign">AK</span></td>
+				<td align="right"><span class="text-up">84,572 </span></td>
+				<td align="right"><span class="text-up">50.1 B</span></td>
+				<td align="right"><span class="text-up">5,920 </span></td>
+				<td align="center">6</td>
+				<td align="center"><span class="text-foreign">BK</span></td>
+				<td align="right"><span class="text-down">87,628 </span></td>
+				<td align="right"><span class="text-down">51.8 B</span></td>
+				<td align="right"><span class="text-down">5,915 </span></td>
+			</tr>
+			<tr>
+				<td align="center"><span class="text-foreign">YU</span></td>
+				<td align="right"><span class="text-up">54,296 </span></td>
+				<td align="right"><span class="text-up">32.2 B</span></td>
+				<td align="right"><span class="text-up">5,928 </span></td>
+				<td align="center">7</td>
+				<td align="center"><span class="text-foreign">YU</span></td>
+				<td align="right"><span class="text-down">58,039 </span></td>
+				<td align="right"><span class="text-down">34.4 B</span></td>
+				<td align="right"><span class="text-down">5,926 </span></td>
+			</tr>
+			<tr>
+				<td align="center"><span class="text-local">XL</span></td>
+				<td align="right"><span class="text-up">44,062 </span></td>
+				<td align="right"><span class="text-up">26.0 B</span></td>
+				<td align="right"><span class="text-up">5,907 </span></td>
+				<td align="center">8</td>
+				<td align="center"><span class="text-local">XL</span></td>
+				<td align="right"><span class="text-down">31,516 </span></td>
+				<td align="right"><span class="text-down">18.6 B</span></td>
+				<td align="right"><span class="text-down">5,905 </span></td>
+			</tr>
+			<tr>
+				<td align="center"><span class="text-local">SQ</span></td>
+				<td align="right"><span class="text-up">38,109 </span></td>
+				<td align="right"><span class="text-up">22.5 B</span></td>
+				<td align="right"><span class="text-up">5,901 </span></td>
+				<td align="center">9</td>
+				<td align="center"><span class="text-local">SQ</span></td>
+				<td align="right"><span class="text-down">21,672 </span></td>
+				<td align="right"><span class="text-down">12.8 B</span></td>
+				<td align="right"><span class="text-down">5,917 </span></td>
+			</tr>
+			<tr>
+				<td align="center"><span class="text-foreign">YP</span></td>
+				<td align="right"><span class="text-up">22,957 </span></td>
+				<td align="right"><span class="text-up">13.5 B</span></td>
+				<td align="right"><span class="text-up">5,898 </span></td>
+				<td align="center">10</td>
+				<td align="center"><span class="text-local">BQ</span></td>
+				<td align="right"><span class="text-down">19,658 </span></td>
+				<td align="right"><span class="text-down">11.7 B</span></td>
+				<td align="right"><span class="text-down">5,937 </span></td>
+			</tr>
+		</tbody>
+		<tfoot>
+			<tr class="bdr-t">
+				<th colspan="9" align="center">
+					<div class="text-center pt20 valign-middle" style="height:50px;">
+						<span class="fsize12 ml5 mr5">T. Val : 738.2 B</span>
+						<span class="fsize12 ml5 mr5">F. NVal : 30.1 B</span>
+						<span class="fsize12 ml5 mr5">T.Lot : 1.2 M</span>
+						<span class="fsize12 ml5 mr5">Avg : 5,921 </span>
+					</div>
+
+				</th>
+			</tr>
+		</tfoot>
+	</table>
+</div>
+
+<!-- =======================
+======SCRIPT MODULE=========
+============================-->
+<script src="../../../../module/saham/include/js/data-brokersummary.js"></script>

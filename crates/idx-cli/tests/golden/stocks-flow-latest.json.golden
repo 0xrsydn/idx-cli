@@ -1,4 +1,0 @@
-exit: 0
---- stdout
-{"symbol":"TLKM.JK","from":"2026-10-14","to":"2026-10-16","days":[{"date":"2026-10-14","close":2250,"change_bps":45,"volume":87159900,"value":197725738000,"foreign_buy":63030200,"foreign_sell":60811200,"foreign_net":2219000,"foreign_net_value":5033890729,"non_regular_bps":979},{"date":"2026-10-15","close":2230,"change_bps":-89,"volume":150485300,"value":333287991000,"foreign_buy":97385100,"foreign_sell":105521800,"foreign_net":-8136700,"foreign_net_value":-18020792704,"non_regular_bps":78},{"date":"2026-10-16","close":1900,"change_bps":-1480,"volume":963614200,"value":1855341292500,"foreign_buy":679004400,"foreign_sell":727289800,"foreign_net":-48285400,"foreign_net_value":-92968634589,"non_regular_bps":1485}],"foreign_net":-54203100,"foreign_net_value":-105955536564,"foreign_share_bps":7213}
---- stderr

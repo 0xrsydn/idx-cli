@@ -65,12 +65,13 @@ Company data for one IDX ticker: profile, financial statements, earnings, analys
 
 ## `get_foreign_flow`
 
-Foreign investors' buying and selling of one IDX ticker, session by session (oldest first), from IDX's daily trading summary: foreign buy, sell and net volume in shares, `foreign_net_value` (net shares at the session's average price, an estimate, IDR), `change_bps`, and `non_regular_bps` (share of all value traded outside the regular board). Volume, value and foreign figures are the regular board. Totals cover the whole range; `foreign_share_bps` is foreign investors' share of regular-board trading. End of day.
+Foreign investors' buying and selling of one IDX ticker, session by session (oldest first), with range totals; end of day. With `source` "ipot" (default): `foreign_buy_value`, `foreign_sell_value` and `foreign_net_value` in IDR across all boards, `value` traded, and `foreign_share_bps` (foreign share of trading); share counts, close and `non_regular_bps` are null, and `rounded` = true means one decimal of precision. With "idx": exact foreign share counts on the regular board, values estimated at the session's average price, the close, `change_bps` and `non_regular_bps`.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
 | `days` | integer | no | Latest sessions (default 10, at most 60). Omit when giving from/to. |
 | `from` | string | no | First session of a range, YYYY-MM-DD (at most 92 days). |
+| `source` | `ipot` / `idx` | no | Where the figures come from (default "ipot"): "ipot" gives foreign buy, sell and net value across all boards; "idx" gives exact share counts, the close and the non-regular share, but needs curl-impersonate and may be blocked (HTTP 403). |
 | `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
 | `to` | string | no | Last session of the range, YYYY-MM-DD (default today). |
 

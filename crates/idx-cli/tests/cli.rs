@@ -2758,11 +2758,13 @@ fn bandar_errors_follow_the_output_contract() {
 }
 
 #[test]
-fn foreign_flow_reads_sessions_oldest_first() {
+fn foreign_flow_from_idx_reads_sessions_oldest_first() {
     let flow = run_success_json(
         mock_bin("flow-json")
             .env("IDX_MOCK_TODAY", "2026-10-18")
-            .args(["-o", "json", "stocks", "flow", "BBCA", "--days", "3"]),
+            .args([
+                "-o", "json", "stocks", "flow", "BBCA", "--days", "3", "--source", "idx",
+            ]),
     );
     assert_eq!(flow["symbol"], "BBCA.JK");
     let dates: Vec<&str> = flow["days"]
@@ -2787,6 +2789,8 @@ fn foreign_flow_reads_sessions_oldest_first() {
                 "json",
                 "stocks",
                 "flow",
+                "--source",
+                "idx",
                 "BBCA",
                 "--from",
                 "2026-10-12",
@@ -2805,7 +2809,7 @@ fn foreign_flow_reads_sessions_oldest_first() {
 }
 
 #[test]
-fn foreign_flow_offline_uses_cached_sessions_only() {
+fn foreign_flow_from_idx_offline_uses_cached_sessions_only() {
     let root = test_env_dir("flow-offline");
     run_success_json(
         mock_bin_with_root(&root)
@@ -2815,6 +2819,8 @@ fn foreign_flow_offline_uses_cached_sessions_only() {
                 "json",
                 "stocks",
                 "flow",
+                "--source",
+                "idx",
                 "BBCA",
                 "--from",
                 "2026-10-15",
@@ -2832,6 +2838,8 @@ fn foreign_flow_offline_uses_cached_sessions_only() {
                 "--offline",
                 "stocks",
                 "flow",
+                "--source",
+                "idx",
                 "TLKM",
                 "--days",
                 "5",
@@ -2848,6 +2856,8 @@ fn foreign_flow_offline_uses_cached_sessions_only() {
                 "--offline",
                 "stocks",
                 "flow",
+                "--source",
+                "idx",
                 "TLKM",
                 "--from",
                 "2026-10-12",
@@ -2856,6 +2866,52 @@ fn foreign_flow_offline_uses_cached_sessions_only() {
             ]),
         "CACHEMISS",
     );
+}
+
+#[test]
+fn foreign_flow_from_ipot_by_default_gives_values_across_all_boards() {
+    let flow = run_success_json(
+        mock_bin("flow-ipot")
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args([
+                "-o",
+                "json",
+                "stocks",
+                "flow",
+                "BBCA",
+                "--from",
+                "2026-10-12",
+                "--to",
+                "2026-10-17",
+            ]),
+    );
+    assert_eq!(flow["source"], "ipot");
+    assert_eq!(flow["rounded"], true);
+    let days = flow["days"].as_array().unwrap();
+    assert_eq!(days.len(), 5, "the Saturday had no trading");
+    let last = &days[4];
+    assert_eq!(last["date"], "2026-10-16");
+    assert_eq!(last["value"], 6_600_000_000_000_i64);
+    assert_eq!(last["foreign_buy_value"], 1_700_000_000_000_i64);
+    assert_eq!(last["foreign_sell_value"], 4_000_000_000_000_i64);
+    assert_eq!(last["foreign_net_value"], -2_300_000_000_000_i64);
+    for field in ["close", "foreign_buy", "foreign_net", "non_regular_bps"] {
+        assert!(last[field].is_null(), "{field}");
+    }
+    let net: i64 = days
+        .iter()
+        .map(|day| day["foreign_net_value"].as_i64().unwrap())
+        .sum();
+    assert_eq!(flow["foreign_net_value"], net);
+    assert!(flow["foreign_net"].is_null());
+
+    let table = run_success_stdout(
+        mock_bin("flow-ipot-table")
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args(["stocks", "flow", "BBCA", "--days", "1"]),
+    );
+    assert!(table.contains("(1 session, IPOT)"), "{table}");
+    assert!(table.contains("FOREIGN %"), "{table}");
 }
 
 #[test]
@@ -2872,6 +2928,11 @@ fn foreign_flow_errors_follow_the_output_contract() {
         (
             vec!["BBCA", "--from", "2026-06-01", "--to", "2026-10-16"],
             "INVALIDINPUT",
+        ),
+        (vec!["BBCA", "--source", "stockbit"], "INVALIDINPUT"),
+        (
+            vec!["ZZZZ", "--days", "2", "--source", "idx"],
+            "SYMBOLNOTFOUND",
         ),
     ] {
         let mut cmd = mock_bin("flow-errors");

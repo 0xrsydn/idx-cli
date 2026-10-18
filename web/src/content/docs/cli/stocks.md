@@ -55,18 +55,25 @@ million and more to one decimal, and the output says so.
 idx stocks flow BBCA
 idx stocks flow BBCA --days 20
 idx stocks flow BBCA --from 2026-10-01 --to 2026-10-16
+idx stocks flow BBCA --source idx
 ```
 
-What foreign investors bought and sold, session by session: buy, sell and
-net volume in shares, the net value at each session's average price (an
-estimate), and the share of all value traded outside the regular board.
-Volume, value and the foreign figures are IDX's regular-board figures. The
-footer gives the net over the range and foreign investors' share of trading.
-Without dates it shows the latest 10 sessions (`--days`, at most 60).
+What foreign investors bought and sold, session by session, with the totals
+over the range. Without dates it shows the latest 10 sessions (`--days`, at
+most 60).
 
-The data is IDX's own daily trading summary. Each session is one request to
-idx.co.id, cached afterwards for every stock, and needs
-[curl-impersonate](/start/install/) to pass the site's bot protection.
+By default the figures come from Indo Premier (IPOT), like `broker`: foreign
+buy, sell and net value across all boards and foreign investors' share of
+trading. It needs nothing installed, takes two requests per session, and
+rounds figures of a million and more to one decimal.
+
+`--source idx` reads IDX's own daily trading summary instead: exact foreign
+share counts, the close and day change, and the share of value traded
+outside the regular board. Those figures are the regular board, and values
+are estimated at each session's average price. Each session is one request
+to idx.co.id, cached for every stock, and needs
+[curl-impersonate](/start/install/) and a network IDX's Cloudflare lets
+through; even then it can answer 403.
 
 ## Bandarmology
 

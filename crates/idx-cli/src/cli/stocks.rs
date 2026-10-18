@@ -15,7 +15,7 @@ use idx_core::api::types::{Interval, Period};
 use idx_core::broker::types::{BrokerBoard, BrokerInvestor, BrokerRange};
 use idx_core::error::IdxError;
 use idx_core::financial::{EarningsFilter, StatementFilter, StatementKind};
-use idx_core::flow::types::FlowRange;
+use idx_core::flow::types::{FlowRange, FlowSource};
 use idx_core::market::ScreenQuery;
 use idx_core::{CachePolicy, Idx, runtime};
 
@@ -224,11 +224,13 @@ heuristic over end-of-day broker codes, not advice.",
     },
     #[command(
         about = "Foreign buying and selling of a stock, session by session",
-        long_about = "Foreign buying and selling of a stock, session by session, from IDX's daily \
-trading summary: foreign buy, sell and net volume, the net value at the session's average \
-price, and the share of value traded outside the regular board. End of day. Each session is \
-one request to idx.co.id, which needs curl-impersonate.",
-        after_help = "Examples:\n  idx stocks flow BBCA\n  idx stocks flow BBCA --days 20\n  idx stocks flow BBCA --from 2026-10-01 --to 2026-10-16\n  idx -o json stocks flow BBCA | jq '.foreign_net'"
+        long_about = "Foreign buying and selling of a stock, session by session, end of day. By \
+default from Indo Premier (IPOT): foreign buy, sell and net value across all boards and \
+foreign investors' share of trading, two plain requests per session. `--source idx` reads \
+IDX's own trading summary instead: exact foreign share counts, the close and the share \
+traded outside the regular board, one request per session to idx.co.id, which needs \
+curl-impersonate and a network IDX's Cloudflare lets through.",
+        after_help = "Examples:\n  idx stocks flow BBCA\n  idx stocks flow BBCA --days 20\n  idx stocks flow BBCA --from 2026-10-01 --to 2026-10-16\n  idx stocks flow BBCA --source idx\n  idx -o json stocks flow BBCA | jq '.foreign_net_value'"
     )]
     Flow {
         /// Single ticker symbol (e.g. BBCA).
@@ -242,6 +244,9 @@ one request to idx.co.id, which needs curl-impersonate.",
         /// Last session of the range, YYYY-MM-DD. Default: today.
         #[arg(long, requires = "from")]
         to: Option<String>,
+        /// Where the figures come from.
+        #[arg(long, value_enum, default_value_t = FlowSource::Ipot)]
+        source: FlowSource,
     },
     #[command(about = "Get company profile")]
     Profile { symbol: String },
@@ -389,10 +394,11 @@ pub fn handle(
             days,
             from,
             to,
+            source,
         } => {
             let range =
                 FlowRange::from_args(*days, from.as_deref(), to.as_deref(), idx.flow().today())?;
-            let flow = idx.flow().foreign(symbol, range, policy)?;
+            let flow = idx.flow().foreign(symbol, range, *source, policy)?;
             render_foreign_flow(&flow.data, format)
         }
         StocksSubcommand::Profile { symbol } => {

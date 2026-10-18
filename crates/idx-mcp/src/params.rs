@@ -3,6 +3,7 @@
 
 use idx_core::api::types::{Interval, Period};
 use idx_core::broker::types::{BrokerBoard, BrokerInvestor};
+use idx_core::flow::types::FlowSource;
 use idx_core::market::{ScreenFilter, ScreenRegion};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::Deserialize;
@@ -170,6 +171,12 @@ pub struct FlowParams {
     /// Last session of the range, YYYY-MM-DD (default today).
     #[serde(default)]
     pub to: Option<String>,
+    /// Where the figures come from (default "ipot"): "ipot" gives foreign buy, sell and net
+    /// value across all boards; "idx" gives exact share counts, the close and the non-regular
+    /// share, but needs curl-impersonate and may be blocked (HTTP 403).
+    #[serde(default)]
+    #[schemars(schema_with = "flow_source_schema")]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -243,4 +250,8 @@ fn investor_schema(_: &mut SchemaGenerator) -> Schema {
 
 fn board_schema(_: &mut SchemaGenerator) -> Schema {
     string_enum(BrokerBoard::ALL.map(BrokerBoard::as_str).to_vec())
+}
+
+fn flow_source_schema(_: &mut SchemaGenerator) -> Schema {
+    string_enum(FlowSource::ALL.map(FlowSource::as_str).to_vec())
 }

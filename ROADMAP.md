@@ -36,8 +36,9 @@ history lives in git.
 - `stocks broker` and `stocks bandar` show only IPOT's top 10 buyers and
   sellers, ranked by gross lots, with figures of a million and more rounded
   to one decimal.
-- `stocks flow` depends on IDX's Cloudflare passing a curl-impersonate
-  profile (only `curl_safari184` in October 2026).
+- `stocks flow --source idx` depends on IDX's Cloudflare passing a
+  curl-impersonate profile (only `curl_safari184` in October 2026) and on the
+  network; the default IPOT source rounds to one decimal.
 - Yahoo can return `429` from datacenter IPs; requests retry with backoff but
   can still fail.
 - `stocks technical` reports the SMA200 trend as unavailable when fewer than

@@ -74,13 +74,14 @@ idx version
 ## Helper tools
 
 Everyday use needs nothing else: stock data with the default MSN provider,
-price history, broker summaries and bandarmology, `ownership sync` and every
+price history, broker summaries, bandarmology and foreign flow, `ownership sync`
+and every
 local ownership query. A few commands call external tools:
 
 | Tool | Needed for |
 | --- | --- |
 | `curl_chrome*` from [curl-impersonate](https://github.com/lexiforest/curl-impersonate), or `IDX_CURL_IMPERSONATE_BIN` | `ownership discover` and `ownership import --url` (IDX sits behind Cloudflare), and Yahoo fundamentals with `IDX_PROVIDER=yahoo` |
-| the full curl-impersonate set, with its `curl_safari*` and `curl_firefox*` profiles | `stocks flow`: IDX's Cloudflare rules pass only some browser fingerprints, and idx tries each installed profile |
+| the full curl-impersonate set, with its `curl_safari*` and `curl_firefox*` profiles | `stocks flow --source idx`: IDX's Cloudflare rules pass only some browser fingerprints, and idx tries each installed profile (the default source, IPOT, needs nothing) |
 | `mutool` from MuPDF | importing legacy PDF ownership reports |
 
 ## The MCP server

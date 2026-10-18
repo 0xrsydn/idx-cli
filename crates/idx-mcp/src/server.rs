@@ -246,11 +246,12 @@ foreign or domestic, shares are of that side's own buying (`buy_value`) and sell
 
     #[tool(
         description = "Foreign investors' buying and selling of one IDX ticker, session by \
-session (oldest first), from IDX's daily trading summary: foreign buy, sell and net volume in \
-shares, `foreign_net_value` (net shares at the session's average price, an estimate, IDR), \
-`change_bps`, and `non_regular_bps` (share of all value traded outside the regular board). \
-Volume, value and foreign figures are the regular board. Totals cover the whole range; \
-`foreign_share_bps` is foreign investors' share of regular-board trading. End of day."
+session (oldest first), with range totals; end of day. With `source` \"ipot\" (default): \
+`foreign_buy_value`, `foreign_sell_value` and `foreign_net_value` in IDR across all boards, \
+`value` traded, and `foreign_share_bps` (foreign share of trading); share counts, close and \
+`non_regular_bps` are null, and `rounded` = true means one decimal of precision. With \
+\"idx\": exact foreign share counts on the regular board, values estimated at the session's \
+average price, the close, `change_bps` and `non_regular_bps`."
     )]
     async fn get_foreign_flow(&self, params: Parameters<FlowParams>) -> ToolResult {
         let FlowParams {
@@ -258,11 +259,13 @@ Volume, value and foreign figures are the regular board. Totals cover the whole 
             days,
             from,
             to,
+            source,
         } = params.0;
         self.live(move |idx| {
             let flow = idx.flow();
             let range = FlowRange::from_args(days, from.as_deref(), to.as_deref(), flow.today())?;
-            flow.foreign(&symbol, range, CachePolicy::Default)
+            let source = source.as_deref().unwrap_or("ipot").parse()?;
+            flow.foreign(&symbol, range, source, CachePolicy::Default)
         })
         .await
     }

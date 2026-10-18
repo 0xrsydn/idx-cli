@@ -2442,7 +2442,7 @@ _idx() {
             return 0
             ;;
         idx__stocks__flow)
-            opts="-o -q -v -h --days --from --to --output --no-color --quiet --verbose --offline --no-cache --help <SYMBOL>"
+            opts="-o -q -v -h --days --from --to --source --output --no-color --quiet --verbose --offline --no-cache --help <SYMBOL>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2458,6 +2458,10 @@ _idx() {
                     ;;
                 --to)
                     COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --source)
+                    COMPREPLY=($(compgen -W "ipot idx" -- "${cur}"))
                     return 0
                     ;;
                 --output)

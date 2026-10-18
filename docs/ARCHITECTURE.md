@@ -53,8 +53,8 @@ command parses arguments, makes one idx-core call, and renders the result.
 - **Yahoo Finance** — default/auto history source. Reliable OHLCV data via `/v8/finance/chart/`.
 - **IPOT (Indo Premier)** — broker summaries, whichever provider is selected
   (`BrokerSummaryProvider`). See [Broker Summaries](#broker-summaries).
-- **IDX (idx.co.id)** — the daily trading summary behind foreign flow
-  (`TradingSummaryProvider`). See [Foreign Flow](#foreign-flow).
+- **IDX (idx.co.id)** — the daily trading summary behind `stocks flow
+  --source idx` (`TradingSummaryProvider`). See [Foreign Flow](#foreign-flow).
 
 ### MSN Endpoints
 - `https://assets.msn.com/service/`: quotes, charts, equities, earnings,
@@ -116,7 +116,13 @@ WIB as the fallback.
   never summed as zero. A change to the rules gets a new method name.
 
 ### Foreign Flow
-- `GET https://www.idx.co.id/primary/TradingSummary/GetStockSummary`
+- The default source is IPOT: per session, the all-investor broker summary
+  gives the value traded and the foreign one (`fd=F`) gives foreign buying
+  (its footer), the foreign net, and selling (buying less the net), all
+  boards, through the broker summary cache. IPOT's foreign net matched IDX's
+  estimate within 0.3 B on BBCA 2026-10-12 to 16. An empty all-investor
+  summary counts as no session.
+- `--source idx`: `GET https://www.idx.co.id/primary/TradingSummary/GetStockSummary`
   `?length=9999&start=0&date=YYYYMMDD` answers one JSON row per stock for the
   session: prices, volume, value, `ForeignBuy`/`ForeignSell` (shares) and
   non-regular volume and value. `Volume`, `Value` and the foreign figures are

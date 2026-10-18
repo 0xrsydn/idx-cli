@@ -16,7 +16,7 @@ use idx_core::api::types::{
 };
 use idx_core::broker::types::{BrokerBoard, BrokerFlow, BrokerInvestor, BrokerKind, BrokerSummary};
 use idx_core::error::IdxError;
-use idx_core::flow::types::ForeignFlow;
+use idx_core::flow::types::{FlowSource, ForeignFlow};
 
 pub fn format_idr(value: i64) -> String {
     let sign = if value.is_negative() { "-" } else { "" };
@@ -1262,12 +1262,70 @@ pub fn print_foreign_flow(flow: &ForeignFlow) -> Result<(), IdxError> {
     println!(
         "{}",
         format!(
-            "Foreign flow for {}, {span} ({sessions} session{})",
+            "Foreign flow for {}, {span} ({sessions} session{}, {})",
             terminal_safe(&flow.symbol),
-            if sessions == 1 { "" } else { "s" }
+            if sessions == 1 { "" } else { "s" },
+            match flow.source {
+                FlowSource::Ipot => "IPOT",
+                FlowSource::Idx => "IDX",
+            }
         )
         .bold()
     );
+    match flow.source {
+        FlowSource::Ipot => print_ipot_flow(flow),
+        FlowSource::Idx => print_idx_flow(flow),
+    }
+    if flow.rounded {
+        println!("Note: the source rounds figures of a million and more to one decimal.");
+    }
+    Ok(())
+}
+
+fn print_ipot_flow(flow: &ForeignFlow) {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec![
+            "DATE",
+            "VALUE",
+            "FOREIGN BUY",
+            "FOREIGN SELL",
+            "FOREIGN NET",
+            "FOREIGN %",
+        ]);
+    for day in &flow.days {
+        table.add_row(vec![
+            cell(day.date),
+            cell(format_compact_option(day.value)),
+            cell(format_compact_option(day.foreign_buy_value)),
+            cell(format_compact_option(day.foreign_sell_value)),
+            cell(format_signed_compact(day.foreign_net_value)),
+            cell(format_bps_share(day.foreign_share_bps)),
+        ]);
+    }
+    println!("{table}");
+    let mut summary = format!(
+        "Foreign investors bought {} IDR and sold {} IDR: net {}",
+        format_compact_option(flow.foreign_buy_value),
+        format_compact_option(flow.foreign_sell_value),
+        format_signed_compact(flow.foreign_net_value)
+    );
+    if let Some(share) = flow.foreign_share_bps {
+        summary.push_str(&format!(
+            "; they made up {} of trading",
+            format_bps_share(Some(share))
+        ));
+    }
+    println!("{summary}.");
+    println!(
+        "Values in IDR across all boards. For exact share counts, the close and the non-regular \
+share, use --source idx (needs curl-impersonate)."
+    );
+}
+
+fn print_idx_flow(flow: &ForeignFlow) {
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
@@ -1314,7 +1372,6 @@ pub fn print_foreign_flow(flow: &ForeignFlow) -> Result<(), IdxError> {
 is estimated at each session's average price; NON-REG is the share of all value traded \
 outside the regular board (negotiated and cash)."
     );
-    Ok(())
 }
 
 #[cfg(test)]

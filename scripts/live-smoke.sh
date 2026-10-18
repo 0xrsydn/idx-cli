@@ -127,8 +127,10 @@ contract() {
             echo '(.symbol | type == "string") and (.buyers | length > 0) and (.sellers | length > 0) and all(.buyers[]; (.code | type == "string") and (.value | type == "number")) and (.total_value | type == "number")' ;;
         "stocks bandar "*)
             echo 'type == "array" and length > 0 and all(.[]; (.method | type == "string") and (.tiers | length == 4) and (.imbalance_bps | type == "number"))' ;;
+        "stocks flow "*"--source idx"*)
+            echo '(.source == "idx") and (.days | length > 0) and all(.days[]; (.date | type == "string") and (.foreign_buy | type == "number") and (.foreign_sell | type == "number")) and (.foreign_net | type == "number")' ;;
         "stocks flow "*)
-            echo '(.days | length > 0) and all(.days[]; (.date | type == "string") and (.foreign_buy | type == "number") and (.foreign_sell | type == "number")) and (.foreign_net | type == "number")' ;;
+            echo '(.source == "ipot") and (.days | length > 0) and all(.days[]; (.date | type == "string") and (.foreign_buy_value | type == "number") and (.foreign_sell_value | type == "number")) and (.foreign_net_value | type == "number")' ;;
         "ownership discover"*)
             echo 'type == "array" and length > 0 and (.[0].pdf_url | type == "string")' ;;
         "ownership releases")
@@ -229,10 +231,11 @@ if selected stocks; then
     run_case compare "stocks compare $SYMBOL,BBRI"
     # BUMI/ADRO/AIMS return non-finite MSN key ratios (Infinity/NaN).
     run_case compare-nonfinite "stocks compare BUMI,ADRO,AIMS"
-    # Broker summaries (IPOT) and foreign flow (IDX, via curl-impersonate).
+    # Broker summaries and foreign flow (IPOT; --source idx via curl-impersonate).
     run_new_case broker "stocks broker $SYMBOL"
     run_new_case bandar "stocks bandar $SYMBOL,BBRI,TLKM"
     run_new_case flow "stocks flow $SYMBOL --days 3"
+    run_new_case flow-idx "stocks flow $SYMBOL --days 3 --source idx"
 fi
 
 if selected ownership; then

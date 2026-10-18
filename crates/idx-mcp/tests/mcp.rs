@@ -281,8 +281,18 @@ fn live_tools_wrap_data_with_freshness() {
         json!({"symbol": "BBCA", "from": "2026-10-12", "to": "2026-10-16"}),
     );
     assert_fetched(&flow);
-    assert_eq!(flow["source"], "idx");
+    assert_eq!(flow["source"], "ipot");
     assert_eq!(flow["data"]["days"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        flow["data"]["days"][4]["foreign_sell_value"],
+        4_000_000_000_000_i64
+    );
+    let idx_flow = client.ok(
+        "get_foreign_flow",
+        json!({"symbol": "BBCA", "from": "2026-10-12", "to": "2026-10-16", "source": "idx"}),
+    );
+    assert_eq!(idx_flow["source"], "idx");
+    assert_eq!(idx_flow["data"]["days"][4]["close"], 5175);
 
     let compared = client.ok("compare_stocks", json!({"symbols": ["BBCA", "BBRI"]}));
     assert_eq!(compared["reports"].as_array().unwrap().len(), 2);
@@ -321,6 +331,10 @@ fn errors_carry_cli_codes() {
         ("analyze_bandar", json!({"symbols": ["BBCA"], "top": 4})),
         ("analyze_bandar", json!({"symbols": []})),
         ("get_foreign_flow", json!({"symbol": "BBCA", "days": 61})),
+        (
+            "get_foreign_flow",
+            json!({"symbol": "BBCA", "source": "rti"}),
+        ),
         (
             "get_foreign_flow",
             json!({"symbol": "BBCA", "days": 3, "from": "2026-10-12"}),

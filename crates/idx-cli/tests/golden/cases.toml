@@ -273,8 +273,13 @@ formats = ["table", "json", "jsonl"]
 args = ["stocks", "flow", "BBCA", "--from", "2026-10-12", "--to", "2026-10-16"]
 
 [[case]]
-name = "stocks-flow-latest"
-args = ["stocks", "flow", "TLKM", "--days", "3"]
+name = "stocks-flow-idx"
+formats = ["table", "json", "jsonl"]
+args = ["stocks", "flow", "BBCA", "--from", "2026-10-12", "--to", "2026-10-16", "--source", "idx"]
+
+[[case]]
+name = "stocks-flow-idx-latest"
+args = ["stocks", "flow", "TLKM", "--days", "3", "--source", "idx"]
 env = { IDX_MOCK_TODAY = "2026-10-18" }
 
 [[case]]

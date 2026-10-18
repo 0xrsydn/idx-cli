@@ -167,7 +167,11 @@ impl Broker<'_> {
 /// trades the lists show. `F. NVal`, the foreign net, ignores both filters:
 /// on all boards it gives the side's selling (foreign buying less the foreign
 /// net; domestic buying plus it), and with a board filter it is dropped.
-fn summary_from_raw(symbol: &str, query: &BrokerQuery, raw: BrokerSummaryRaw) -> BrokerSummary {
+pub(crate) fn summary_from_raw(
+    symbol: &str,
+    query: &BrokerQuery,
+    raw: BrokerSummaryRaw,
+) -> BrokerSummary {
     let one_side = query.investor != BrokerInvestor::All;
     let all_boards = query.board == BrokerBoard::All;
     let foreign_net = raw.foreign_net_value.filter(|_| all_boards);
