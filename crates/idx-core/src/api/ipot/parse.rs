@@ -131,6 +131,25 @@ fn broker_kind(class: Option<&str>) -> Option<BrokerKind> {
     }
 }
 
+/// Whether `body` (lowercased) holds only `tr`, `td` and `span` tags, each
+/// closed before the next `<`: no comments, other elements, or markup
+/// inside attributes that the row checks could miscount.
+fn plain_markup(body: &str) -> bool {
+    body.match_indices('<').all(|(at, _)| {
+        let tag = &body[at + 1..];
+        let Some(end) = tag.find('>') else {
+            return false;
+        };
+        let inner = &tag[..end];
+        let name: String = inner
+            .trim_start_matches('/')
+            .chars()
+            .take_while(char::is_ascii_alphanumeric)
+            .collect();
+        !inner.contains('<') && matches!(name.as_str(), "tr" | "td" | "span")
+    })
+}
+
 /// The `MM/DD/YYYY` value of the input with this id.
 fn input_date(html: &str, id: &str) -> Option<NaiveDate> {
     let at = html.find(&format!("id=\"{id}\""))?;
@@ -159,9 +178,12 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
             .find("</tbody>")
             .map(|len| (start + "<tbody>".len(), start + len))
     });
-    let Some((body_start, body_end)) = body.filter(|_| lower.matches("<tbody").count() == 1) else {
+    let single = lower.matches("<tbody").count() == 1 && lower.matches("</tbody").count() == 1;
+    let Some((body_start, body_end)) =
+        body.filter(|(start, end)| single && plain_markup(&lower[*start..*end]))
+    else {
         return Err(IdxError::ParseError(
-            "ipot broker summary: no single table in the page".to_string(),
+            "ipot broker summary: no single plain table in the page".to_string(),
         ));
     };
     let mut raw = BrokerSummaryRaw {
@@ -388,6 +410,17 @@ mod tests {
             .replace("<tr>", "<TR>")
             .replace("<td", "<TD");
         let uppercase = DAY[..rank5].to_string() + &extra_row + &DAY[rank5..];
+        // A stray tbody end, and rank 5's cells hidden in a comment or an
+        // attribute.
+        let early_end = DAY[..rows[3] + "</tr>".len()].to_string()
+            + "</TbOdY>"
+            + &DAY[rows[3] + "</tr>".len()..];
+        let rank5_cells = &DAY[rank5 + "<tr>".len()..rows[4]];
+        let hidden = |wrap: &dyn Fn(&str) -> String| {
+            DAY[..rank5].to_string() + &wrap(rank5_cells) + &DAY[rows[4] + "</tr>".len()..]
+        };
+        let commented = hidden(&|cells| format!("<tr><!--{cells}--></tr>"));
+        let in_attribute = hidden(&|cells| format!("<tr data-x='{cells}'></tr>"));
         for page in [
             short_row,
             skipped_rank,
@@ -395,6 +428,9 @@ mod tests {
             unclosed,
             merged,
             uppercase,
+            early_end,
+            commented,
+            in_attribute,
             "</tbody><tbody>".to_string(),
         ] {
             assert!(
