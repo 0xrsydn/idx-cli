@@ -299,6 +299,11 @@ fn sole_child<'a>(parent: ElementRef<'a>, name: &str) -> Option<ElementRef<'a>> 
 const MAX_PAGE_BYTES: usize = 64 * 1024;
 const MAX_PAGE_TAGS: usize = 2_000;
 
+/// The column labels, in IPOT's order.
+const COLUMNS: [&str; 9] = [
+    "Buyer", "B.Lot", "B.Val", "B.Avg", "#", "Seller", "S.Lot", "S.Val", "S.Avg",
+];
+
 /// The footer's labels, in the order IPOT writes them.
 const FOOTER: [&str; 4] = ["T. Val :", "F. NVal :", "T.Lot :", "Avg :"];
 
@@ -332,11 +337,11 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     if html.len() > MAX_PAGE_BYTES || html.matches('<').count() > MAX_PAGE_TAGS {
         return Err(parse_error("page larger than IPOT serves"));
     }
-    let page = Html::parse_fragment(html);
-    let shown: String = page.root_element().text().collect();
-    if shown.to_ascii_lowercase().contains("invalid stock code") {
+    // For an unknown code the whole response is this one line.
+    if html.trim().eq_ignore_ascii_case("invalid stock code!") {
         return Ok(IpotPage::Invalid);
     }
+    let page = Html::parse_fragment(html);
     if !known_markup(&page) {
         return Err(parse_error("markup the page does not use"));
     }
@@ -344,9 +349,19 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
         .filter(|table| placed(*table, &TABLE_PATH))
         .ok_or_else(|| parse_error("no single table where the page puts it"))?;
     let parts: Vec<ElementRef> = table.child_elements().collect();
-    let [_, body, tfoot] = parts[..] else {
+    let [head, body, tfoot] = parts[..] else {
         return Err(parse_error("unexpected table parts"));
     };
+    // The columns must be labelled as IPOT labels them, in its order.
+    let headers: Option<Vec<String>> = sole_child(head, "tr").and_then(|row| {
+        row.child_elements()
+            .map(|th| (th.value().name() == "th").then(|| leaf_text(th)).flatten())
+            .map(|text| text.map(|text| clean(&text)))
+            .collect()
+    });
+    if headers.as_deref() != Some(&COLUMNS.map(String::from)[..]) {
+        return Err(parse_error("unexpected column labels"));
+    }
     let names: Vec<&str> = parts.iter().map(|part| part.value().name()).collect();
     if names != ["thead", "tbody", "tfoot"] {
         return Err(parse_error("unexpected table parts"));
@@ -835,9 +850,21 @@ mod tests {
                 "deeply nested divs",
                 "<div>".repeat(4_000) + &"</div>".repeat(4_000) + DAY,
             ),
+            (
+                "swapped column labels",
+                DAY.replacen(">B.Lot<", ">B.Tmp<", 1)
+                    .replacen(">B.Val<", ">B.Lot<", 1)
+                    .replacen(">B.Tmp<", ">B.Val<", 1),
+            ),
         ];
         for (what, page) in hidden.into_iter().chain(more) {
             assert!(read(&page).is_none(), "{what}");
         }
+        let script_text = DAY.replacen("></script>", ">/* invalid stock code */</script>", 1);
+        assert_eq!(
+            read(&script_text),
+            Some(original),
+            "script text is not shown"
+        );
     }
 }
