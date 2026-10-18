@@ -207,43 +207,53 @@ const ELEMENTS: [(&str, &[&str]); 15] = [
     ("th", &["align", "colspan"]),
     ("td", &["align"]),
 ];
-const CLASSES: [&str; 36] = [
-    "bdr-t",
-    "btn",
-    "btn-block",
-    "btn-default",
-    "btn-xs-input",
-    "col",
-    "col-sm-1",
-    "col-sm-2",
-    "col-sm-3",
-    "col-xs-2",
-    "col-xs-5",
-    "form-control",
-    "fsize12",
-    "input-xs",
-    "mincol-3",
-    "ml5",
-    "mr5",
-    "mt15",
-    "nm",
-    "noborder",
-    "pa5",
-    "pt20",
-    "row",
-    "table",
-    "table-hover",
-    "table-responsive",
-    "table-summary",
-    "text-",
-    "text-bumn",
-    "text-center",
-    "text-down",
-    "text-foreign",
-    "text-local",
-    "text-up",
-    "valign-middle",
-    "visible-xs",
+/// The class tokens each element type carries in IPOT's page.
+const CLASSES: [(&str, &[&str]); 7] = [
+    (
+        "button",
+        &["btn", "btn-block", "btn-default", "btn-xs-input"],
+    ),
+    (
+        "div",
+        &[
+            "col",
+            "col-sm-1",
+            "col-sm-2",
+            "col-sm-3",
+            "col-xs-2",
+            "col-xs-5",
+            "mincol-3",
+            "mt15",
+            "pa5",
+            "pt20",
+            "row",
+            "table-responsive",
+            "text-center",
+            "valign-middle",
+            "visible-xs",
+        ],
+    ),
+    ("input", &["form-control", "input-xs", "text-center"]),
+    ("select", &["form-control", "input-xs"]),
+    (
+        "span",
+        &[
+            "fsize12",
+            "ml5",
+            "mr5",
+            "text-",
+            "text-bumn",
+            "text-down",
+            "text-foreign",
+            "text-local",
+            "text-up",
+        ],
+    ),
+    (
+        "table",
+        &["nm", "noborder", "table", "table-hover", "table-summary"],
+    ),
+    ("tr", &["bdr-t"]),
 ];
 const PINNED: [(&str, &str, &str); 4] = [
     ("input", "type", "text"),
@@ -265,7 +275,12 @@ fn known_markup(page: &Html) -> bool {
                     .iter()
                     .filter(|(on, pinned, _)| *on == name && *pinned == attr)
                     .all(|(_, _, only)| *only == value)
-                && (attr != "class" || class_tokens(value).all(|class| CLASSES.contains(&class)))
+                && (attr != "class"
+                    || class_tokens(value).all(|class| {
+                        CLASSES
+                            .iter()
+                            .any(|(on, classes)| *on == name && classes.contains(&class))
+                    }))
         })
     })
 }
@@ -275,17 +290,24 @@ fn known_markup(page: &Html) -> bool {
 fn placed(element: ElementRef, path: &[(&str, &str)]) -> bool {
     let ancestors: Vec<ElementRef> = element.ancestors().filter_map(ElementRef::wrap).collect();
     ancestors.len() == path.len() + 1
-        && ancestors.iter().zip(path).all(|(ancestor, (name, class))| {
-            let mut found: Vec<&str> =
-                class_tokens(ancestor.attr("class").unwrap_or_default()).collect();
-            let mut wanted: Vec<&str> = class_tokens(class).collect();
-            // As sets: order, spacing and repeats don't change the classes.
-            found.sort_unstable();
-            found.dedup();
-            wanted.sort_unstable();
-            wanted.dedup();
-            ancestor.value().name() == *name && found == wanted
-        })
+        && ancestors
+            .iter()
+            .zip(path)
+            .all(|(ancestor, (name, classes))| {
+                ancestor.value().name() == *name && same_classes(*ancestor, classes)
+            })
+}
+
+/// Whether `element`'s classes are exactly `classes`, as sets: order,
+/// spacing and repeats don't change them.
+fn same_classes(element: ElementRef, classes: &str) -> bool {
+    let set = |value: &str| {
+        let mut tokens: Vec<String> = class_tokens(value).map(str::to_string).collect();
+        tokens.sort_unstable();
+        tokens.dedup();
+        tokens
+    };
+    set(element.attr("class").unwrap_or_default()) == set(classes)
 }
 
 const TABLE_PATH: [(&str, &str); 1] = [("div", "table-responsive")];
@@ -356,14 +378,20 @@ const FOOTER: [&str; 4] = ["T. Val :", "F. NVal :", "T.Lot :", "Avg :"];
 /// from `tfoot > tr > th > div` holding exactly IPOT's four text-only spans
 /// in order, with nothing else shown between them.
 fn footer_figures(tfoot: ElementRef) -> Option<[String; 4]> {
-    let div = sole_child(sole_child(sole_child(tfoot, "tr")?, "th")?, "div")?;
+    // Each element on the way carries exactly IPOT's classes, which could
+    // otherwise hide a figure (Bootstrap's `visible-xs` on a total, say).
+    let row = sole_child(tfoot, "tr").filter(|row| same_classes(*row, "bdr-t"))?;
+    let div = sole_child(sole_child(row, "th")?, "div")
+        .filter(|div| same_classes(*div, "text-center pt20 valign-middle"))?;
     let mut figures = Vec::new();
     for child in div.children() {
         match child.value() {
             Node::Text(text) if text.trim().is_empty() => {}
             Node::Comment(_) => {}
             Node::Element(element) if element.name() == "span" => {
-                let text = clean(&leaf_text(ElementRef::wrap(child)?)?);
+                let span = ElementRef::wrap(child)
+                    .filter(|span| same_classes(*span, "fsize12 ml5 mr5"))?;
+                let text = clean(&leaf_text(span)?);
                 let label = FOOTER.get(figures.len())?;
                 figures.push(text.strip_prefix(label)?.trim().to_string());
             }
@@ -391,7 +419,10 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
         return Err(parse_error("markup the page does not use"));
     }
     let table = only(page.root_element(), "table")
-        .filter(|table| placed(*table, &TABLE_PATH))
+        .filter(|table| {
+            placed(*table, &TABLE_PATH)
+                && same_classes(*table, "table table-summary table-hover noborder nm")
+        })
         .ok_or_else(|| parse_error("no single table where the page puts it"))?;
     let parts: Vec<ElementRef> = table.child_elements().collect();
     let [head, body, tfoot] = parts[..] else {
@@ -986,6 +1017,20 @@ mod tests {
             read(&blank_code_with_figures).is_none(),
             "figures beside a blank broker code"
         );
+        // Classes bound to their places: Bootstrap's `visible-xs` hides at
+        // desktop widths, so on a total or the table it rejects the page.
+        let hidden_total = DAY.replacen(
+            "<span class=\"fsize12 ml5 mr5\">T. Val",
+            "<span class=\"fsize12 ml5 mr5 visible-xs\">T. Val",
+            1,
+        );
+        assert!(read(&hidden_total).is_none(), "visible-xs on a total");
+        let hidden_table = DAY.replacen(
+            "class=\"table table-summary",
+            "class=\"visible-xs table table-summary",
+            1,
+        );
+        assert!(read(&hidden_table).is_none(), "visible-xs on the table");
         let script_text = DAY.replacen("></script>", ">/* invalid stock code */</script>", 1);
         assert_eq!(
             read(&script_text),
