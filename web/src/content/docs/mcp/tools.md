@@ -107,7 +107,7 @@ OHLCV price history for one IDX ticker.
 
 ## `get_quotes`
 
-Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close.
+Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close: the provider lags, the stock did not trade, or the day was an exchange holiday.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -137,7 +137,7 @@ Download or refresh the KSEI ownership snapshot (several MB) into the local data
 
 ## `screen_stocks`
 
-Run a stock screen (top/worst performers, high dividend, low P/E, 52-week highs/lows, high volume, large cap).
+Run a stock screen (top/worst performers, high dividend, low P/E, 52-week highs/lows, high volume, large cap). Rows carry `as_of` and, for the IDX region, `behind_session` as in get_quotes.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |

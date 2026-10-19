@@ -34,10 +34,11 @@ impl Market<'_> {
     ) -> Result<Vec<Fetched<Quote>>, IdxError> {
         let idx = self.idx;
         let bucket = idx.bucket("quote");
+        let session = latest_session(Utc::now());
         let mut quotes = Vec::with_capacity(symbols.len());
         for symbol in symbols {
             let resolved = idx.resolve(symbol.as_ref())?;
-            quotes.push(cached_fetch(
+            let mut quote = cached_fetch(
                 &idx.cache,
                 CacheSpec {
                     bucket: &bucket,
@@ -49,11 +50,12 @@ impl Market<'_> {
                 policy,
                 || idx.provider.market().quote(&resolved),
                 Ok,
-            )?);
-        }
-        let session = latest_session(Utc::now());
-        for quote in &mut quotes {
-            mark_behind_session(&mut quote.data, session);
+            )?;
+            // The session rule is IDX's; other exchanges keep other hours.
+            if resolved.ends_with(".JK") {
+                mark_behind_session(&mut quote.data, session);
+            }
+            quotes.push(quote);
         }
         Ok(quotes)
     }
@@ -137,9 +139,11 @@ impl Market<'_> {
         )?;
         sort_screener_quotes(&mut fetched.data, filter);
         fetched.data.truncate(limit);
-        let session = latest_session(Utc::now());
-        for quote in &mut fetched.data {
-            mark_behind_session(quote, session);
+        if region == ScreenRegion::Id {
+            let session = latest_session(Utc::now());
+            for quote in &mut fetched.data {
+                mark_behind_session(quote, session);
+            }
         }
         Ok(fetched)
     }
@@ -151,7 +155,7 @@ const SESSION_END: NaiveTime = NaiveTime::from_hms_opt(16, 15, 0).expect("valid 
 
 /// The latest weekday whose IDX session has ended by `now`. Exchange holidays
 /// are not known offline, so on a weekday holiday this is the holiday itself.
-pub fn latest_session(now: DateTime<Utc>) -> NaiveDate {
+pub(crate) fn latest_session(now: DateTime<Utc>) -> NaiveDate {
     let now = now.with_timezone(&idx_offset());
     let mut day = now.date_naive();
     if now.time() < SESSION_END {

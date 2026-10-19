@@ -51,8 +51,9 @@ pub struct Quote {
     #[serde(default)]
     pub as_of: Option<DateTime<FixedOffset>>,
     /// True when `as_of` is before the latest IDX session that has ended: the
-    /// provider has not caught up yet (MSN can lag hours after the close), or
-    /// the stock did not trade. False when `as_of` is unknown. Set when the
+    /// provider has not caught up yet (MSN can lag hours after the close), the
+    /// stock did not trade, or the day was an exchange holiday. False when
+    /// `as_of` is unknown and for non-IDX symbols and regions. Set when the
     /// quote is returned, not when it is cached.
     #[serde(default)]
     pub behind_session: bool,

@@ -397,7 +397,7 @@
     "name": "get_price_history"
   },
   {
-    "description": "Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close.",
+    "description": "Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close: the provider lags, the stock did not trade, or the day was an exchange holiday.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -457,7 +457,7 @@
     "name": "ownership_sync"
   },
   {
-    "description": "Run a stock screen (top/worst performers, high dividend, low P/E, 52-week highs/lows, high volume, large cap).",
+    "description": "Run a stock screen (top/worst performers, high dividend, low P/E, 52-week highs/lows, high volume, large cap). Rows carry `as_of` and, for the IDX region, `behind_session` as in get_quotes.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {

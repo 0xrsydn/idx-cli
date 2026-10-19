@@ -116,7 +116,8 @@ impl IdxServer {
     #[tool(
         description = "Latest quotes (price, change, volume, 52-week range, market cap) \
 for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true \
-when that is before the latest IDX session, so the price is not that session's close."
+when that is before the latest IDX session, so the price is not that session's close: the \
+provider lags, the stock did not trade, or the day was an exchange holiday."
     )]
     async fn get_quotes(&self, params: Parameters<SymbolsParams>) -> ToolResult {
         let symbols = match checked_symbols(params.0.symbols) {
@@ -149,7 +150,8 @@ when that is before the latest IDX session, so the price is not that session's c
 
     #[tool(
         description = "Run a stock screen (top/worst performers, high dividend, low P/E, \
-52-week highs/lows, high volume, large cap)."
+52-week highs/lows, high volume, large cap). Rows carry `as_of` and, for the IDX region, \
+`behind_session` as in get_quotes."
     )]
     async fn screen_stocks(&self, params: Parameters<ScreenParams>) -> ToolResult {
         let ScreenParams {
