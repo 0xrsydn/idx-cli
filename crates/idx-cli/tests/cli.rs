@@ -2438,29 +2438,35 @@ fn msn_screen_flags_idx_rows_behind_the_session() {
 
 #[test]
 fn quote_read_from_a_0_3_3_cache_entry_is_behind_the_session() {
-    let root = test_env_dir("quote-behind-session");
-    let mut warm = mock_bin_with_root(&root);
-    run_success_json(warm.args(["-o", "json", "stocks", "quote", "BBCA"]));
-    let entry = fs::read_dir(root.join("cache"))
-        .unwrap()
-        .flat_map(|dir| fs::read_dir(dir.unwrap().path()).unwrap())
-        .flat_map(|bucket| fs::read_dir(bucket.unwrap().path()).unwrap())
-        .map(|file| file.unwrap().path())
-        .find(|path| path.ends_with("BBCA.JK.json"))
-        .expect("cached quote");
-    // 0.3.3 wrote quotes without the field; this one last traded long ago.
-    let mut cached: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&entry).unwrap()).unwrap();
-    let data = cached["data"].as_object_mut().unwrap();
-    data.remove("behind_session")
-        .expect("field is cached unmarked");
-    data.insert("as_of".into(), "2026-01-02T16:15:00+07:00".into());
-    fs::write(&entry, cached.to_string()).unwrap();
-    let mut offline = mock_bin_with_root(&root);
-    let quotes =
-        run_success_json(offline.args(["--offline", "-o", "json", "stocks", "quote", "BBCA"]));
-    assert_eq!(quotes[0]["behind_session"], true);
-    fs::remove_dir_all(root).unwrap();
+    // IDX's session rule says nothing about other exchanges.
+    for (symbol, file, behind) in [
+        ("BBCA", "BBCA.JK.json", true),
+        ("AAPL.US", "AAPL.US.json", false),
+    ] {
+        let root = test_env_dir(&format!("quote-behind-session-{symbol}"));
+        let mut warm = mock_bin_with_root(&root);
+        run_success_json(warm.args(["-o", "json", "stocks", "quote", symbol]));
+        let entry = fs::read_dir(root.join("cache"))
+            .unwrap()
+            .flat_map(|dir| fs::read_dir(dir.unwrap().path()).unwrap())
+            .flat_map(|bucket| fs::read_dir(bucket.unwrap().path()).unwrap())
+            .map(|file| file.unwrap().path())
+            .find(|path| path.ends_with(file))
+            .expect("cached quote");
+        // 0.3.3 wrote quotes without the field; this one last traded long ago.
+        let mut cached: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&entry).unwrap()).unwrap();
+        let data = cached["data"].as_object_mut().unwrap();
+        data.remove("behind_session")
+            .expect("field is cached unmarked");
+        data.insert("as_of".into(), "2026-01-02T16:15:00+07:00".into());
+        fs::write(&entry, cached.to_string()).unwrap();
+        let mut offline = mock_bin_with_root(&root);
+        let quotes =
+            run_success_json(offline.args(["--offline", "-o", "json", "stocks", "quote", symbol]));
+        assert_eq!(quotes[0]["behind_session"], behind, "{symbol}");
+        fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[test]
