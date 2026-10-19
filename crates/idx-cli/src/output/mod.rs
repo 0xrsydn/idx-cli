@@ -8,6 +8,7 @@ use std::io::IsTerminal;
 use clap::ValueEnum;
 use serde::Serialize;
 
+use idx_core::analysis::bandar::BandarReport;
 use idx_core::analysis::fundamental::{
     FundamentalReport, GrowthReport, RiskReport, ValuationReport,
 };
@@ -16,7 +17,9 @@ use idx_core::api::types::{
     CompanyProfile, EarningsReport, FinancialStatements, InsightData, NewsItem, Ohlc, Quote,
     SentimentData,
 };
+use idx_core::broker::types::BrokerSummary;
 use idx_core::error::IdxError;
+use idx_core::flow::types::ForeignFlow;
 
 /// Output format requested by the user (flag, `IDX_OUTPUT`, or config file).
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq, Serialize, serde::Deserialize, Default)]
@@ -70,6 +73,38 @@ pub fn render_quotes(
     match format {
         OutputFormat::Table => table::print_quotes(quotes, no_color),
         OutputFormat::Json | OutputFormat::Jsonl => json::print_json(quotes),
+    }
+}
+
+pub fn render_broker_summary(
+    summary: &BrokerSummary,
+    format: &OutputFormat,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_broker_summary(summary),
+        OutputFormat::Json | OutputFormat::Jsonl => json::print_json(summary),
+    }
+}
+
+/// One symbol gets the detailed table, several the ranked screen (even when
+/// only one of them succeeded); JSON is always the array.
+pub fn render_bandar(
+    reports: &[BandarReport],
+    screen: bool,
+    format: &OutputFormat,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    match (format, reports) {
+        (OutputFormat::Table, [report]) if !screen => table::print_bandar_report(report, no_color),
+        (OutputFormat::Table, _) => table::print_bandar_screen(reports, no_color),
+        (OutputFormat::Json | OutputFormat::Jsonl, _) => json::print_json(reports),
+    }
+}
+
+pub fn render_foreign_flow(flow: &ForeignFlow, format: &OutputFormat) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_foreign_flow(flow),
+        OutputFormat::Json | OutputFormat::Jsonl => json::print_json(flow),
     }
 }
 

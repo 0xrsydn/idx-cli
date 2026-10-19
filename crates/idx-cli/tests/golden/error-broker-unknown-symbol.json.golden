@@ -1,0 +1,4 @@
+exit: 3
+--- stdout
+--- stderr
+{"code":"SYMBOLNOTFOUND","error":true,"message":"symbol not found: ZZZZ"}

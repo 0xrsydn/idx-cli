@@ -174,6 +174,12 @@ _idx() {
             idx__help__ownership__resolve,unresolved)
                 cmd="idx__help__ownership__resolve__unresolved"
                 ;;
+            idx__help__stocks,bandar)
+                cmd="idx__help__stocks__bandar"
+                ;;
+            idx__help__stocks,broker)
+                cmd="idx__help__stocks__broker"
+                ;;
             idx__help__stocks,compare)
                 cmd="idx__help__stocks__compare"
                 ;;
@@ -182,6 +188,9 @@ _idx() {
                 ;;
             idx__help__stocks,financials)
                 cmd="idx__help__stocks__financials"
+                ;;
+            idx__help__stocks,flow)
+                cmd="idx__help__stocks__flow"
                 ;;
             idx__help__stocks,fundamental)
                 cmd="idx__help__stocks__fundamental"
@@ -336,6 +345,12 @@ _idx() {
             idx__ownership__resolve__help,unresolved)
                 cmd="idx__ownership__resolve__help__unresolved"
                 ;;
+            idx__stocks,bandar)
+                cmd="idx__stocks__bandar"
+                ;;
+            idx__stocks,broker)
+                cmd="idx__stocks__broker"
+                ;;
             idx__stocks,compare)
                 cmd="idx__stocks__compare"
                 ;;
@@ -344,6 +359,9 @@ _idx() {
                 ;;
             idx__stocks,financials)
                 cmd="idx__stocks__financials"
+                ;;
+            idx__stocks,flow)
+                cmd="idx__stocks__flow"
                 ;;
             idx__stocks,fundamental)
                 cmd="idx__stocks__fundamental"
@@ -384,6 +402,12 @@ _idx() {
             idx__stocks,valuation)
                 cmd="idx__stocks__valuation"
                 ;;
+            idx__stocks__help,bandar)
+                cmd="idx__stocks__help__bandar"
+                ;;
+            idx__stocks__help,broker)
+                cmd="idx__stocks__help__broker"
+                ;;
             idx__stocks__help,compare)
                 cmd="idx__stocks__help__compare"
                 ;;
@@ -392,6 +416,9 @@ _idx() {
                 ;;
             idx__stocks__help,financials)
                 cmd="idx__stocks__help__financials"
+                ;;
+            idx__stocks__help,flow)
+                cmd="idx__stocks__help__flow"
                 ;;
             idx__stocks__help,fundamental)
                 cmd="idx__stocks__help__fundamental"
@@ -1191,8 +1218,36 @@ _idx() {
             return 0
             ;;
         idx__help__stocks)
-            opts="quote history technical growth valuation risk fundamental profile financials earnings sentiment insights news screen compare"
+            opts="quote history technical growth valuation risk fundamental broker bandar flow profile financials earnings sentiment insights news screen compare"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        idx__help__stocks__bandar)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        idx__help__stocks__broker)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -1233,6 +1288,20 @@ _idx() {
             return 0
             ;;
         idx__help__stocks__financials)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        idx__help__stocks__flow)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -2193,12 +2262,100 @@ _idx() {
             return 0
             ;;
         idx__stocks)
-            opts="-o -q -v -h --output --no-color --quiet --verbose --offline --no-cache --help quote history technical growth valuation risk fundamental profile financials earnings sentiment insights news screen compare help"
+            opts="-o -q -v -h --output --no-color --quiet --verbose --offline --no-cache --help quote history technical growth valuation risk fundamental broker bandar flow profile financials earnings sentiment insights news screen compare help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --output)
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
+                    return 0
+                    ;;
+                -o)
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        idx__stocks__bandar)
+            opts="-o -q -v -h --date --from --to --investor --board --top --output --no-color --quiet --verbose --offline --no-cache --help <SYMBOLS>..."
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --date)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --from)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --to)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --investor)
+                    COMPREPLY=($(compgen -W "all foreign domestic" -- "${cur}"))
+                    return 0
+                    ;;
+                --board)
+                    COMPREPLY=($(compgen -W "all regular cash negotiated" -- "${cur}"))
+                    return 0
+                    ;;
+                --top)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --output)
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
+                    return 0
+                    ;;
+                -o)
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        idx__stocks__broker)
+            opts="-o -q -v -h --date --from --to --investor --board --output --no-color --quiet --verbose --offline --no-cache --help <SYMBOL>"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --date)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --from)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --to)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --investor)
+                    COMPREPLY=($(compgen -W "all foreign domestic" -- "${cur}"))
+                    return 0
+                    ;;
+                --board)
+                    COMPREPLY=($(compgen -W "all regular cash negotiated" -- "${cur}"))
+                    return 0
+                    ;;
                 --output)
                     COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0
@@ -2284,6 +2441,44 @@ _idx() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        idx__stocks__flow)
+            opts="-o -q -v -h --days --from --to --source --output --no-color --quiet --verbose --offline --no-cache --help <SYMBOL>"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --days)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --from)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --to)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --source)
+                    COMPREPLY=($(compgen -W "ipot idx" -- "${cur}"))
+                    return 0
+                    ;;
+                --output)
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
+                    return 0
+                    ;;
+                -o)
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         idx__stocks__fundamental)
             opts="-o -q -v -h --output --no-color --quiet --verbose --offline --no-cache --help <SYMBOL>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -2329,8 +2524,36 @@ _idx() {
             return 0
             ;;
         idx__stocks__help)
-            opts="quote history technical growth valuation risk fundamental profile financials earnings sentiment insights news screen compare help"
+            opts="quote history technical growth valuation risk fundamental broker bandar flow profile financials earnings sentiment insights news screen compare help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        idx__stocks__help__bandar)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        idx__stocks__help__broker)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -2371,6 +2594,20 @@ _idx() {
             return 0
             ;;
         idx__stocks__help__financials)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        idx__stocks__help__flow)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )

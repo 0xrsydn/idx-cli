@@ -50,6 +50,13 @@ pub struct Quote {
     /// Suspended stocks can carry a last trade months in the past.
     #[serde(default)]
     pub as_of: Option<DateTime<FixedOffset>>,
+    /// True when `as_of` is before the latest IDX session that has ended: the
+    /// provider has not caught up yet (MSN can lag hours after the close), the
+    /// stock did not trade, or the day was an exchange holiday. False when
+    /// `as_of` is unknown and for non-IDX symbols and regions. Set when the
+    /// quote is returned, not when it is cached.
+    #[serde(default)]
+    pub behind_session: bool,
 }
 
 /// OHLC candle data normalized from Yahoo Finance chart indicators.

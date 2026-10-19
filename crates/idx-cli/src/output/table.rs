@@ -2,6 +2,9 @@ use crate::output::style::Paint;
 use crate::output::text::{cell, painted, terminal_safe, truncate_chars};
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 
+use idx_core::analysis::bandar::{
+    ACCUMULATION_BPS, BIG_BPS, BandarReport, BandarSignal, METHOD as BANDAR_METHOD,
+};
 use idx_core::analysis::fundamental::{
     FundamentalReport, GrowthReport, RiskReport, ValuationReport,
 };
@@ -11,7 +14,9 @@ use idx_core::api::types::{
     CompanyProfile, EarningsData, EarningsReport, FinancialStatements, InsightData, NewsItem, Ohlc,
     Quote, SentimentData,
 };
+use idx_core::broker::types::{BrokerBoard, BrokerFlow, BrokerInvestor, BrokerKind, BrokerSummary};
 use idx_core::error::IdxError;
+use idx_core::flow::types::{FlowSource, ForeignFlow};
 
 pub fn format_idr(value: i64) -> String {
     let sign = if value.is_negative() { "-" } else { "" };
@@ -89,19 +94,29 @@ pub fn print_quotes(quotes: &[Quote], no_color: bool) -> Result<(), IdxError> {
 }
 
 /// A quote whose last trade is over a week old is almost always a suspended
-/// stock; say so under the table instead of letting it pass as current.
+/// stock; say so under the table instead of letting it pass as current. One
+/// from before the latest session is usually the provider lagging the close.
 fn stale_quote_notes(quotes: &[Quote], now: chrono::DateTime<chrono::Utc>) -> Vec<String> {
     quotes
         .iter()
         .filter_map(|q| {
             let as_of = q.as_of?;
-            (now.signed_duration_since(as_of) > chrono::Duration::days(7)).then(|| {
-                format!(
+            if now.signed_duration_since(as_of) > chrono::Duration::days(7) {
+                Some(format!(
                     "Note: {} last traded on {}; this price is not current.",
                     q.symbol,
                     as_of.date_naive()
-                )
-            })
+                ))
+            } else if q.behind_session {
+                Some(format!(
+                    "Note: {} last traded on {}, before the latest IDX session; \
+                     this price may be out of date.",
+                    q.symbol,
+                    as_of.date_naive()
+                ))
+            } else {
+                None
+            }
         })
         .collect()
 }
@@ -893,6 +908,483 @@ fn truncate_url(url: &str) -> String {
     truncate_chars(url, 72)
 }
 
+/// A figure at the precision the broker summary source publishes:
+/// `841.2B`, `1.6M`, exact below a million.
+fn format_compact(value: i64) -> String {
+    let abs = value.unsigned_abs();
+    let (unit, suffix) = match abs {
+        1_000_000_000_000.. => (1e12, "T"),
+        1_000_000_000.. => (1e9, "B"),
+        1_000_000.. => (1e6, "M"),
+        _ => return format_idr(value),
+    };
+    format!("{:.1}{suffix}", value as f64 / unit)
+}
+
+fn format_compact_option(value: Option<i64>) -> String {
+    value.map(format_compact).unwrap_or_else(|| "-".to_string())
+}
+
+fn broker_cells(flow: Option<&BrokerFlow>) -> [Cell; 4] {
+    match flow {
+        Some(flow) => [
+            cell(&flow.code),
+            cell(format_compact_option(flow.lots)),
+            cell(format_compact_option(flow.value)),
+            cell(
+                flow.average_price
+                    .map(format_idr)
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+        ],
+        None => [cell(""), cell(""), cell(""), cell("")],
+    }
+}
+
+/// `2026-10-16`, or `2026-10-12 to 2026-10-16`, plus any filters.
+pub(crate) fn broker_scope(
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+    investor: BrokerInvestor,
+    board: BrokerBoard,
+) -> String {
+    let mut scope = if from == to {
+        from.to_string()
+    } else {
+        format!("{from} to {to}")
+    };
+    if investor != BrokerInvestor::All {
+        scope.push_str(&format!(", {} investors", investor.as_str()));
+    }
+    if board != BrokerBoard::All {
+        scope.push_str(&format!(", {} board", board.as_str()));
+    }
+    scope
+}
+
+/// What one investor side bought and sold, when a summary covers one side.
+fn side_totals_line(
+    investor: BrokerInvestor,
+    board: BrokerBoard,
+    buy_value: Option<i64>,
+    sell_value: Option<i64>,
+    foreign_net: Option<i64>,
+) -> Option<String> {
+    let side = match investor {
+        BrokerInvestor::All => return None,
+        BrokerInvestor::Foreign => "Foreign",
+        BrokerInvestor::Domestic => "Domestic",
+    };
+    let buy = format_compact_option(buy_value);
+    Some(match sell_value {
+        Some(sell) => {
+            let net = foreign_net
+                .map(|net| match investor {
+                    BrokerInvestor::Domestic => -net,
+                    _ => net,
+                })
+                .map(|net| format!(" (net {:+})", format_compact(net)))
+                .unwrap_or_default();
+            format!(
+                "{side} investors bought {buy} IDR and sold {} IDR{net}.",
+                format_compact(sell)
+            )
+        }
+        None => format!(
+            "{side} investors bought {buy} IDR on the {} board; the source gives one side's \
+selling only across all boards.",
+            board.as_str()
+        ),
+    })
+}
+
+pub fn print_broker_summary(summary: &BrokerSummary) -> Result<(), IdxError> {
+    println!(
+        "{}",
+        format!(
+            "Broker summary for {}, {}",
+            terminal_safe(&summary.symbol),
+            broker_scope(summary.from, summary.to, summary.investor, summary.board)
+        )
+        .bold()
+    );
+    if summary.is_empty() {
+        println!("No trades.");
+        return Ok(());
+    }
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec![
+            "#", "BUYER", "LOTS", "VALUE", "AVG", "SELLER", "LOTS", "VALUE", "AVG",
+        ]);
+    let rows = summary.buyers.len().max(summary.sellers.len());
+    for index in 0..rows {
+        let mut row = vec![cell(index + 1)];
+        row.extend(broker_cells(summary.buyers.get(index)));
+        row.extend(broker_cells(summary.sellers.get(index)));
+        table.add_row(row);
+    }
+    println!("{table}");
+
+    if summary.total_value.is_some() {
+        let mut totals = format!(
+            "Total {} IDR, {} lots",
+            format_compact_option(summary.total_value),
+            format_compact_option(summary.total_lots)
+        );
+        if let Some(average) = summary.average_price {
+            totals.push_str(&format!(", average {}", format_idr(average)));
+        }
+        if let Some(net) = summary.foreign_net_value {
+            totals.push_str(&format!("; foreign net {:+}", format_compact(net)));
+        }
+        println!("{totals}.");
+    } else if let Some(line) = side_totals_line(
+        summary.investor,
+        summary.board,
+        summary.buy_value,
+        summary.sell_value,
+        summary.foreign_net_value,
+    ) {
+        println!("{line}");
+    }
+    for (kind, label) in [
+        (BrokerKind::Foreign, "Foreign brokers"),
+        (BrokerKind::StateOwned, "State-owned brokers"),
+    ] {
+        let mut codes: Vec<&str> = summary
+            .buyers
+            .iter()
+            .chain(&summary.sellers)
+            .filter(|flow| flow.kind == Some(kind))
+            .map(|flow| flow.code.as_str())
+            .collect();
+        codes.sort_unstable();
+        codes.dedup();
+        if !codes.is_empty() {
+            println!("{label}: {}.", terminal_safe(&codes.join(", ")));
+        }
+    }
+    println!("Buyers and sellers are each ranked by lots; a broker can be on both sides.");
+    if summary.rounded {
+        println!("Note: the source rounds figures of a million and more to one decimal.");
+    }
+    Ok(())
+}
+
+fn format_bps_pct(bps: Option<i64>) -> String {
+    bps.map(|bps| format!("{:+.1}%", bps as f64 / 100.0))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_bps_share(bps: Option<i64>) -> String {
+    bps.map(|bps| format!("{:.1}%", bps as f64 / 100.0))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_bandar_signal(signal: Option<BandarSignal>, no_color: bool) -> String {
+    let Some(signal) = signal else {
+        return "-".to_string();
+    };
+    let label = signal.as_str().replace('_', " ");
+    if no_color {
+        return label;
+    }
+    match signal {
+        BandarSignal::BigAccumulation | BandarSignal::Accumulation => label.green(),
+        BandarSignal::BigDistribution | BandarSignal::Distribution => label.red(),
+        BandarSignal::Neutral => label,
+    }
+}
+
+fn bandar_method_note(top: u8) -> String {
+    format!(
+        "Method {BANDAR_METHOD}: the top {top} buyers' share of the value bought minus the top \
+{top} sellers' share of the value sold; {}% or more reads accumulation, {}% or more big \
+(negative: distribution). Brokers trade for many clients, so this is a heuristic, not advice.",
+        ACCUMULATION_BPS / 100,
+        BIG_BPS / 100
+    )
+}
+
+pub fn print_bandar_report(report: &BandarReport, no_color: bool) -> Result<(), IdxError> {
+    println!(
+        "{}",
+        format!(
+            "Bandar reading for {}, {}",
+            terminal_safe(&report.symbol),
+            broker_scope(report.from, report.to, report.investor, report.board)
+        )
+        .bold()
+    );
+    // Brokers on either side mean trades, even when a total is unavailable.
+    if report
+        .tiers
+        .iter()
+        .all(|tier| tier.buy_value == Some(0) && tier.sell_value == Some(0))
+    {
+        println!("No trades.");
+        return Ok(());
+    }
+    println!(
+        "Signal (top {}): {}, {} of value",
+        report.top,
+        format_bandar_signal(report.signal, no_color),
+        format_bps_pct(report.imbalance_bps)
+    );
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec![
+            "TOP", "BUY", "SELL", "NET", "NET %", "BUY AVG", "SELL AVG", "SIGNAL",
+        ]);
+    for tier in &report.tiers {
+        table.add_row(vec![
+            cell(tier.top),
+            cell(format_compact_option(tier.buy_value)),
+            cell(format_compact_option(tier.sell_value)),
+            cell(format_compact_option(tier.imbalance_value)),
+            cell(format_bps_pct(tier.imbalance_bps)),
+            cell(
+                tier.buy_average
+                    .map(format_idr)
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            cell(
+                tier.sell_average
+                    .map(format_idr)
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            painted(format_bandar_signal(tier.signal, no_color)),
+        ]);
+    }
+    println!("{table}");
+    if let Some(line) = side_totals_line(
+        report.investor,
+        report.board,
+        report.buy_value,
+        report.sell_value,
+        report.foreign_net_value,
+    ) {
+        println!("{line}");
+    } else {
+        let mut totals = format!("Total {} IDR", format_compact_option(report.total_value));
+        if let Some(average) = report.average_price {
+            totals.push_str(&format!(", average {}", format_idr(average)));
+        }
+        if let Some(net) = report.foreign_net_value {
+            totals.push_str(&format!(
+                "; foreign net {:+} ({} of value)",
+                format_compact(net),
+                format_bps_pct(report.foreign_net_bps)
+            ));
+        }
+        println!("{totals}.");
+    }
+    if !report.both_sides.is_empty() {
+        println!(
+            "On both sides: {}; their gross figures overstate which way they traded.",
+            terminal_safe(&report.both_sides.join(", "))
+        );
+    }
+    println!("{}", bandar_method_note(report.top));
+    if report.rounded {
+        println!("Note: the source rounds figures of a million and more to one decimal.");
+    }
+    Ok(())
+}
+
+pub fn print_bandar_screen(reports: &[BandarReport], no_color: bool) -> Result<(), IdxError> {
+    let top = reports.first().map(|report| report.top).unwrap_or_default();
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec![
+            "SYMBOL".to_string(),
+            "DATES".to_string(),
+            "SIGNAL".to_string(),
+            format!("TOP {top} NET %"),
+            "BUY SHARE".to_string(),
+            "SELL SHARE".to_string(),
+            "VALUE".to_string(),
+            "FOREIGN NET".to_string(),
+        ]);
+    for report in reports {
+        let headline = report.tiers.iter().find(|tier| tier.top == report.top);
+        table.add_row(vec![
+            cell(&report.symbol),
+            cell(broker_scope(
+                report.from,
+                report.to,
+                BrokerInvestor::All,
+                BrokerBoard::All,
+            )),
+            painted(format_bandar_signal(report.signal, no_color)),
+            cell(format_bps_pct(report.imbalance_bps)),
+            cell(format_bps_share(
+                headline.and_then(|tier| tier.buy_share_bps),
+            )),
+            cell(format_bps_share(
+                headline.and_then(|tier| tier.sell_share_bps),
+            )),
+            cell(format_compact_option(report.total_value)),
+            cell(
+                report
+                    .foreign_net_value
+                    .map(|net| format!("{:+}", format_compact(net)))
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+        ]);
+    }
+    println!("{table}");
+    if let Some(first) = reports.first()
+        && (first.investor, first.board) != (BrokerInvestor::All, BrokerBoard::All)
+    {
+        println!(
+            "Counting {} investors on the {} board.",
+            first.investor.as_str(),
+            first.board.as_str()
+        );
+    }
+    println!("{}", bandar_method_note(top));
+    Ok(())
+}
+
+fn format_signed_compact(value: Option<i64>) -> String {
+    value
+        .map(|value| {
+            let text = format_compact(value);
+            if value > 0 { format!("+{text}") } else { text }
+        })
+        .unwrap_or_else(|| "-".to_string())
+}
+
+pub fn print_foreign_flow(flow: &ForeignFlow) -> Result<(), IdxError> {
+    let span = if flow.from == flow.to {
+        flow.from.to_string()
+    } else {
+        format!("{} to {}", flow.from, flow.to)
+    };
+    let sessions = flow.days.len();
+    println!(
+        "{}",
+        format!(
+            "Foreign flow for {}, {span} ({sessions} session{}, {})",
+            terminal_safe(&flow.symbol),
+            if sessions == 1 { "" } else { "s" },
+            match flow.source {
+                FlowSource::Ipot => "IPOT",
+                FlowSource::Idx => "IDX",
+            }
+        )
+        .bold()
+    );
+    match flow.source {
+        FlowSource::Ipot => print_ipot_flow(flow),
+        FlowSource::Idx => print_idx_flow(flow),
+    }
+    if flow.rounded {
+        println!("Note: the source rounds figures of a million and more to one decimal.");
+    }
+    Ok(())
+}
+
+fn print_ipot_flow(flow: &ForeignFlow) {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec![
+            "DATE",
+            "VALUE",
+            "FOREIGN BUY",
+            "FOREIGN SELL",
+            "FOREIGN NET",
+            "FOREIGN %",
+        ]);
+    for day in &flow.days {
+        table.add_row(vec![
+            cell(day.date),
+            cell(format_compact_option(day.value)),
+            cell(format_compact_option(day.foreign_buy_value)),
+            cell(format_compact_option(day.foreign_sell_value)),
+            cell(format_signed_compact(day.foreign_net_value)),
+            cell(format_bps_share(day.foreign_share_bps)),
+        ]);
+    }
+    println!("{table}");
+    let mut summary = format!(
+        "Foreign investors bought {} IDR and sold {} IDR: net {}",
+        format_compact_option(flow.foreign_buy_value),
+        format_compact_option(flow.foreign_sell_value),
+        format_signed_compact(flow.foreign_net_value)
+    );
+    if let Some(share) = flow.foreign_share_bps {
+        summary.push_str(&format!(
+            "; they made up {} of trading",
+            format_bps_share(Some(share))
+        ));
+    }
+    println!("{summary}.");
+    println!(
+        "Values in IDR across all boards. For exact share counts, the close and the non-regular \
+share, use --source idx (needs curl-impersonate)."
+    );
+}
+
+fn print_idx_flow(flow: &ForeignFlow) {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec![
+            "DATE",
+            "CLOSE",
+            "CHG%",
+            "VALUE",
+            "FOREIGN BUY",
+            "FOREIGN SELL",
+            "FOREIGN NET",
+            "NET VALUE",
+            "NON-REG",
+        ]);
+    for day in &flow.days {
+        table.add_row(vec![
+            cell(day.date),
+            cell(day.close.map(format_idr).unwrap_or_else(|| "-".to_string())),
+            cell(format_bps_pct(day.change_bps)),
+            cell(format_compact_option(day.value)),
+            cell(format_compact_option(day.foreign_buy)),
+            cell(format_compact_option(day.foreign_sell)),
+            cell(format_signed_compact(day.foreign_net)),
+            cell(format_signed_compact(day.foreign_net_value)),
+            cell(format_bps_share(day.non_regular_bps)),
+        ]);
+    }
+    println!("{table}");
+    let mut summary = format!(
+        "Net foreign: {} shares, about {} IDR",
+        format_signed_compact(flow.foreign_net),
+        format_signed_compact(flow.foreign_net_value)
+    );
+    if let Some(share) = flow.foreign_share_bps {
+        summary.push_str(&format!(
+            "; foreign investors made up {} of trading",
+            format_bps_share(Some(share))
+        ));
+    }
+    println!("{summary}.");
+    println!(
+        "Volume, value and foreign figures are the regular board, volumes in shares. Net value \
+is estimated at each session's average price; NON-REG is the share of all value traded \
+outside the regular board (negotiated and cash)."
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -917,6 +1409,7 @@ mod tests {
             prev_close: None,
             avg_volume: None,
             as_of: Some(chrono::DateTime::parse_from_rfc3339(as_of).unwrap()),
+            behind_session: false,
         }
     }
 
@@ -933,6 +1426,30 @@ mod tests {
         assert_eq!(
             stale_quote_notes(&quotes, now),
             vec!["Note: WIKA.JK last traded on 2025-02-17; this price is not current."]
+        );
+    }
+
+    #[test]
+    fn notes_quotes_behind_the_latest_session() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-16T16:53:00+07:00")
+            .unwrap()
+            .to_utc();
+        let mut behind = quote_as_of("BBCA.JK", "2026-10-15T16:15:00+07:00");
+        behind.behind_session = true;
+        let mut suspended = quote_as_of("WIKA.JK", "2025-02-17T16:14:58+07:00");
+        suspended.behind_session = true;
+        let quotes = [
+            behind,
+            suspended,
+            quote_as_of("BBRI.JK", "2026-10-16T16:15:00+07:00"),
+        ];
+        assert_eq!(
+            stale_quote_notes(&quotes, now),
+            vec![
+                "Note: BBCA.JK last traded on 2026-10-15, before the latest IDX session; \
+                 this price may be out of date.",
+                "Note: WIKA.JK last traded on 2025-02-17; this price is not current.",
+            ]
         );
     }
 

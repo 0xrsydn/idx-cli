@@ -1,0 +1,15 @@
+exit: 0
+--- stdout
+Foreign flow for TLKM.JK, 2026-10-14 to 2026-10-16 (3 sessions, IDX)
+┌────────────┬───────┬────────┬────────┬─────────────┬──────────────┬─────────────┬───────────┬─────────┐
+│ DATE       ┆ CLOSE ┆ CHG%   ┆ VALUE  ┆ FOREIGN BUY ┆ FOREIGN SELL ┆ FOREIGN NET ┆ NET VALUE ┆ NON-REG │
+╞════════════╪═══════╪════════╪════════╪═════════════╪══════════════╪═════════════╪═══════════╪═════════╡
+│ 2026-10-14 ┆ 2,250 ┆ +0.5%  ┆ 197.7B ┆ 63.0M       ┆ 60.8M        ┆ +2.2M       ┆ +5.0B     ┆ 9.8%    │
+├╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌┤
+│ 2026-10-15 ┆ 2,230 ┆ -0.9%  ┆ 333.3B ┆ 97.4M       ┆ 105.5M       ┆ -8.1M       ┆ -18.0B    ┆ 0.8%    │
+├╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌┤
+│ 2026-10-16 ┆ 1,900 ┆ -14.8% ┆ 1.9T   ┆ 679.0M      ┆ 727.3M       ┆ -48.3M      ┆ -93.0B    ┆ 14.8%   │
+└────────────┴───────┴────────┴────────┴─────────────┴──────────────┴─────────────┴───────────┴─────────┘
+Net foreign: -54.2M shares, about -106.0B IDR; foreign investors made up 72.1% of trading.
+Volume, value and foreign figures are the regular board, volumes in shares. Net value is estimated at each session's average price; NON-REG is the share of all value traded outside the regular board (negotiated and cash).
+--- stderr

@@ -2,12 +2,25 @@
 //! `IDX_USE_MOCK_PROVIDER`. Release builds do not contain it.
 
 use super::types::{Bar, Fundamentals, Interval, Period, Quote};
-use super::{FundamentalsProvider, HistoryProvider, QuoteProvider, msn, yahoo};
+use super::{
+    BrokerSummaryProvider, FundamentalsProvider, HistoryProvider, QuoteProvider,
+    TradingSummaryProvider, idx, ipot, msn, yahoo,
+};
+use crate::broker::types::{BrokerBoard, BrokerInvestor, BrokerQuery};
 use crate::config::ProviderKind;
 use crate::error::IdxError;
 
 pub(crate) fn enabled() -> bool {
     std::env::var("IDX_USE_MOCK_PROVIDER").is_ok()
+}
+
+/// `IDX_MOCK_TODAY` (YYYY-MM-DD) pins today's date under the mock provider.
+pub(crate) fn today() -> Option<chrono::NaiveDate> {
+    if !enabled() {
+        return None;
+    }
+    let raw = std::env::var("IDX_MOCK_TODAY").ok()?;
+    chrono::NaiveDate::parse_from_str(&raw, "%Y-%m-%d").ok()
 }
 
 pub struct MockProvider {
@@ -115,5 +128,63 @@ impl HistoryProvider for MockProvider {
         _interval: &Interval,
     ) -> Result<Vec<Bar>, IdxError> {
         self.history.clone()
+    }
+}
+
+/// Broker summaries from `tests/fixtures/ipot_brokersummary_<code>_<from>
+/// [_<to>][_<investor>_<board>].html`; a query without a fixture reads as an
+/// unknown code.
+pub struct MockBrokerProvider;
+
+impl BrokerSummaryProvider for MockBrokerProvider {
+    fn broker_summary(
+        &self,
+        code: &str,
+        query: &BrokerQuery,
+    ) -> Result<ipot::BrokerSummaryRaw, IdxError> {
+        if std::env::var("IDX_MOCK_ERROR").is_ok() {
+            return Err(IdxError::ProviderUnavailable);
+        }
+        let mut name = format!(
+            "ipot_brokersummary_{}_{}",
+            code.to_ascii_lowercase(),
+            query.from.format("%Y%m%d")
+        );
+        if query.to != query.from {
+            name.push_str(&query.to.format("_%Y%m%d").to_string());
+        }
+        if (query.investor, query.board) != (BrokerInvestor::All, BrokerBoard::All) {
+            name.push_str(&format!(
+                "_{}_{}",
+                query.investor.as_str(),
+                query.board.as_str()
+            ));
+        }
+        let html = std::fs::read_to_string(format!("tests/fixtures/{name}.html"))
+            .unwrap_or_else(|_| "Invalid stock code!".to_string());
+        ipot::summary_from_html(code, &html)
+    }
+}
+
+/// Trading summaries from `tests/fixtures/idx_stocksummary_<date>.json`; a
+/// date without a fixture had no trading.
+pub struct MockTradingSummaryProvider;
+
+impl TradingSummaryProvider for MockTradingSummaryProvider {
+    fn stock_summary(
+        &self,
+        date: chrono::NaiveDate,
+    ) -> Result<Vec<crate::flow::types::StockDay>, IdxError> {
+        if std::env::var("IDX_MOCK_ERROR").is_ok() {
+            return Err(IdxError::ProviderUnavailable);
+        }
+        let path = format!(
+            "tests/fixtures/idx_stocksummary_{}.json",
+            date.format("%Y%m%d")
+        );
+        match std::fs::read_to_string(path) {
+            Ok(raw) => idx::parse_stock_summary(&raw, date),
+            Err(_) => Ok(Vec::new()),
+        }
     }
 }

@@ -1,0 +1,20 @@
+exit: 0
+--- stdout
+Bandar reading for BBCA.JK, 2026-10-16
+Signal (top 5): big distribution, -24.2% of value
+┌─────┬────────┬──────┬───────┬────────┬─────────┬──────────┬──────────────────┐
+│ TOP ┆ BUY    ┆ SELL ┆ NET   ┆ NET %  ┆ BUY AVG ┆ SELL AVG ┆ SIGNAL           │
+╞═════╪════════╪══════╪═══════╪════════╪═════════╪══════════╪══════════════════╡
+│ 1   ┆ 841.2B ┆ 2.2T ┆ -1.4T ┆ -20.6% ┆ 5,191   ┆ 5,211    ┆ big distribution │
+├╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 3   ┆ 2.0T   ┆ 3.9T ┆ -1.9T ┆ -29.1% ┆ 5,212   ┆ 5,233    ┆ big distribution │
+├╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 5   ┆ 2.9T   ┆ 4.5T ┆ -1.6T ┆ -24.2% ┆ 5,211   ┆ 5,229    ┆ big distribution │
+├╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 10  ┆ 4.5T   ┆ 5.6T ┆ -1.1T ┆ -16.3% ┆ 5,213   ┆ 5,228    ┆ big distribution │
+└─────┴────────┴──────┴───────┴────────┴─────────┴──────────┴──────────────────┘
+Total 6.6T IDR, average 5,228; foreign net -2.3T (-34.8% of value).
+On both sides: AK, CC, MG, XL, YU, ZP; their gross figures overstate which way they traded.
+Method top_concentration_v1: the top 5 buyers' share of the value bought minus the top 5 sellers' share of the value sold; 5% or more reads accumulation, 15% or more big (negative: distribution). Brokers trade for many clients, so this is a heuristic, not advice.
+Note: the source rounds figures of a million and more to one decimal.
+--- stderr

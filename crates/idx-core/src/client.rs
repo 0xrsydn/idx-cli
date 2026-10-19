@@ -86,6 +86,14 @@ impl Idx {
         crate::market::Market { idx: self }
     }
 
+    pub fn broker(&self) -> crate::broker::Broker<'_> {
+        crate::broker::Broker { idx: self }
+    }
+
+    pub fn flow(&self) -> crate::flow::Flow<'_> {
+        crate::flow::Flow { idx: self }
+    }
+
     pub fn financial(&self) -> crate::financial::Financial<'_> {
         crate::financial::Financial { idx: self }
     }
@@ -101,6 +109,18 @@ impl Idx {
 
     pub(crate) fn resolve(&self, symbol: &str) -> Result<String, IdxError> {
         crate::api::resolve_symbol(symbol, &self.config.exchange)
+    }
+
+    /// The resolved symbol and its bare IDX code, for sources that cover
+    /// IDX (`.JK`) stocks only; `what` names the data in the error.
+    pub(crate) fn idx_code(&self, symbol: &str, what: &str) -> Result<(String, String), IdxError> {
+        let resolved = self.resolve(symbol)?;
+        match resolved.strip_suffix(".JK") {
+            Some(code) if !code.is_empty() => Ok((resolved.clone(), code.to_string())),
+            _ => Err(IdxError::Unsupported(format!(
+                "{resolved}: {what} covers IDX (.JK) stocks only"
+            ))),
+        }
     }
 
     pub(crate) fn bucket(&self, key: &str) -> String {

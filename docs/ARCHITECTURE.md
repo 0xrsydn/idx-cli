@@ -51,6 +51,10 @@ command parses arguments, makes one idx-core call, and renders the result.
 ### Dual Provider Model
 - **MSN Finance** — default provider. Rich data: quotes, fundamentals, profile, earnings, financials, sentiment, insights, news, screener, and explicit price-only chart history for supported IDX windows.
 - **Yahoo Finance** — default/auto history source. Reliable OHLCV data via `/v8/finance/chart/`.
+- **IPOT (Indo Premier)** — broker summaries, whichever provider is selected
+  (`BrokerSummaryProvider`). See [Broker Summaries](#broker-summaries).
+- **IDX (idx.co.id)** — the daily trading summary behind `stocks flow
+  --source idx` (`TradingSummaryProvider`). See [Foreign Flow](#foreign-flow).
 
 ### MSN Endpoints
 - `https://assets.msn.com/service/`: quotes, charts, equities, earnings,
@@ -71,8 +75,13 @@ MSN candle dates use WIB (UTC+7); Yahoo candle dates use `meta.gmtoffset`, with
 WIB as the fallback.
 
 ### Quote and Screener Data
-- Quotes expose nullable `as_of` last-trade timestamps in WIB. Table output flags
-  quotes whose last trade was more than seven days ago.
+- Quotes expose nullable `as_of` last-trade timestamps in WIB, and
+  `behind_session` when `as_of` is before the latest weekday whose session has
+  ended (16:15 WIB). It is computed on return, not cached; MSN can lag the close
+  by hours, and on an exchange holiday every quote reads as behind. Only `.JK`
+  quotes and `--region id` screens are marked; other exchanges keep other hours.
+  Table output notes behind quotes, and calls those over seven days old not
+  current.
 - `change`, `change_pct`, and `volume` are nullable when the provider omits them;
   JSON consumers must not assume these fields are always numeric.
 - Listed MSN instruments without a price return `NOMARKETDATA`; unknown symbols
@@ -83,6 +92,64 @@ WIB as the fallback.
   when the initial batch is incomplete, and rejects a still-truncated response.
 - Full-list screen caches use an `all` key, separate from older limited results.
 
+### Broker Summaries
+- `GET https://www.indopremier.com/module/saham/include/data-brokersummary.php`
+  takes `code`, `start`/`end` (`MM/DD/YYYY`), `fd` (`all|F|D`) and `board`
+  (`all|RG|TN|NG`). It needs no login and answers an HTML fragment: the top 10
+  buyers and top 10 sellers ranked by lots (gross, so a broker can be on both
+  sides), plus range totals. `api/ipot/parse.rs` parses it purely, with
+  html5ever (`scraper`), so it reads the cells, date inputs and footer a
+  browser would build: a hand-written reader kept disagreeing with HTML on
+  crafted markup in the 0.4.0 review. A table whose rows don't line up
+  (missing cells, ranks out of order, a broker after a blank row, a second
+  body) rejects the page, and the dates it echoes must match the request.
+- Figures of a million and more arrive abbreviated (`1.6 M`); they are scaled
+  in decimal and the summary's `rounded` flag says so. `F. NVal` ignores the
+  investor and board filters, so `foreign_net_value` is null for a summary of
+  one board. With `fd=F` or `fd=D` the footer covers only that
+  side's buying (BBCA 2026-10-16: foreign 1.7 T and domestic 4.9 T of 6.6 T),
+  so `total_value` is null and the footer is `buy_value`. On all boards the
+  side's `sell_value` is its buying less the foreign net (foreign: 1.7 + 2.3
+  = 4.0 T, against IDX's 3.95 T regular) or plus it (domestic); with a board
+  filter it is null.
+- An unknown code is a 200 with `Invalid stock code!` (`SYMBOLNOTFOUND`). The
+  server also answers spurious nginx 404s for seconds at a time, so the client
+  retries 404 and 5xx with backoff. A range without trades is an empty summary.
+- Data is end of day: IDX hides broker codes during trading. Summaries that
+  ended before today are cached for 7 days, today's for 5 minutes. Broker
+  names come from `broker/codes.tsv` (IDX `GetBrokerCodeList`).
+- Bandarmology (`analysis/bandar.rs`, method `top_concentration_v1`) is pure
+  over one summary: for the top 1/3/5/10 per side, the buyers' share of the
+  value bought minus the sellers' share of the value sold (for all investors,
+  buy value minus sell value in basis points of value traded), with thresholds ±500/±1500 bps taken from
+  fzn0x/idx. A tier with a missing figure has no reading; missing values are
+  never summed as zero. A change to the rules gets a new method name.
+
+### Foreign Flow
+- The default source is IPOT: per session, the all-investor broker summary
+  gives the value traded and the foreign one (`fd=F`) gives foreign buying
+  (its footer), the foreign net, and selling (buying less the net), all
+  boards, through the broker summary cache. IPOT's foreign net matched IDX's
+  estimate within 0.3 B on BBCA 2026-10-12 to 16. An empty all-investor
+  summary counts as no session.
+- `--source idx`: `GET https://www.idx.co.id/primary/TradingSummary/GetStockSummary`
+  `?length=9999&start=0&date=YYYYMMDD` answers one JSON row per stock for the
+  session: prices, volume, value, `ForeignBuy`/`ForeignSell` (shares) and
+  non-regular volume and value. `Volume`, `Value` and the foreign figures are
+  the regular board only: IPOT's regular-board total for BBCA on 2026-10-16
+  matches `Value`, and in a week of every stock no foreign figure exceeded
+  regular volume. `non_regular_bps` is therefore over regular plus
+  non-regular value. A day without trading has no rows; rows dated
+  another day are dropped. `api/idx/parse.rs` parses it purely.
+- Cloudflare rejects most TLS fingerprints (in October 2026 only
+  `curl_safari184` passed), so the request uses curl-impersonate's profile
+  fallback with a 30 s limit. A challenge page fails that profile, not the
+  parse.
+- Each session is cached whole (every stock) by date: 30 days once past,
+  5 minutes for today. `Flow::foreign` walks weekdays without requesting
+  weekends; offline, `--days` skips uncached sessions while a `--from/--to`
+  range fails on one. `foreign_net_value` is net shares at the session's
+  average price (value over volume), an estimate.
 
 ### Capability Gating
 ```
@@ -92,6 +159,8 @@ HistoryProvider    = separate trait, not all providers implement
 Factory functions:
   default_provider(kind) → Box<dyn MarketDataProvider>
   history_provider(kind, mode, verbose) → Result<(ProviderKind, Box<dyn HistoryProvider>)>
+  broker_provider() → Box<dyn BrokerSummaryProvider>
+  trading_summary_provider() → Box<dyn TradingSummaryProvider>
 ```
 
 ## Ownership Module (SQLite-backed)

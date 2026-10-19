@@ -1,0 +1,5 @@
+exit: 0
+--- stdout
+Broker summary for BBCA.JK, 2026-10-17
+No trades.
+--- stderr

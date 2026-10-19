@@ -64,6 +64,7 @@ pub(super) fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, 
             .regular_market_time
             .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
             .map(|t| t.with_timezone(&crate::api::idx_offset())),
+        behind_session: false,
     })
 }
 

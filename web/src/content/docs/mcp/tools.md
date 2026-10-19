@@ -10,6 +10,20 @@ starts with `--allow-sync`. Results that come from a live provider are wrapped
 as `{data, source, fetched_at, stale}`; failures return `{error, code,
 message}` with `isError` set.
 
+## `analyze_bandar`
+
+Bandarmology for one or more IDX tickers from the broker summary: for the top 1, 3, 5 and 10 brokers per side, buy value minus sell value as basis points of value traded (`imbalance_bps`), with a `signal` from big_accumulation (>= +1500) through neutral (within +-500) to big_distribution (<= -1500), headlined by `top` (default 5). Reports come strongest accumulation first; tickers that fail are listed under `failures`. A heuristic over end-of-day broker codes: brokers trade for many clients, and `both_sides` lists brokers whose gross figures overstate their direction. `method` names the rules applied. With `investor` foreign or domestic, shares are of that side's own buying (`buy_value`) and selling (`sell_value`); that needs `board` all.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `board` | `all` / `regular` / `cash` / `negotiated` | no | Which board's trades to count (default "all"); "regular" leaves out negotiated block trades. |
+| `date` | string | no | One session, YYYY-MM-DD. Omit date, from and to for the latest session with trades. |
+| `from` | string | no | First session of a range, YYYY-MM-DD (at most 366 days). |
+| `investor` | `all` / `foreign` / `domestic` | no | Whose trades to count, by investor domicile (default "all"). |
+| `symbols` | array of string | yes | IDX tickers, e.g. ["BBCA", "BBRI"]; the `.JK` suffix is optional. At most 20. |
+| `to` | string | no | Last session of the range, YYYY-MM-DD (default today). |
+| `top` | `1` / `3` / `5` / `10` | no | Tier behind the headline signal: 1, 3, 5 or 10 brokers per side (default 5). |
+
 ## `analyze_stock`
 
 Analyze one IDX ticker: technical signals (trend, RSI, MACD, moving averages) and fundamental growth, valuation, and risk ratings. Analyses that fail are listed under `errors`; the call fails only if every analysis fails.
@@ -27,6 +41,19 @@ Compare fundamental reports (growth, valuation, risk) across IDX tickers. Ticker
 | --- | --- | --- | --- |
 | `symbols` | array of string | yes | IDX tickers, e.g. ["BBCA", "BBRI"]; the `.JK` suffix is optional. At most 20. |
 
+## `get_broker_summary`
+
+Broker summary for one IDX ticker: the top 10 buyers and top 10 sellers by lots over a session or date range, each with lots (1 lot = 100 shares), value and average price in IDR, plus totals. Buyers and sellers are ranked separately and gross, so a broker can appear on both sides. End of day only (IDX hides broker codes during trading); `kind` is the broker's own status (local, foreign, state_owned), not its clients'. With `investor` foreign or domestic, each row is that broker's foreign or domestic clients' trades, `total_value` is null, and `buy_value`/`sell_value` give what that side bought and sold (`sell_value` needs `board` all). `rounded` = true means figures of a million and more carry one decimal of precision.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `board` | `all` / `regular` / `cash` / `negotiated` | no | Which board's trades to count (default "all"); "regular" leaves out negotiated block trades. |
+| `date` | string | no | One session, YYYY-MM-DD. Omit date, from and to for the latest session with trades. |
+| `from` | string | no | First session of a range, YYYY-MM-DD (at most 366 days). |
+| `investor` | `all` / `foreign` / `domestic` | no | Whose trades to count, by investor domicile (default "all"). |
+| `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
+| `to` | string | no | Last session of the range, YYYY-MM-DD (default today). |
+
 ## `get_company`
 
 Company data for one IDX ticker: profile, financial statements, earnings, analyst sentiment, insights, and news. News items carry `relevance`: `company` (about this ticker) first, then `market` (general market news). Sections that fail are listed under `errors`; the call fails only if every section fails.
@@ -35,6 +62,18 @@ Company data for one IDX ticker: profile, financial statements, earnings, analys
 | --- | --- | --- | --- |
 | `sections` | array of `profile` / `financials` / `earnings` / `sentiment` / `insights` / `news` | no | Sections to fetch (default: all). |
 | `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
+
+## `get_foreign_flow`
+
+Foreign investors' buying and selling of one IDX ticker, session by session (oldest first), with range totals; end of day. With `source` "ipot" (default): `foreign_buy_value`, `foreign_sell_value` and `foreign_net_value` in IDR across all boards, `value` traded, and `foreign_share_bps` (foreign share of trading); share counts, close and `non_regular_bps` are null, and `rounded` = true means one decimal of precision. With "idx": exact foreign share counts on the regular board, values estimated at the session's average price, the close, `change_bps` and `non_regular_bps`.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `days` | integer | no | Latest sessions (default 10, at most 60). Omit when giving from/to. |
+| `from` | string | no | First session of a range, YYYY-MM-DD (at most 92 days). |
+| `source` | `ipot` / `idx` | no | Where the figures come from (default "ipot"): "ipot" gives foreign buy, sell and net value across all boards; "idx" gives exact share counts, the close and the non-regular share, but needs curl-impersonate and may be blocked (HTTP 403). |
+| `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
+| `to` | string | no | Last session of the range, YYYY-MM-DD (default today). |
 
 ## `get_investor_holdings`
 
@@ -68,7 +107,7 @@ OHLCV price history for one IDX ticker.
 
 ## `get_quotes`
 
-Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers.
+Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close: the provider lags, the stock did not trade, or the day was an exchange holiday.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -98,7 +137,7 @@ Download or refresh the KSEI ownership snapshot (several MB) into the local data
 
 ## `screen_stocks`
 
-Run a stock screen (top/worst performers, high dividend, low P/E, 52-week highs/lows, high volume, large cap).
+Run a stock screen (top/worst performers, high dividend, low P/E, 52-week highs/lows, high volume, large cap). Rows carry `as_of` and, for the IDX region, `behind_session` as in get_quotes.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |

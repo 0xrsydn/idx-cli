@@ -1,5 +1,81 @@
 [
   {
+    "description": "Bandarmology for one or more IDX tickers from the broker summary: for the top 1, 3, 5 and 10 brokers per side, buy value minus sell value as basis points of value traded (`imbalance_bps`), with a `signal` from big_accumulation (>= +1500) through neutral (within +-500) to big_distribution (<= -1500), headlined by `top` (default 5). Reports come strongest accumulation first; tickers that fail are listed under `failures`. A heuristic over end-of-day broker codes: brokers trade for many clients, and `both_sides` lists brokers whose gross figures overstate their direction. `method` names the rules applied. With `investor` foreign or domestic, shares are of that side's own buying (`buy_value`) and selling (`sell_value`); that needs `board` all.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "board": {
+          "default": null,
+          "description": "Which board's trades to count (default \"all\"); \"regular\" leaves out\nnegotiated block trades.",
+          "enum": [
+            "all",
+            "regular",
+            "cash",
+            "negotiated"
+          ],
+          "type": "string"
+        },
+        "date": {
+          "default": null,
+          "description": "One session, YYYY-MM-DD. Omit date, from and to for the latest session with trades.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "from": {
+          "default": null,
+          "description": "First session of a range, YYYY-MM-DD (at most 366 days).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "investor": {
+          "default": null,
+          "description": "Whose trades to count, by investor domicile (default \"all\").",
+          "enum": [
+            "all",
+            "foreign",
+            "domestic"
+          ],
+          "type": "string"
+        },
+        "symbols": {
+          "description": "IDX tickers, e.g. [\"BBCA\", \"BBRI\"]; the `.JK` suffix is optional. At most 20.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "to": {
+          "default": null,
+          "description": "Last session of the range, YYYY-MM-DD (default today).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "top": {
+          "default": null,
+          "description": "Tier behind the headline signal: 1, 3, 5 or 10 brokers per side (default 5).",
+          "enum": [
+            1,
+            3,
+            5,
+            10
+          ],
+          "type": "integer"
+        }
+      },
+      "required": [
+        "symbols"
+      ],
+      "type": "object"
+    },
+    "name": "analyze_bandar"
+  },
+  {
     "description": "Analyze one IDX ticker: technical signals (trend, RSI, MACD, moving averages) and fundamental growth, valuation, and risk ratings. Analyses that fail are listed under `errors`; the call fails only if every analysis fails.",
     "inputSchema": {
       "$defs": {
@@ -58,6 +134,68 @@
     "name": "compare_stocks"
   },
   {
+    "description": "Broker summary for one IDX ticker: the top 10 buyers and top 10 sellers by lots over a session or date range, each with lots (1 lot = 100 shares), value and average price in IDR, plus totals. Buyers and sellers are ranked separately and gross, so a broker can appear on both sides. End of day only (IDX hides broker codes during trading); `kind` is the broker's own status (local, foreign, state_owned), not its clients'. With `investor` foreign or domestic, each row is that broker's foreign or domestic clients' trades, `total_value` is null, and `buy_value`/`sell_value` give what that side bought and sold (`sell_value` needs `board` all). `rounded` = true means figures of a million and more carry one decimal of precision.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "board": {
+          "default": null,
+          "description": "Which board's trades to count (default \"all\"); \"regular\" leaves out\nnegotiated block trades.",
+          "enum": [
+            "all",
+            "regular",
+            "cash",
+            "negotiated"
+          ],
+          "type": "string"
+        },
+        "date": {
+          "default": null,
+          "description": "One session, YYYY-MM-DD. Omit date, from and to for the latest session with trades.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "from": {
+          "default": null,
+          "description": "First session of a range, YYYY-MM-DD (at most 366 days).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "investor": {
+          "default": null,
+          "description": "Whose trades to count, by investor domicile (default \"all\").",
+          "enum": [
+            "all",
+            "foreign",
+            "domestic"
+          ],
+          "type": "string"
+        },
+        "symbol": {
+          "description": "IDX ticker, e.g. \"BBCA\".",
+          "type": "string"
+        },
+        "to": {
+          "default": null,
+          "description": "Last session of the range, YYYY-MM-DD (default today).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "name": "get_broker_summary"
+  },
+  {
     "description": "Company data for one IDX ticker: profile, financial statements, earnings, analyst sentiment, insights, and news. News items carry `relevance`: `company` (about this ticker) first, then `market` (general market news). Sections that fail are listed under `errors`; the call fails only if every section fails.",
     "inputSchema": {
       "$defs": {
@@ -96,6 +234,58 @@
       "type": "object"
     },
     "name": "get_company"
+  },
+  {
+    "description": "Foreign investors' buying and selling of one IDX ticker, session by session (oldest first), with range totals; end of day. With `source` \"ipot\" (default): `foreign_buy_value`, `foreign_sell_value` and `foreign_net_value` in IDR across all boards, `value` traded, and `foreign_share_bps` (foreign share of trading); share counts, close and `non_regular_bps` are null, and `rounded` = true means one decimal of precision. With \"idx\": exact foreign share counts on the regular board, values estimated at the session's average price, the close, `change_bps` and `non_regular_bps`.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "days": {
+          "default": null,
+          "description": "Latest sessions (default 10, at most 60). Omit when giving from/to.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "from": {
+          "default": null,
+          "description": "First session of a range, YYYY-MM-DD (at most 92 days).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "default": null,
+          "description": "Where the figures come from (default \"ipot\"): \"ipot\" gives foreign buy, sell and net\nvalue across all boards; \"idx\" gives exact share counts, the close and the non-regular\nshare, but needs curl-impersonate and may be blocked (HTTP 403).",
+          "enum": [
+            "ipot",
+            "idx"
+          ],
+          "type": "string"
+        },
+        "symbol": {
+          "description": "IDX ticker, e.g. \"BBCA\".",
+          "type": "string"
+        },
+        "to": {
+          "default": null,
+          "description": "Last session of the range, YYYY-MM-DD (default today).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "name": "get_foreign_flow"
   },
   {
     "description": "Every IDX holding (above 1%) of one investor, matched by name.",
@@ -207,7 +397,7 @@
     "name": "get_price_history"
   },
   {
-    "description": "Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers.",
+    "description": "Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close: the provider lags, the stock did not trade, or the day was an exchange holiday.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -267,7 +457,7 @@
     "name": "ownership_sync"
   },
   {
-    "description": "Run a stock screen (top/worst performers, high dividend, low P/E, 52-week highs/lows, high volume, large cap).",
+    "description": "Run a stock screen (top/worst performers, high dividend, low P/E, 52-week highs/lows, high volume, large cap). Rows carry `as_of` and, for the IDX region, `behind_session` as in get_quotes.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {

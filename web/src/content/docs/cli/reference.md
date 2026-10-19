@@ -66,6 +66,9 @@ Commands:
   valuation    Run valuation analysis on a stock
   risk         Run risk analysis on a stock
   fundamental  Run full fundamental analysis on a stock
+  broker       Which brokers bought and sold a stock
+  bandar       Bandarmology: is buying more concentrated than selling
+  flow         Foreign buying and selling of a stock, session by session
   profile      Get company profile
   financials   Get financial statements
   earnings     Get earnings report
@@ -276,6 +279,216 @@ Options:
 Examples:
   idx stocks fundamental BBCA
   idx -o json stocks fundamental BBCA
+```
+
+### `idx stocks broker`
+
+```text
+Which brokers bought and sold a stock: the top 10 buyers and top 10 sellers by lots, with value and average price, from Indo Premier (IPOT). End of day: IDX does not show broker codes during trading. Without dates, the latest session with trades.
+
+Usage: idx stocks broker [OPTIONS] <SYMBOL>
+
+Arguments:
+  <SYMBOL>
+          Single ticker symbol (e.g. BBCA)
+
+Options:
+      --date <DATE>
+          One session, YYYY-MM-DD. Default: the latest session with trades
+
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --from <FROM>
+          First session of a range, YYYY-MM-DD (at most 366 days)
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+      --to <TO>
+          Last session of the range, YYYY-MM-DD. Default: today
+
+      --investor <INVESTOR>
+          Whose trades to count
+
+          Possible values:
+          - all:      Every trade
+          - foreign:  Trades by foreign investors only
+          - domestic: Trades by domestic investors only
+
+          [default: all]
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --board <BOARD>
+          Which board's trades to count; `regular` leaves out negotiated block trades
+
+          Possible values:
+          - all:        Every board
+          - regular:    Regular market (RG), the continuous order book
+          - cash:       Cash market (TN)
+          - negotiated: Negotiated market (NG): pre-arranged block trades
+
+          [default: all]
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx stocks broker BBCA
+  idx stocks broker BBCA --date 2026-10-16
+  idx stocks broker BBCA --from 2026-10-12 --to 2026-10-16 --board regular
+  idx -o json stocks broker BBCA --investor foreign
+```
+
+### `idx stocks bandar`
+
+```text
+Bandarmology from the broker summary: the top 1, 3, 5 and 10 buyers' value against the same number of sellers', as a share of value traded, with a signal from big accumulation to big distribution. Several symbols give a screen ranked by the headline tier (at most 100, one request each). `--investor foreign|domestic` weighs that side's buyers against its buying and its sellers against its selling (needs `--board all`). A heuristic over end-of-day broker codes, not advice.
+
+Usage: idx stocks bandar [OPTIONS] <SYMBOLS>...
+
+Arguments:
+  <SYMBOLS>...
+          One or more symbols, comma-separated or space-separated; `-` reads them from stdin
+
+Options:
+      --date <DATE>
+          One session, YYYY-MM-DD. Default: the latest session with trades
+
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --from <FROM>
+          First session of a range, YYYY-MM-DD (at most 366 days)
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+      --to <TO>
+          Last session of the range, YYYY-MM-DD. Default: today
+
+      --investor <INVESTOR>
+          Whose trades to count
+
+          Possible values:
+          - all:      Every trade
+          - foreign:  Trades by foreign investors only
+          - domestic: Trades by domestic investors only
+
+          [default: all]
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --board <BOARD>
+          Which board's trades to count; `regular` leaves out negotiated block trades
+
+          Possible values:
+          - all:        Every board
+          - regular:    Regular market (RG), the continuous order book
+          - cash:       Cash market (TN)
+          - negotiated: Negotiated market (NG): pre-arranged block trades
+
+          [default: all]
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+      --top <TOP>
+          Tier behind the headline signal: 1, 3, 5 or 10 brokers per side
+
+          [default: 5]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx stocks bandar BBCA
+  idx stocks bandar BBCA --from 2026-10-12 --to 2026-10-16 --top 3
+  idx stocks bandar BBCA,BBRI,BMRI,TLKM
+  idx stocks screen --filter high-volume | jq -r '.[].symbol' | idx stocks bandar -
+```
+
+### `idx stocks flow`
+
+```text
+Foreign buying and selling of a stock, session by session, end of day. By default from Indo Premier (IPOT): foreign buy, sell and net value across all boards and foreign investors' share of trading, two plain requests per session. `--source idx` reads IDX's own trading summary instead: exact foreign share counts, the close and the share traded outside the regular board, one request per session to idx.co.id, which needs curl-impersonate and a network IDX's Cloudflare lets through.
+
+Usage: idx stocks flow [OPTIONS] <SYMBOL>
+
+Arguments:
+  <SYMBOL>
+          Single ticker symbol (e.g. BBCA)
+
+Options:
+      --days <DAYS>
+          Latest sessions to show (default 10, at most 60)
+
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --from <FROM>
+          First session of a range, YYYY-MM-DD (at most 92 days)
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+      --to <TO>
+          Last session of the range, YYYY-MM-DD. Default: today
+
+      --source <SOURCE>
+          Where the figures come from
+
+          Possible values:
+          - ipot: Indo Premier's broker summary: foreign buy, sell and net value across all boards, two plain requests per session. Figures of a million and more are rounded to one decimal
+          - idx:  IDX's own trading summary: exact foreign share counts, close and the non-regular share, regular board. Needs curl-impersonate and a network IDX's Cloudflare lets through
+
+          [default: ipot]
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx stocks flow BBCA
+  idx stocks flow BBCA --days 20
+  idx stocks flow BBCA --from 2026-10-01 --to 2026-10-16
+  idx stocks flow BBCA --source idx
+  idx -o json stocks flow BBCA | jq '.foreign_net_value'
 ```
 
 ### `idx stocks profile`

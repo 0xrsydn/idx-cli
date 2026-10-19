@@ -2408,6 +2408,68 @@ fn msn_screen_ranks_complete_candidates_and_caches_before_limit() {
 }
 
 #[test]
+fn msn_screen_flags_idx_rows_behind_the_session() {
+    let root = test_env_dir("screen-behind-session");
+    let fixture = write_large_screener_fixture(&root, Some(503));
+    let behind = |rows: &serde_json::Value| -> Vec<bool> {
+        rows.as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["behind_session"].as_bool().unwrap())
+            .collect()
+    };
+    // Every fixture row last traded on 2026-01-02, long before any session now.
+    let fresh = run_success_json(&mut screener_fixture_command(
+        &root,
+        &fixture,
+        "top-performers",
+        3,
+    ));
+    assert_eq!(behind(&fresh), [true; 3]);
+    let mut offline = screener_fixture_command(&root, &fixture, "top-performers", 3);
+    offline.env("IDX_MOCK_ERROR", "1").arg("--offline");
+    assert_eq!(behind(&run_success_json(&mut offline)), [true; 3]);
+    // IDX's session rule says nothing about other exchanges.
+    let mut us = screener_fixture_command(&root, &fixture, "top-performers", 3);
+    us.args(["--region", "us"]);
+    assert_eq!(behind(&run_success_json(&mut us)), [false; 3]);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn quote_read_from_a_0_3_3_cache_entry_is_behind_the_session() {
+    // IDX's session rule says nothing about other exchanges.
+    for (symbol, file, behind) in [
+        ("BBCA", "BBCA.JK.json", true),
+        ("AAPL.US", "AAPL.US.json", false),
+    ] {
+        let root = test_env_dir(&format!("quote-behind-session-{symbol}"));
+        let mut warm = mock_bin_with_root(&root);
+        run_success_json(warm.args(["-o", "json", "stocks", "quote", symbol]));
+        let entry = fs::read_dir(root.join("cache"))
+            .unwrap()
+            .flat_map(|dir| fs::read_dir(dir.unwrap().path()).unwrap())
+            .flat_map(|bucket| fs::read_dir(bucket.unwrap().path()).unwrap())
+            .map(|file| file.unwrap().path())
+            .find(|path| path.ends_with(file))
+            .expect("cached quote");
+        // 0.3.3 wrote quotes without the field; this one last traded long ago.
+        let mut cached: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&entry).unwrap()).unwrap();
+        let data = cached["data"].as_object_mut().unwrap();
+        data.remove("behind_session")
+            .expect("field is cached unmarked");
+        data.insert("as_of".into(), "2026-01-02T16:15:00+07:00".into());
+        fs::write(&entry, cached.to_string()).unwrap();
+        let mut offline = mock_bin_with_root(&root);
+        let quotes =
+            run_success_json(offline.args(["--offline", "-o", "json", "stocks", "quote", symbol]));
+        assert_eq!(quotes[0]["behind_session"], behind, "{symbol}");
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
 fn msn_screen_rejects_invalid_totals_without_populating_cache() {
     for (name, count) in [("missing", None), ("incomplete", Some(504))] {
         let root = test_env_dir(&format!("screen-total-{name}"));
@@ -2433,4 +2495,630 @@ fn msn_screen_rejects_invalid_totals_without_populating_cache() {
         assert_eq!(screener_symbols(&recovered), expected);
         fs::remove_dir_all(root).unwrap();
     }
+}
+
+/// A command on the fixture-backed mock provider, never the network.
+fn mock_bin(name: &str) -> Command {
+    let mut cmd = test_bin(name);
+    cmd.env("IDX_USE_MOCK_PROVIDER", "1");
+    cmd
+}
+
+fn mock_bin_with_root(root: &Path) -> Command {
+    let mut cmd = bin_with_root(root);
+    cmd.env("IDX_USE_MOCK_PROVIDER", "1");
+    cmd
+}
+
+#[test]
+fn broker_summary_json_names_brokers_and_keeps_source_totals() {
+    let summary = run_success_json(mock_bin("broker-json").args([
+        "-o",
+        "json",
+        "stocks",
+        "broker",
+        "bbca",
+        "--date",
+        "2026-10-16",
+    ]));
+    assert_eq!(summary["symbol"], "BBCA.JK");
+    assert_eq!(
+        (summary["from"].as_str(), summary["to"].as_str()),
+        (Some("2026-10-16"), Some("2026-10-16"))
+    );
+    assert_eq!(summary["buyers"].as_array().unwrap().len(), 10);
+    let top = &summary["buyers"][0];
+    assert_eq!(top["code"], "MG");
+    assert_eq!(top["name"], "SEMESTA INDOVEST SEKURITAS");
+    assert_eq!(top["kind"], "local");
+    assert_eq!(top["lots"], 1_600_000);
+    assert_eq!(top["value"], 841_200_000_000_i64);
+    assert_eq!(top["average_price"], 5_191);
+    assert_eq!(summary["sellers"][0]["kind"], "state_owned");
+    assert_eq!(summary["total_value"], 6_600_000_000_000_i64);
+    assert_eq!(summary["foreign_net_value"], -2_300_000_000_000_i64);
+    assert_eq!(summary["rounded"], true);
+
+    // The source does not filter its foreign net figure, so a filtered
+    // summary leaves it out rather than passing it off as filtered.
+    let filtered = run_success_json(mock_bin("broker-filtered").args([
+        "-o",
+        "json",
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+        "--investor",
+        "foreign",
+        "--board",
+        "regular",
+    ]));
+    assert_eq!(filtered["investor"], "foreign");
+    assert_eq!(filtered["board"], "regular");
+    assert_eq!(filtered["buyers"][0]["code"], "KZ");
+    for field in [
+        "total_value",
+        "total_lots",
+        "average_price",
+        "sell_value",
+        "foreign_net_value",
+    ] {
+        assert!(filtered[field].is_null(), "{field}: {filtered}");
+    }
+    assert_eq!(filtered["buy_value"], 1_600_000_000_000_i64);
+    let table = run_success_stdout(mock_bin("broker-filtered-table").args([
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+        "--investor",
+        "foreign",
+        "--board",
+        "regular",
+    ]));
+    assert!(!table.contains("Total "), "{table}");
+    assert!(
+        table.contains("Foreign investors bought 1.6T IDR on the regular board"),
+        "{table}"
+    );
+
+    // On all boards, the foreign net gives foreign selling.
+    let foreign = run_success_json(mock_bin("broker-foreign").args([
+        "-o",
+        "json",
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+        "--investor",
+        "foreign",
+    ]));
+    assert!(foreign["total_value"].is_null());
+    assert_eq!(foreign["buy_value"], 1_700_000_000_000_i64);
+    assert_eq!(foreign["sell_value"], 4_000_000_000_000_i64);
+    assert_eq!(foreign["foreign_net_value"], -2_300_000_000_000_i64);
+}
+
+#[test]
+fn broker_summary_without_dates_finds_the_latest_session_offline() {
+    let root = test_env_dir("broker-latest");
+    run_success_json(mock_bin_with_root(&root).args([
+        "-o",
+        "json",
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+    ]));
+    // Monday 2026-10-19 is not cached and the weekend is skipped, so the
+    // offline lookup lands on Friday's cached session.
+    let latest = run_success_json(
+        mock_bin_with_root(&root)
+            .env("IDX_MOCK_TODAY", "2026-10-19")
+            .args(["-o", "json", "--offline", "stocks", "broker", "BBCA"]),
+    );
+    assert_eq!(latest["from"], "2026-10-16");
+    assert_eq!(latest["buyers"][0]["code"], "MG");
+    run_error_json(
+        mock_bin_with_root(&root)
+            .env("IDX_MOCK_TODAY", "2026-10-19")
+            .args(["-o", "json", "--offline", "stocks", "broker", "BBRI"]),
+        "CACHEMISS",
+    );
+}
+
+#[test]
+fn broker_summary_session_without_trades_is_empty_not_an_error() {
+    let summary = run_success_json(mock_bin("broker-empty").args([
+        "-o",
+        "json",
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-17",
+    ]));
+    assert_eq!(summary["buyers"], serde_json::json!([]));
+    assert_eq!(summary["total_value"], 0);
+    assert!(summary["average_price"].is_null());
+
+    let table = run_success_stdout(mock_bin("broker-empty-table").args([
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-17",
+    ]));
+    assert!(table.contains("No trades."), "{table}");
+}
+
+#[test]
+fn broker_summary_errors_follow_the_output_contract() {
+    for (args, code) in [
+        (vec!["ZZZZ", "--date", "2026-10-16"], "SYMBOLNOTFOUND"),
+        (vec!["BBCA.US", "--date", "2026-10-16"], "UNSUPPORTED"),
+        (vec!["BBCA", "--date", "16/10/2026"], "INVALIDINPUT"),
+        (
+            vec!["BBCA", "--from", "2026-10-16", "--to", "2026-10-12"],
+            "INVALIDINPUT",
+        ),
+        (vec!["BBCA", "--to", "2026-10-16"], "INVALIDINPUT"),
+        (
+            vec!["BBCA", "--date", "2026-10-16", "--from", "2026-10-12"],
+            "INVALIDINPUT",
+        ),
+        (vec!["BBCA", "--date", "2999-01-01"], "INVALIDINPUT"),
+    ] {
+        let mut cmd = mock_bin("broker-errors");
+        cmd.args(["-o", "json", "stocks", "broker"]).args(&args);
+        run_error_json(&mut cmd, code);
+    }
+    let mut failing = mock_bin("broker-provider-error");
+    failing.env("IDX_MOCK_ERROR", "1").args([
+        "-o",
+        "json",
+        "stocks",
+        "broker",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+    ]);
+    run_error_json(&mut failing, "PROVIDERUNAVAILABLE");
+}
+
+#[test]
+fn bandar_reads_the_broker_summary_tiers() {
+    let reports = run_success_json(mock_bin("bandar-json").args([
+        "-o",
+        "json",
+        "stocks",
+        "bandar",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+    ]));
+    let report = &reports[0];
+    assert_eq!(reports.as_array().unwrap().len(), 1);
+    assert_eq!(report["symbol"], "BBCA.JK");
+    assert_eq!(report["method"], "top_concentration_v1");
+    let tiers: Vec<i64> = report["tiers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tier| tier["top"].as_i64().unwrap())
+        .collect();
+    assert_eq!(tiers, [1, 3, 5, 10]);
+    // Top 5 bought 2,939.5B and sold 4,540.4B of 6.6T traded.
+    let top5 = &report["tiers"][2];
+    assert_eq!(top5["buy_value"], 2_939_500_000_000_i64);
+    assert_eq!(top5["sell_value"], 4_540_400_000_000_i64);
+    assert_eq!(top5["imbalance_bps"], -2425);
+    assert_eq!(report["top"], 5);
+    assert_eq!(report["imbalance_bps"], -2425);
+    assert_eq!(report["signal"], "big_distribution");
+    assert_eq!(
+        report["both_sides"],
+        serde_json::json!(["AK", "CC", "MG", "XL", "YU", "ZP"])
+    );
+}
+
+#[test]
+fn bandar_screen_ranks_symbols_and_reports_failures_on_stderr() {
+    let output = mock_bin("bandar-screen")
+        .args([
+            "-o",
+            "json",
+            "stocks",
+            "bandar",
+            "BBCA,ZZZZ",
+            "TLKM",
+            "BBRI",
+            "--date",
+            "2026-10-16",
+            "--top",
+            "3",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let reports: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let ranked: Vec<(&str, i64)> = reports
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["symbol"].as_str().unwrap(),
+                r["imbalance_bps"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(ranked.len(), 3);
+    assert!(
+        ranked.windows(2).all(|pair| pair[0].1 >= pair[1].1),
+        "{ranked:?}"
+    );
+    assert!(reports.as_array().unwrap().iter().all(|r| r["top"] == 3));
+    let warning: Value = serde_json::from_slice(&output.stderr).expect("one JSON warning line");
+    assert_eq!(warning["level"], "warning");
+    assert!(warning["message"].as_str().unwrap().contains("ZZZZ.JK"));
+
+    // A one-symbol screen that loses a symbol still prints the screen table.
+    let table = run_success_stdout(mock_bin("bandar-screen-table").args([
+        "--no-color",
+        "stocks",
+        "bandar",
+        "BBCA,ZZZZ",
+        "--date",
+        "2026-10-16",
+    ]));
+    assert!(table.contains("TOP 5 NET %"), "{table}");
+}
+
+#[test]
+fn bandar_errors_follow_the_output_contract() {
+    let many: Vec<String> = (0..101).map(|i| format!("S{i}")).collect();
+    for (args, code) in [
+        (
+            vec!["BBCA".to_string(), "--top".into(), "4".into()],
+            "INVALIDINPUT",
+        ),
+        (vec![many.join(",")], "INVALIDINPUT"),
+        (
+            vec!["ZZZZ".to_string(), "--date".into(), "2026-10-16".into()],
+            "SYMBOLNOTFOUND",
+        ),
+        (
+            vec![
+                "BBCA,BBRI".to_string(),
+                "--date".into(),
+                "2999-01-01".into(),
+            ],
+            "INVALIDINPUT",
+        ),
+        (
+            vec![
+                "BBCA".to_string(),
+                "--date".into(),
+                "2026-10-16".into(),
+                "--investor".into(),
+                "foreign".into(),
+                "--board".into(),
+                "regular".into(),
+            ],
+            "INVALIDINPUT",
+        ),
+    ] {
+        let mut cmd = mock_bin("bandar-errors");
+        cmd.args(["-o", "json", "stocks", "bandar"]).args(&args);
+        run_error_json(&mut cmd, code);
+    }
+}
+
+#[test]
+fn foreign_flow_from_idx_reads_sessions_oldest_first() {
+    let flow = run_success_json(
+        mock_bin("flow-json")
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args([
+                "-o", "json", "stocks", "flow", "BBCA", "--days", "3", "--source", "idx",
+            ]),
+    );
+    assert_eq!(flow["symbol"], "BBCA.JK");
+    let dates: Vec<&str> = flow["days"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|day| day["date"].as_str().unwrap())
+        .collect();
+    assert_eq!(dates, ["2026-10-14", "2026-10-15", "2026-10-16"]);
+    let last = &flow["days"][2];
+    assert_eq!(last["close"], 5175);
+    assert_eq!(last["change_bps"], -1481);
+    assert_eq!(last["foreign_net"], 309_392_800_i64 - 757_227_900_i64);
+    assert_eq!(flow["from"], "2026-10-14");
+
+    // A range skips the weekend and the Saturday without trading.
+    let range = run_success_json(
+        mock_bin("flow-range")
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args([
+                "-o",
+                "json",
+                "stocks",
+                "flow",
+                "--source",
+                "idx",
+                "BBCA",
+                "--from",
+                "2026-10-12",
+                "--to",
+                "2026-10-17",
+            ]),
+    );
+    assert_eq!(range["days"].as_array().unwrap().len(), 5);
+    let net: i64 = range["days"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|day| day["foreign_net"].as_i64().unwrap())
+        .sum();
+    assert_eq!(range["foreign_net"], net);
+}
+
+#[test]
+fn foreign_flow_from_idx_offline_uses_cached_sessions_only() {
+    let root = test_env_dir("flow-offline");
+    run_success_json(
+        mock_bin_with_root(&root)
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args([
+                "-o",
+                "json",
+                "stocks",
+                "flow",
+                "--source",
+                "idx",
+                "BBCA",
+                "--from",
+                "2026-10-15",
+                "--to",
+                "2026-10-16",
+            ]),
+    );
+    // Another stock's flow for the same sessions needs no new request.
+    let offline = run_success_json(
+        mock_bin_with_root(&root)
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args([
+                "-o",
+                "json",
+                "--offline",
+                "stocks",
+                "flow",
+                "--source",
+                "idx",
+                "TLKM",
+                "--days",
+                "5",
+            ]),
+    );
+    assert_eq!(offline["from"], "2026-10-15");
+    assert_eq!(offline["days"].as_array().unwrap().len(), 2);
+    run_error_json(
+        mock_bin_with_root(&root)
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args([
+                "-o",
+                "json",
+                "--offline",
+                "stocks",
+                "flow",
+                "--source",
+                "idx",
+                "TLKM",
+                "--from",
+                "2026-10-12",
+                "--to",
+                "2026-10-16",
+            ]),
+        "CACHEMISS",
+    );
+}
+
+#[test]
+fn foreign_flow_from_ipot_by_default_gives_values_across_all_boards() {
+    let flow = run_success_json(
+        mock_bin("flow-ipot")
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args([
+                "-o",
+                "json",
+                "stocks",
+                "flow",
+                "BBCA",
+                "--from",
+                "2026-10-12",
+                "--to",
+                "2026-10-17",
+            ]),
+    );
+    assert_eq!(flow["source"], "ipot");
+    assert_eq!(flow["rounded"], true);
+    let days = flow["days"].as_array().unwrap();
+    assert_eq!(days.len(), 5, "the Saturday had no trading");
+    let last = &days[4];
+    assert_eq!(last["date"], "2026-10-16");
+    assert_eq!(last["value"], 6_600_000_000_000_i64);
+    assert_eq!(last["foreign_buy_value"], 1_700_000_000_000_i64);
+    assert_eq!(last["foreign_sell_value"], 4_000_000_000_000_i64);
+    assert_eq!(last["foreign_net_value"], -2_300_000_000_000_i64);
+    for field in ["close", "foreign_buy", "foreign_net", "non_regular_bps"] {
+        assert!(last[field].is_null(), "{field}");
+    }
+    let net: i64 = days
+        .iter()
+        .map(|day| day["foreign_net_value"].as_i64().unwrap())
+        .sum();
+    assert_eq!(flow["foreign_net_value"], net);
+    assert!(flow["foreign_net"].is_null());
+
+    let table = run_success_stdout(
+        mock_bin("flow-ipot-table")
+            .env("IDX_MOCK_TODAY", "2026-10-18")
+            .args(["stocks", "flow", "BBCA", "--days", "1"]),
+    );
+    assert!(table.contains("(1 session, IPOT)"), "{table}");
+    assert!(table.contains("FOREIGN %"), "{table}");
+}
+
+#[test]
+fn foreign_flow_errors_follow_the_output_contract() {
+    for (args, code) in [
+        (vec!["ZZZZ", "--days", "2"], "SYMBOLNOTFOUND"),
+        (vec!["BBCA.US"], "UNSUPPORTED"),
+        (vec!["BBCA", "--days", "61"], "INVALIDINPUT"),
+        (vec!["BBCA", "--days", "0"], "INVALIDINPUT"),
+        (
+            vec!["BBCA", "--days", "3", "--from", "2026-10-12"],
+            "INVALIDINPUT",
+        ),
+        (
+            vec!["BBCA", "--from", "2026-06-01", "--to", "2026-10-16"],
+            "INVALIDINPUT",
+        ),
+        (vec!["BBCA", "--source", "stockbit"], "INVALIDINPUT"),
+        (
+            vec!["ZZZZ", "--days", "2", "--source", "idx"],
+            "SYMBOLNOTFOUND",
+        ),
+    ] {
+        let mut cmd = mock_bin("flow-errors");
+        cmd.env("IDX_MOCK_TODAY", "2026-10-18")
+            .args(["-o", "json", "stocks", "flow"])
+            .args(&args);
+        run_error_json(&mut cmd, code);
+    }
+    let mut failing = mock_bin("flow-provider-error");
+    failing
+        .env("IDX_MOCK_ERROR", "1")
+        .env("IDX_MOCK_TODAY", "2026-10-18")
+        .args(["-o", "json", "stocks", "flow", "BBCA"]);
+    run_error_json(&mut failing, "PROVIDERUNAVAILABLE");
+}
+
+#[test]
+fn bandar_reads_one_investor_side_against_its_own_trading() {
+    let reports = run_success_json(mock_bin("bandar-foreign").args([
+        "-o",
+        "json",
+        "stocks",
+        "bandar",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+        "--investor",
+        "foreign",
+    ]));
+    let report = &reports[0];
+    assert_eq!(report["investor"], "foreign");
+    assert_eq!(report["buy_value"], 1_700_000_000_000_i64);
+    assert_eq!(report["sell_value"], 4_000_000_000_000_i64);
+    let top5 = &report["tiers"][2];
+    // Shares of foreign buying and of foreign selling, each within 100%.
+    let (buy, sell) = (
+        top5["buy_share_bps"].as_i64().unwrap(),
+        top5["sell_share_bps"].as_i64().unwrap(),
+    );
+    assert!(
+        (0..=10_000).contains(&buy) && (0..=10_000).contains(&sell),
+        "{top5}"
+    );
+    assert!((top5["imbalance_bps"].as_i64().unwrap() - (buy - sell)).abs() <= 1);
+    assert!(report["signal"].is_string());
+
+    let table = run_success_stdout(mock_bin("bandar-foreign-table").args([
+        "--no-color",
+        "stocks",
+        "bandar",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+        "--investor",
+        "foreign",
+    ]));
+    assert!(
+        table.contains("Foreign investors bought 1.7T IDR and sold 4.0T IDR (net -2.3T)."),
+        "{table}"
+    );
+}
+
+#[test]
+fn bandar_never_reads_a_broker_summary_cached_in_the_old_shape() {
+    // A summary cached before buy_value/sell_value existed: fresh for a
+    // week, with trades, but no denominators for a reading.
+    let root = test_env_dir("bandar-legacy-cache");
+    let bucket = root.join("cache").join("idx").join("ipot-broker");
+    fs::create_dir_all(&bucket).unwrap();
+    let flow = |code: &str, value: i64| {
+        serde_json::json!({"rank": 1, "code": code, "name": null, "kind": null,
+            "lots": value / 100, "value": value, "average_price": 1})
+    };
+    let legacy = serde_json::json!({
+        "fetched_at": chrono::Utc::now().to_rfc3339(),
+        "ttl_secs": 7 * 24 * 3600,
+        "schema_version": 1,
+        "data": {
+            "symbol": "BBCA.JK", "from": "2026-10-16", "to": "2026-10-16",
+            "investor": "all", "board": "all",
+            "buyers": [flow("AA", 60_000)], "sellers": [flow("BB", 40_000)],
+            "total_value": 100_000, "total_lots": 1_000, "average_price": 100,
+            "foreign_net_value": null, "rounded": false
+        }
+    });
+    fs::write(
+        bucket.join("BBCA-2026-10-16-2026-10-16-all-all.json"),
+        legacy.to_string(),
+    )
+    .unwrap();
+
+    // Offline, the old entry is not served as a complete summary.
+    run_error_json(
+        mock_bin_with_root(&root).args([
+            "-o",
+            "json",
+            "--offline",
+            "stocks",
+            "bandar",
+            "BBCA",
+            "--date",
+            "2026-10-16",
+        ]),
+        "CACHEMISS",
+    );
+    // Online, the summary is fetched again and read in full.
+    let reports = run_success_json(mock_bin_with_root(&root).args([
+        "-o",
+        "json",
+        "stocks",
+        "bandar",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+    ]));
+    assert_eq!(reports[0]["imbalance_bps"], -2425);
+    let table = run_success_stdout(mock_bin_with_root(&root).args([
+        "--no-color",
+        "stocks",
+        "bandar",
+        "BBCA",
+        "--date",
+        "2026-10-16",
+    ]));
+    assert!(!table.contains("No trades."), "{table}");
+    assert!(table.contains("big distribution"), "{table}");
 }

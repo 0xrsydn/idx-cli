@@ -9,10 +9,13 @@ use idx_core::config::CoreConfig;
 use idx_core::investor::{ImportSource, Investor};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 11] = [
+const TOOLS: [&str; 14] = [
+    "analyze_bandar",
     "analyze_stock",
     "compare_stocks",
+    "get_broker_summary",
     "get_company",
+    "get_foreign_flow",
     "get_investor_holdings",
     "get_ownership_changes",
     "get_price_history",
@@ -247,6 +250,50 @@ fn live_tools_wrap_data_with_freshness() {
         assert_fetched(&analysis[kind]);
     }
 
+    let brokers = client.ok(
+        "get_broker_summary",
+        json!({"symbol": "BBCA", "date": "2026-10-16"}),
+    );
+    assert_fetched(&brokers);
+    assert_eq!(brokers["source"], "ipot");
+    assert_eq!(brokers["data"]["buyers"][0]["code"], "MG");
+    assert_eq!(brokers["data"]["sellers"][0]["name"], "MANDIRI SEKURITAS");
+    assert_eq!(brokers["data"]["foreign_net_value"], -2_300_000_000_000_i64);
+
+    let bandar = client.ok(
+        "analyze_bandar",
+        json!({"symbols": ["BBCA", "BBRI", "ZZZZ"], "date": "2026-10-16", "top": 3}),
+    );
+    let reports = bandar["reports"].as_array().unwrap();
+    assert_eq!(reports.len(), 2);
+    assert_fetched(&reports[0]);
+    assert_eq!(reports[0]["data"]["top"], 3);
+    assert_eq!(reports[0]["data"]["method"], "top_concentration_v1");
+    assert!(
+        reports[0]["data"]["imbalance_bps"].as_i64()
+            >= reports[1]["data"]["imbalance_bps"].as_i64()
+    );
+    assert_eq!(bandar["failures"][0]["symbol"], "ZZZZ.JK");
+    assert_eq!(bandar["failures"][0]["code"], "SYMBOLNOTFOUND");
+
+    let flow = client.ok(
+        "get_foreign_flow",
+        json!({"symbol": "BBCA", "from": "2026-10-12", "to": "2026-10-16"}),
+    );
+    assert_fetched(&flow);
+    assert_eq!(flow["source"], "ipot");
+    assert_eq!(flow["data"]["days"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        flow["data"]["days"][4]["foreign_sell_value"],
+        4_000_000_000_000_i64
+    );
+    let idx_flow = client.ok(
+        "get_foreign_flow",
+        json!({"symbol": "BBCA", "from": "2026-10-12", "to": "2026-10-16", "source": "idx"}),
+    );
+    assert_eq!(idx_flow["source"], "idx");
+    assert_eq!(idx_flow["data"]["days"][4]["close"], 5175);
+
     let compared = client.ok("compare_stocks", json!({"symbols": ["BBCA", "BBRI"]}));
     assert_eq!(compared["reports"].as_array().unwrap().len(), 2);
     assert_eq!(compared["failures"], json!([]));
@@ -273,6 +320,25 @@ fn errors_carry_cli_codes() {
         ("compare_stocks", json!({"symbols": []})),
         ("get_company", json!({"symbol": "BBCA", "sections": []})),
         ("analyze_stock", json!({"symbol": "BBCA", "kinds": []})),
+        (
+            "get_broker_summary",
+            json!({"symbol": "BBCA", "date": "2026-10-16", "from": "2026-10-12"}),
+        ),
+        (
+            "get_broker_summary",
+            json!({"symbol": "BBCA", "date": "2026-10-16", "board": "dark"}),
+        ),
+        ("analyze_bandar", json!({"symbols": ["BBCA"], "top": 4})),
+        ("analyze_bandar", json!({"symbols": []})),
+        ("get_foreign_flow", json!({"symbol": "BBCA", "days": 61})),
+        (
+            "get_foreign_flow",
+            json!({"symbol": "BBCA", "source": "rti"}),
+        ),
+        (
+            "get_foreign_flow",
+            json!({"symbol": "BBCA", "days": 3, "from": "2026-10-12"}),
+        ),
     ] {
         let (is_error, body) = client.call(tool, arguments);
         assert!(is_error, "{tool}: {body}");

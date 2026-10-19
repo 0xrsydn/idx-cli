@@ -4,10 +4,14 @@
 
 use std::collections::BTreeMap;
 
+use idx_core::analysis::BandarQuery;
+use idx_core::analysis::bandar::{BandarReport, DEFAULT_TOP};
 use idx_core::analysis::fundamental::FundamentalReport;
+use idx_core::broker::types::BrokerRange;
 use idx_core::config::CoreConfig;
 use idx_core::error::IdxError;
 use idx_core::financial::{EarningsFilter, StatementFilter};
+use idx_core::flow::types::FlowRange;
 use idx_core::investor::{HolderSource, Investor};
 use idx_core::market::{ScreenFilter, ScreenQuery, ScreenRegion};
 use idx_core::ownership::types::ChangeRow;
@@ -21,8 +25,9 @@ use serde_json::{Map, Value, json};
 use tokio::sync::Semaphore;
 
 use crate::params::{
-    AnalysisKind, AnalyzeParams, ChangesParams, CompanyParams, CompanySection, EntityParams,
-    HistoryParams, ScreenParams, SearchParams, ShareholdersParams, SymbolsParams, SyncParams,
+    AnalysisKind, AnalyzeParams, BandarParams, BrokerParams, ChangesParams, CompanyParams,
+    CompanySection, EntityParams, FlowParams, HistoryParams, ScreenParams, SearchParams,
+    ShareholdersParams, SymbolsParams, SyncParams,
 };
 
 const SYNC_TOOL: &str = "ownership_sync";
@@ -110,7 +115,9 @@ impl IdxServer {
 impl IdxServer {
     #[tool(
         description = "Latest quotes (price, change, volume, 52-week range, market cap) \
-for one or more IDX tickers."
+for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true \
+when that is before the latest IDX session, so the price is not that session's close: the \
+provider lags, the stock did not trade, or the day was an exchange holiday."
     )]
     async fn get_quotes(&self, params: Parameters<SymbolsParams>) -> ToolResult {
         let symbols = match checked_symbols(params.0.symbols) {
@@ -143,7 +150,8 @@ for one or more IDX tickers."
 
     #[tool(
         description = "Run a stock screen (top/worst performers, high dividend, low P/E, \
-52-week highs/lows, high volume, large cap)."
+52-week highs/lows, high volume, large cap). Rows carry `as_of` and, for the IDX region, \
+`behind_session` as in get_quotes."
     )]
     async fn screen_stocks(&self, params: Parameters<ScreenParams>) -> ToolResult {
         let ScreenParams {
@@ -161,6 +169,106 @@ for one or more IDX tickers."
                 limit: bounded_limit("limit", limit, SCREEN_LIMIT, MAX_SCREEN_LIMIT)?,
             };
             idx.market().screen(&query, CachePolicy::Default)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Broker summary for one IDX ticker: the top 10 buyers and top 10 sellers \
+by lots over a session or date range, each with lots (1 lot = 100 shares), value and average \
+price in IDR, plus totals. Buyers and sellers are ranked separately and gross, so a broker can \
+appear on both sides. End of day only (IDX hides broker codes during trading); `kind` is the \
+broker's own status (local, foreign, state_owned), not its clients'. With `investor` foreign \
+or domestic, each row is that broker's foreign or domestic clients' trades, `total_value` is \
+null, and `buy_value`/`sell_value` give what that side bought and sold (`sell_value` needs \
+`board` all). `rounded` = true means figures of a million and more carry one decimal of \
+precision."
+    )]
+    async fn get_broker_summary(&self, params: Parameters<BrokerParams>) -> ToolResult {
+        let BrokerParams { symbol, scope } = params.0;
+        self.live(move |idx| {
+            let broker = idx.broker();
+            let range = BrokerRange::from_args(
+                scope.date.as_deref(),
+                scope.from.as_deref(),
+                scope.to.as_deref(),
+                broker.today(),
+            )?;
+            broker.fetch(
+                &symbol,
+                range,
+                scope.investor.as_deref().unwrap_or("all").parse()?,
+                scope.board.as_deref().unwrap_or("all").parse()?,
+                CachePolicy::Default,
+            )
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Bandarmology for one or more IDX tickers from the broker summary: for \
+the top 1, 3, 5 and 10 brokers per side, buy value minus sell value as basis points of value \
+traded (`imbalance_bps`), with a `signal` from big_accumulation (>= +1500) through neutral \
+(within +-500) to big_distribution (<= -1500), headlined by `top` (default 5). Reports come \
+strongest accumulation first; tickers that fail are listed under `failures`. A heuristic over \
+end-of-day broker codes: brokers trade for many clients, and `both_sides` lists brokers whose \
+gross figures overstate their direction. `method` names the rules applied. With `investor` \
+foreign or domestic, shares are of that side's own buying (`buy_value`) and selling \
+(`sell_value`); that needs `board` all."
+    )]
+    async fn analyze_bandar(&self, params: Parameters<BandarParams>) -> ToolResult {
+        let BandarParams {
+            scope,
+            symbols,
+            top,
+        } = params.0;
+        let symbols = match checked_symbols(symbols) {
+            Ok(symbols) => symbols,
+            Err(err) => return err,
+        };
+        self.live(move |idx| {
+            let query = BandarQuery {
+                range: BrokerRange::from_args(
+                    scope.date.as_deref(),
+                    scope.from.as_deref(),
+                    scope.to.as_deref(),
+                    idx.broker().today(),
+                )?,
+                investor: scope.investor.as_deref().unwrap_or("all").parse()?,
+                board: scope.board.as_deref().unwrap_or("all").parse()?,
+                top: top.unwrap_or(DEFAULT_TOP),
+            };
+            let screen = idx
+                .analysis()
+                .bandar_screen(&symbols, &query, CachePolicy::Default)?;
+            let reports: &[Fetched<BandarReport>] = &screen.reports;
+            Ok(json!({ "reports": reports, "failures": failures_json(&screen.failures) }))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Foreign investors' buying and selling of one IDX ticker, session by \
+session (oldest first), with range totals; end of day. With `source` \"ipot\" (default): \
+`foreign_buy_value`, `foreign_sell_value` and `foreign_net_value` in IDR across all boards, \
+`value` traded, and `foreign_share_bps` (foreign share of trading); share counts, close and \
+`non_regular_bps` are null, and `rounded` = true means one decimal of precision. With \
+\"idx\": exact foreign share counts on the regular board, values estimated at the session's \
+average price, the close, `change_bps` and `non_regular_bps`."
+    )]
+    async fn get_foreign_flow(&self, params: Parameters<FlowParams>) -> ToolResult {
+        let FlowParams {
+            symbol,
+            days,
+            from,
+            to,
+            source,
+        } = params.0;
+        self.live(move |idx| {
+            let flow = idx.flow();
+            let range = FlowRange::from_args(days, from.as_deref(), to.as_deref(), flow.today())?;
+            let source = source.as_deref().unwrap_or("ipot").parse()?;
+            flow.foreign(&symbol, range, source, CachePolicy::Default)
         })
         .await
     }
@@ -256,17 +364,8 @@ tickers. Tickers that fail are listed under `failures`."
         };
         self.live(move |idx| {
             let comparison = idx.analysis().compare(&symbols, CachePolicy::Default)?;
-            let failures: Vec<Value> = comparison
-                .failures
-                .iter()
-                .map(|(symbol, err)| {
-                    let mut body = error_body(err);
-                    body.insert("symbol".into(), json!(symbol));
-                    Value::Object(body)
-                })
-                .collect();
             let reports: &[Fetched<FundamentalReport>] = &comparison.reports;
-            Ok(json!({ "reports": reports, "failures": failures }))
+            Ok(json!({ "reports": reports, "failures": failures_json(&comparison.failures) }))
         })
         .await
     }
@@ -440,6 +539,18 @@ where
         Ok(value) => CallToolResult::structured(value),
         Err(err) => CallToolResult::structured_error(Value::Object(error_body(&err))),
     })
+}
+
+/// Per-symbol failures as error bodies carrying their symbol.
+fn failures_json(failures: &[(String, IdxError)]) -> Vec<Value> {
+    failures
+        .iter()
+        .map(|(symbol, err)| {
+            let mut body = error_body(err);
+            body.insert("symbol".into(), json!(symbol));
+            Value::Object(body)
+        })
+        .collect()
 }
 
 fn input_error(message: String) -> ToolResult {
