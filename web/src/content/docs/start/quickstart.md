@@ -15,6 +15,9 @@ idx stocks technical BBCA             # trend, RSI, MACD, moving averages
 idx stocks fundamental BBCA           # growth, valuation and risk together
 idx stocks compare BBCA BBRI BMRI     # fundamentals side by side
 idx stocks screen --filter high-dividend
+idx stocks broker BBCA                # top buying and selling brokers
+idx stocks bandar BBCA BBRI BMRI      # accumulation or distribution
+idx stocks flow BBCA                  # foreign buy, sell and net by session
 ```
 
 ## Ownership

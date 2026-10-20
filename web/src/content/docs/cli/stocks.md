@@ -14,8 +14,10 @@ idx stocks history BBCA --period 1y --interval 1wk
 ```
 
 `quote` takes several tickers, separated by spaces or commas, or `-` to read
-them from stdin. `history` takes `--period` (`1d` to `5y`) and `--interval`
-(`1d`, `1wk`, `1mo`).
+them from stdin. When a quote's last trade is from before the latest IDX
+session, the table says so under it, and JSON sets `behind_session`: the
+provider may still show the previous close. `history` takes `--period` (`1d`
+to `5y`) and `--interval` (`1d`, `1wk`, `1mo`).
 
 ## Company data
 
@@ -139,7 +141,7 @@ idx stocks screen --filter high-dividend | jq -r '.[].symbol' | idx stocks compa
 ## Providers
 
 MSN is the default for quotes, company data and screening; Yahoo serves
-price history. Indo Premier (IPOT) serves broker summaries and IDX's own site
-serves foreign flow, whichever provider is selected. Switch with `IDX_PROVIDER=msn|yahoo` and
+price history. Indo Premier (IPOT) serves broker summaries and foreign flow
+(IDX's own site with `flow --source idx`), whichever provider is selected. Switch with `IDX_PROVIDER=msn|yahoo` and
 `IDX_HISTORY_PROVIDER=auto|yahoo|msn`, or the matching
 [config keys](/start/config/).

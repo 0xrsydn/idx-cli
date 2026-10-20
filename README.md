@@ -158,11 +158,11 @@ change it to `auto` with `idx config set general.output auto`.
 
 ## MCP server
 
-`idx-mcp` serves the same data to MCP clients over stdio, as 11 tools:
+`idx-mcp` serves the same data to MCP clients over stdio, as 14 tools:
 `get_quotes`, `get_price_history`, `screen_stocks`, `get_company`,
-`analyze_stock`, `compare_stocks`, `get_shareholders`,
-`get_investor_holdings`, `search_investors`, `get_ownership_changes`, and
-`ownership_status`. Live results come wrapped as
+`analyze_stock`, `compare_stocks`, `get_broker_summary`, `analyze_bandar`,
+`get_foreign_flow`, `get_shareholders`, `get_investor_holdings`,
+`search_investors`, `get_ownership_changes`, and `ownership_status`. Live results come wrapped as
 `{data, source, fetched_at, stale}`; errors use the CLI's `{error, code,
 message}` body. It shares idx's config, cache, and ownership database.
 
