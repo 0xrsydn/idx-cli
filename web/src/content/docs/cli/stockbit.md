@@ -94,8 +94,18 @@ refresh token on its own. On a server, set `IDX_STOCKBIT_REFRESH_TOKEN`.
 The session lands in `~/.config/idx/stockbit-session.json`, readable only by
 you. Tokens never appear in output, logs or errors. The page takes only the
 session value, keeps it in memory, and closes when it is done (or after five
-minutes). A session Stockbit refuses leaves a previously stored one in
-place.
+minutes). A session Stockbit refuses leaves a previously stored one in place.
+
+The page listens on this machine's loopback interface only, so the browser
+must run on the same machine: from another host over SSH, or from a browser
+outside a container or WSL distro, `127.0.0.1` is a different machine and the
+page will not load. Forward it instead, with a pinned port:
+
+```bash
+idx stockbit login --no-browser --port 7878
+# from the machine with the browser:
+ssh -L 7878:127.0.0.1:7878 <this-host>   # then open the printed URL
+```
 
 **One refresher per session.** Stockbit replaces the refresh token every time
 it is used. Once idx refreshes your session, a browser holding the same

@@ -111,7 +111,7 @@ fn login_in_browser(port: u16, open: bool) -> Result<(), IdxError> {
     if open {
         open_in_browser(&page.url());
     }
-    page.wait(LOGIN_TIMEOUT, &|pasted| {
+    page.wait(LOGIN_TIMEOUT, |pasted| {
         stockbit::login(pasted)
             .map(|_| ())
             .map_err(|err| err.to_string())

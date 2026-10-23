@@ -23,8 +23,11 @@ use crate::error::IdxError;
 
 /// Largest paste accepted (the cookie is a few KB).
 const MAX_BODY: usize = 16 * 1024;
-/// Requests time out instead of pinning a thread.
-const IO_TIMEOUT: Duration = Duration::from_secs(10);
+/// Requests time out instead of pinning a thread; short, because a browser
+/// preconnect sends nothing at all.
+const IO_TIMEOUT: Duration = Duration::from_secs(3);
+/// Connections answered at once; beyond this, new ones are dropped.
+const MAX_CONNECTIONS: usize = 16;
 
 /// A running login page.
 pub struct LoginPage {
@@ -61,73 +64,56 @@ impl LoginPage {
 
     /// Serves until `verify` accepts a paste or `timeout` passes. `verify`
     /// returns the error text to show on the page when the paste is refused.
-    pub fn wait(
-        &self,
-        timeout: Duration,
-        verify: &dyn Fn(&str) -> Result<(), String>,
-    ) -> Result<(), IdxError> {
+    ///
+    /// Each connection gets its own thread: browsers open idle preconnects,
+    /// and answering them one at a time used to hold the page back for the
+    /// read timeout on every one.
+    pub fn wait<F>(&self, timeout: Duration, verify: F) -> Result<(), IdxError>
+    where
+        F: Fn(&str) -> Result<(), String> + Send + Sync + 'static,
+    {
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        let verify = std::sync::Arc::new(verify);
+        let page = std::sync::Arc::new(self.page());
+        let path = std::sync::Arc::new(format!("/login/{}", self.secret));
+        let busy = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let deadline = Instant::now() + timeout;
-        while Instant::now() < deadline {
+        loop {
+            if done_rx.try_recv().is_ok() {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                break;
+            }
             match self.listener.accept() {
                 Ok((stream, _)) => {
-                    if self.serve(stream, verify) {
-                        return Ok(());
+                    // Browsers open a handful; anything beyond this is junk.
+                    if busy.load(std::sync::atomic::Ordering::Relaxed) >= MAX_CONNECTIONS {
+                        continue;
                     }
+                    busy.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let (verify, page, path) = (verify.clone(), page.clone(), path.clone());
+                    let busy = busy.clone();
+                    let done = done_tx.clone();
+                    std::thread::spawn(move || {
+                        if serve_once(stream, &path, &page, verify.as_ref()) {
+                            let _ = done.send(());
+                        }
+                        busy.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                    });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(40));
+                    std::thread::sleep(Duration::from_millis(20));
                 }
                 Err(e) => return Err(IdxError::Io(format!("stockbit login page: {e}"))),
             }
         }
         Err(IdxError::Io(format!(
-            "the Stockbit login page timed out after {}s",
-            timeout.as_secs()
+            "the Stockbit login page timed out after {}s; its URL was {} (re-run it, or pin the \
+             port with --port)",
+            timeout.as_secs(),
+            self.url()
         )))
-    }
-
-    /// Answers one request; true when a paste was accepted.
-    fn serve(&self, mut stream: TcpStream, verify: &dyn Fn(&str) -> Result<(), String>) -> bool {
-        let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
-        let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
-        let Some(request) = read_request(&mut stream) else {
-            respond(&mut stream, 400, "text/plain", b"bad request");
-            return false;
-        };
-        let page = format!("/login/{}", self.secret);
-        match (request.method.as_str(), request.path.as_str()) {
-            ("GET", p) if p == page => {
-                respond(
-                    &mut stream,
-                    200,
-                    "text/html; charset=utf-8",
-                    self.page().as_bytes(),
-                );
-            }
-            ("POST", p) if p == page => match verify(&request.body) {
-                Ok(()) => {
-                    respond(
-                        &mut stream,
-                        200,
-                        "application/json",
-                        br#"{"ok":true,"message":"Connected. You can close this tab."}"#,
-                    );
-                    return true;
-                }
-                Err(message) => {
-                    let body = serde_json::json!({ "ok": false, "message": message });
-                    respond(
-                        &mut stream,
-                        200,
-                        "application/json",
-                        body.to_string().as_bytes(),
-                    );
-                }
-            },
-            ("GET", "/favicon.ico") => respond(&mut stream, 204, "text/plain", b""),
-            _ => respond(&mut stream, 404, "text/plain", b"not found"),
-        }
-        false
     }
 
     /// The page, with this run's port and secret baked into the bookmarklet.
@@ -143,6 +129,54 @@ window.open('{target}#t='+encodeURIComponent(m[1]))}})()"
         PAGE.replace("__TARGET__", &target)
             .replace("__BOOKMARKLET__", &html_escape(&bookmarklet))
     }
+}
+
+/// Answers one request; true when a paste was accepted.
+fn serve_once(
+    mut stream: TcpStream,
+    page_path: &str,
+    page: &str,
+    verify: &dyn Fn(&str) -> Result<(), String>,
+) -> bool {
+    let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
+    let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
+    let Some(request) = read_request(&mut stream) else {
+        // An idle preconnect or a malformed request: drop it quietly.
+        return false;
+    };
+    match (request.method.as_str(), request.path.as_str()) {
+        ("GET", p) if p == page_path => {
+            respond(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                page.as_bytes(),
+            );
+        }
+        ("POST", p) if p == page_path => match verify(&request.body) {
+            Ok(()) => {
+                respond(
+                    &mut stream,
+                    200,
+                    "application/json",
+                    br#"{"ok":true,"message":"Connected. You can close this tab."}"#,
+                );
+                return true;
+            }
+            Err(message) => {
+                let body = serde_json::json!({ "ok": false, "message": message });
+                respond(
+                    &mut stream,
+                    200,
+                    "application/json",
+                    body.to_string().as_bytes(),
+                );
+            }
+        },
+        ("GET", "/favicon.ico") => respond(&mut stream, 204, "text/plain", b""),
+        _ => respond(&mut stream, 404, "text/plain", b"not found"),
+    }
+    false
 }
 
 fn random_secret() -> String {
@@ -357,7 +391,7 @@ mod tests {
                 "good" => Ok(()),
                 _ => Err("not a Stockbit session".to_string()),
             };
-            page.wait(Duration::from_secs(10), &verify)
+            page.wait(Duration::from_secs(10), verify)
         });
         std::thread::sleep(Duration::from_millis(100));
 
@@ -385,9 +419,41 @@ mod tests {
         let page = LoginPage::bind(0).unwrap();
         let started = Instant::now();
         let err = page
-            .wait(Duration::from_millis(150), &|_| Err("no".to_string()))
+            .wait(Duration::from_millis(150), |_| Err("no".to_string()))
             .unwrap_err();
         assert!(err.to_string().contains("timed out"), "{err}");
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    /// Browsers open idle preconnects; one must not delay the page.
+    #[test]
+    fn an_idle_connection_does_not_delay_the_page() {
+        let page = LoginPage::bind(0).unwrap();
+        let url = page.url();
+        let handle = std::thread::spawn(move || {
+            page.wait(Duration::from_secs(10), |_| {
+                Err("not a Stockbit session".to_string())
+            })
+        });
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Two sockets that say nothing, as Chrome's preconnects do.
+        let rest = url.trim_start_matches("http://");
+        let (authority, _) = rest.split_once('/').unwrap();
+        let idle: Vec<TcpStream> = (0..2)
+            .map(|_| TcpStream::connect(authority).unwrap())
+            .collect();
+        std::thread::sleep(Duration::from_millis(100));
+
+        let started = Instant::now();
+        let (status, _) = request(&url, "GET", "");
+        assert_eq!(status, 200);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "page waited {:?} behind idle connections",
+            started.elapsed()
+        );
+        drop(idle);
+        drop(handle);
     }
 }
