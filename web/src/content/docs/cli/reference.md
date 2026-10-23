@@ -1555,7 +1555,7 @@ Your own Stockbit session, for `stocks orderbook`, live `--provider stockbit` qu
 Usage: idx stockbit [OPTIONS] <COMMAND>
 
 Commands:
-  login   Store a session pasted on stdin and check it with Stockbit
+  login   Connect a session in your browser, or from stdin
   status  Show whether a session is stored and when its tokens expire
   logout  Delete the stored session
   help    Print this message or the help of the given subcommand(s)
@@ -1599,11 +1599,14 @@ Examples:
 ### `idx stockbit login`
 
 ```text
-Reads, on stdin, the value of stockbit.com's `credentialStorage` cookie (in a logged-in browser: DevTools, Application, Cookies, https://stockbit.com) or a refresh token, stores it, and checks it with one request. Servers can set IDX_STOCKBIT_REFRESH_TOKEN instead.
+In a terminal, opens a local page on 127.0.0.1 with two one-click ways to hand idx your Stockbit session: a bookmarklet that reads stockbit.com's cookie in your own browser, or a read-the-clipboard button. Without a browser (or with --no-browser), the page URL is printed instead. With stdin piped, it reads the value of stockbit.com's `credentialStorage` cookie (DevTools, Application, Cookies) or a refresh token from stdin, as before. Either way idx checks the session with one request. Servers can set IDX_STOCKBIT_REFRESH_TOKEN instead.
 
 Usage: idx stockbit login [OPTIONS]
 
 Options:
+      --no-browser
+          Print the page URL instead of opening a browser
+
   -o, --output <OUTPUT>
           Output format [default: auto = table on a terminal, json when piped]
 
@@ -1611,6 +1614,9 @@ Options:
 
       --no-color
           Disable colored output
+
+      --port <PORT>
+          Fixed port for the local page (for `ssh -L`); default: any free one
 
   -q, --quiet
           Suppress non-essential output

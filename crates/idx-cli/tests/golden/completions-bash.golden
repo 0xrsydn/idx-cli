@@ -2607,12 +2607,16 @@ _idx() {
             return 0
             ;;
         idx__stockbit__login)
-            opts="-o -q -v -h --output --no-color --quiet --verbose --provider --offline --no-cache --help"
+            opts="-o -q -v -h --no-browser --port --output --no-color --quiet --verbose --provider --offline --no-cache --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --port)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --output)
                     COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
                     return 0

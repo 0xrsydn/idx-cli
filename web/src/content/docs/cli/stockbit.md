@@ -80,14 +80,22 @@ idx --provider stockbit stocks history BBCA --period 1y      # Stockbit's daily 
 idx stockbit logout
 ```
 
-**Logging in.** In a browser logged in to stockbit.com, open DevTools,
-Application, Cookies, `https://stockbit.com`, and copy the value of
-`credentialStorage`. Paste it into `idx stockbit login`, or pipe it
-(`pbpaste | idx stockbit login`). A refresh token on its own works too. idx
-checks the session with one request and stores it in
-`~/.config/idx/stockbit-session.json`, readable only by you. Tokens never
-appear in output, logs or errors. On a server, set
-`IDX_STOCKBIT_REFRESH_TOKEN` instead.
+**Logging in.** `idx stockbit login` opens a small page on your own machine
+(127.0.0.1, a fresh port each run). With stockbit.com open and logged in,
+click the page's **Send my Stockbit session** bookmarklet: it reads
+Stockbit's `credentialStorage` cookie in your browser and hands it to the
+page, which checks it with one request and says "Connected". If bookmarklets
+are blocked, click **Paste from clipboard** after copying the cookie, or
+paste it into the box. Without a browser, `--no-browser` prints the page URL
+instead, and `--port 7878` pins the port for `ssh -L 7878:127.0.0.1:7878`.
+Piping the value in still works (`pbpaste | idx stockbit login`), as does a
+refresh token on its own. On a server, set `IDX_STOCKBIT_REFRESH_TOKEN`.
+
+The session lands in `~/.config/idx/stockbit-session.json`, readable only by
+you. Tokens never appear in output, logs or errors. The page takes only the
+session value, keeps it in memory, and closes when it is done (or after five
+minutes). A session Stockbit refuses leaves a previously stored one in
+place.
 
 **One refresher per session.** Stockbit replaces the refresh token every time
 it is used. Once idx refreshes your session, a browser holding the same

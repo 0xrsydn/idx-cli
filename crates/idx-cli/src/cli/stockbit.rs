@@ -27,23 +27,46 @@ pub struct StockbitCmd {
 #[derive(Debug, Subcommand)]
 pub enum StockbitSubcommand {
     #[command(
-        about = "Store a session pasted on stdin and check it with Stockbit",
-        long_about = "Reads, on stdin, the value of stockbit.com's `credentialStorage` cookie \
-(in a logged-in browser: DevTools, Application, Cookies, https://stockbit.com) or a refresh \
-token, stores it, and checks it with one request. Servers can set \
+        about = "Connect a session in your browser, or from stdin",
+        long_about = "In a terminal, opens a local page on 127.0.0.1 with two one-click ways to \
+hand idx your Stockbit session: a bookmarklet that reads stockbit.com's cookie in your own \
+browser, or a read-the-clipboard button. Without a browser (or with --no-browser), the page \
+URL is printed instead. With stdin piped, it reads the value of stockbit.com's \
+`credentialStorage` cookie (DevTools, Application, Cookies) or a refresh token from stdin, \
+as before. Either way idx checks the session with one request. Servers can set \
 IDX_STOCKBIT_REFRESH_TOKEN instead."
     )]
-    Login,
+    Login {
+        /// Print the page URL instead of opening a browser
+        #[arg(long)]
+        no_browser: bool,
+        /// Fixed port for the local page (for `ssh -L`); default: any free one
+        #[arg(long)]
+        port: Option<u16>,
+    },
     #[command(about = "Show whether a session is stored and when its tokens expire")]
     Status,
     #[command(about = "Delete the stored session")]
     Logout,
 }
 
+/// How long the local page waits for the session.
+const LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
 pub fn handle(cmd: &StockbitCmd, format: &OutputFormat) -> Result<(), IdxError> {
     match &cmd.command {
-        StockbitSubcommand::Login => {
-            let status = stockbit::login(&read_paste()?)?;
+        StockbitSubcommand::Login { no_browser, port } => {
+            let status = if std::io::stdin().is_terminal() {
+                match login_in_browser(port.unwrap_or(0), !no_browser) {
+                    Ok(()) => stockbit::session_status()?,
+                    Err(err) => {
+                        runtime::warn(format!("browser login unavailable ({err}); paste instead"));
+                        stockbit::login(&read_paste()?)?
+                    }
+                }
+            } else {
+                stockbit::login(&read_paste()?)?
+            };
             if format.is_json() {
                 return json::print_json(&status);
             }
@@ -79,6 +102,40 @@ pub fn handle(cmd: &StockbitCmd, format: &OutputFormat) -> Result<(), IdxError> 
         }
     }
     Ok(())
+}
+
+/// Serves the local login page and waits for a session it can verify.
+fn login_in_browser(port: u16, open: bool) -> Result<(), IdxError> {
+    let page = stockbit::loopback::LoginPage::bind(port)?;
+    println!("Open this page to connect Stockbit: {}", page.url());
+    if open {
+        open_in_browser(&page.url());
+    }
+    page.wait(LOGIN_TIMEOUT, &|pasted| {
+        stockbit::login(pasted)
+            .map(|_| ())
+            .map_err(|err| err.to_string())
+    })
+}
+
+/// Opens `url` with the desktop's default browser, best effort.
+fn open_in_browser(url: &str) {
+    #[cfg(target_os = "macos")]
+    let (program, args) = ("open", vec![url]);
+    #[cfg(target_os = "windows")]
+    let (program, args) = ("cmd", vec!["/C", "start", "", url]);
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let (program, args) = ("xdg-open", vec![url]);
+    let opened = std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .is_ok();
+    if !opened {
+        runtime::warn(format!("could not open a browser; open {url} yourself"));
+    }
 }
 
 /// The pasted session: one line from a terminal, else all of stdin.

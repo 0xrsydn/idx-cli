@@ -17,6 +17,7 @@
 
 pub mod auth;
 pub mod exodus;
+pub mod loopback;
 mod parse;
 
 use std::fs::{File, OpenOptions};
@@ -234,16 +235,29 @@ pub fn login(pasted: &str) -> Result<auth::SessionStatus, IdxError> {
         )
     })?;
     let store = SessionStore::open()?;
+    // A refused paste must not lose a session that already worked.
+    let previous = std::fs::read(store.path()).ok();
     store.save(&session)?;
     #[cfg(feature = "testing")]
     let check = !crate::api::mock::enabled();
     #[cfg(not(feature = "testing"))]
     let check = true;
     if check && let Err(err) = Exodus::new(store.clone()).verify() {
-        let _ = store.clear();
+        restore(&store, previous);
         return Err(err);
     }
     Ok(store.status(chrono::Utc::now().timestamp()))
+}
+
+fn restore(store: &SessionStore, previous: Option<Vec<u8>>) {
+    match previous {
+        Some(bytes) => {
+            let _ = std::fs::write(store.path(), bytes);
+        }
+        None => {
+            let _ = store.clear();
+        }
+    }
 }
 
 /// The stored session's state, without a request and without any token.

@@ -195,7 +195,13 @@ WIB as the fallback.
   `credentialStorage` cookie (or a bare refresh token) in
   `<config dir>/stockbit-session.json`, written atomically with mode 0600;
   `IDX_STOCKBIT_REFRESH_TOKEN` / `IDX_STOCKBIT_ACCESS_TOKEN` fill fields the
-  file lacks. `api/stockbit/auth.rs` reads expiries from the JWTs (`exp`,
+  file lacks. In a terminal it first serves a page on 127.0.0.1
+  (`api/stockbit/loopback.rs`): a bookmarklet that reads the cookie in the
+  user's own browser and opens the page with it in the URL fragment, or a
+  clipboard button; a per-run secret guards the path, the page is `no-store`
+  with a strict CSP, and the server stops on success or after five minutes.
+  Piped stdin keeps the paste path. `api/stockbit/auth.rs` reads expiries
+  from the JWTs (`exp`,
   unverified) and refreshes an access token within an hour of expiry with
   `POST /login/refresh` (bearer = refresh token), which rotates both tokens.
   Because a refresh token is spent once, refreshes run under an exclusive
