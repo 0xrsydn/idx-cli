@@ -1,0 +1,4 @@
+exit: 4
+--- stdout
+--- stderr
+{"code":"UPSTREAMBLOCKED","error":true,"message":"upstream blocked: stockbit.com refused this client (HTTP 403 from its CDN); idx does not retry a block. Try again later or from another network; `--provider msn` serves quotes without Stockbit"}

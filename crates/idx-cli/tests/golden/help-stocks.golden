@@ -6,6 +6,7 @@ Usage: idx stocks [OPTIONS] <COMMAND>
 
 Commands:
   quote        Get real-time stock quotes
+  intraday     Today's session price by the minute (Stockbit)
   history      Get historical OHLC data
   technical    Run technical analysis on a stock
   growth       Run growth analysis on a stock
@@ -26,11 +27,12 @@ Commands:
   help         Print this message or the help of the given subcommand(s)
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 --- stderr

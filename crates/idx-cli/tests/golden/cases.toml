@@ -244,6 +244,25 @@ name = "yahoo-fundamental"
 args = ["stocks", "fundamental", "BBCA"]
 env = { IDX_PROVIDER = "yahoo" }
 
+# --- stocks: Stockbit (intraday, and the opt-in quote provider) -----------------
+
+[[case]]
+name = "stocks-intraday"
+args = ["stocks", "intraday", "BBCA"]
+
+[[case]]
+name = "stocks-intraday-index"
+args = ["stocks", "intraday", "^JKSE"]
+formats = ["table"]
+
+[[case]]
+name = "stocks-intraday-suspended"
+args = ["stocks", "intraday", "MABA"]
+
+[[case]]
+name = "stockbit-quote"
+args = ["--provider", "stockbit", "stocks", "quote", "BBCA,MABA"]
+
 # --- stocks: broker summaries (IPOT) and foreign flow (IDX) --------------------
 
 [[case]]
@@ -333,6 +352,19 @@ env = { IDX_MOCK_ERROR = "1" }
 [[case]]
 name = "error-fetch-bing-unsupported"
 args = ["ownership", "import", "--fetch-bing", "BBCA"]
+
+[[case]]
+name = "error-intraday-blocked"
+args = ["stocks", "intraday", "BBCA"]
+env = { IDX_MOCK_STOCKBIT_STATUS = "403" }
+
+[[case]]
+name = "error-intraday-unknown-symbol"
+args = ["stocks", "intraday", "ZZZZ"]
+
+[[case]]
+name = "error-stockbit-fundamental-unsupported"
+args = ["--provider", "stockbit", "stocks", "fundamental", "BBCA"]
 
 # --- ownership --------------------------------------------------------------------
 

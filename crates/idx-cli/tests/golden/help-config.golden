@@ -28,6 +28,11 @@ Options:
   -v, --verbose...
           Increase verbosity (-v, -vv)
 
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+          
+          [possible values: yahoo, msn, stockbit]
+
       --offline
           Run without network requests
 

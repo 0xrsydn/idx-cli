@@ -14,10 +14,11 @@ use idx_core::analysis::fundamental::{
 };
 use idx_core::analysis::report::TechnicalReport;
 use idx_core::api::types::{
-    CompanyProfile, EarningsReport, FinancialStatements, InsightData, NewsItem, Ohlc, Quote,
-    SentimentData,
+    CompanyProfile, EarningsReport, FinancialStatements, InsightData, Intraday, NewsItem, Ohlc,
+    Quote, SentimentData,
 };
 use idx_core::broker::types::BrokerSummary;
+use idx_core::config::ProviderKind;
 use idx_core::error::IdxError;
 use idx_core::flow::types::ForeignFlow;
 
@@ -67,12 +68,27 @@ impl OutputFormat {
 
 pub fn render_quotes(
     quotes: &[Quote],
+    provider: ProviderKind,
     format: &OutputFormat,
     no_color: bool,
 ) -> Result<(), IdxError> {
     match format {
+        OutputFormat::Table if provider == ProviderKind::Stockbit => {
+            table::print_stockbit_quotes(quotes, no_color)
+        }
         OutputFormat::Table => table::print_quotes(quotes, no_color),
         OutputFormat::Json | OutputFormat::Jsonl => json::print_json(quotes),
+    }
+}
+
+pub fn render_intraday(
+    day: &Intraday,
+    format: &OutputFormat,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_intraday(day, no_color),
+        OutputFormat::Json | OutputFormat::Jsonl => json::print_json(day),
     }
 }
 

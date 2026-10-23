@@ -1,0 +1,22 @@
+exit: 0
+--- stdout
+BBCA.JK 5,175 -100 (-1.90%)
+prev close 5,275 · volume 286,928,500 · market close · last trade 2026-10-22 16:14 WIB
+
+▄▅▇█▅▇▇▇▅▇▇▇▇▇▇██▇▅▇▅▅███▇▅▇▅▇▇▇▅▇▅▅▄▅▄▅▄▄▅▅▅▅▅▇▅▄▄▄▄▄▄▂▄▄▄▄
+08:58 to 16:14 WIB · low 5,125 · high 5,250 · 335 minutes
+┌───────┬───────┐
+│ TIME  ┆ PRICE │
+╞═══════╪═══════╡
+│ 16:10 ┆ 5,175 │
+├╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┤
+│ 16:11 ┆ 5,175 │
+├╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┤
+│ 16:12 ┆ 5,175 │
+├╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┤
+│ 16:13 ┆ 5,175 │
+├╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┤
+│ 16:14 ┆ 5,175 │
+└───────┴───────┘
+Source: Stockbit's public page, delayed at least 10 minutes (Stockbit's terms); bid/offer only while the market is open.
+--- stderr

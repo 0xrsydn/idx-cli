@@ -6,8 +6,8 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Utc, Weekday};
 
-use crate::api::types::{Interval, Ohlc, Period, Quote};
-use crate::api::{history_provider, history_source, idx_offset};
+use crate::api::types::{Interval, Intraday, Ohlc, Period, Quote};
+use crate::api::{history_provider, history_source, idx_offset, intraday_provider, stockbit};
 use crate::client::{CachePolicy, CacheSpec, Fetched, Idx, cached_fetch};
 use crate::config::{HistoryProviderKind, ProviderKind};
 use crate::error::IdxError;
@@ -34,6 +34,10 @@ impl Market<'_> {
     ) -> Result<Vec<Fetched<Quote>>, IdxError> {
         let idx = self.idx;
         let bucket = idx.bucket("quote");
+        let ttl_secs = match idx.provider.kind() {
+            ProviderKind::Stockbit => idx.config.quote_ttl.min(stockbit::CACHE_TTL_SECS),
+            _ => idx.config.quote_ttl,
+        };
         let session = latest_session(Utc::now());
         let mut quotes = Vec::with_capacity(symbols.len());
         for symbol in symbols {
@@ -43,7 +47,7 @@ impl Market<'_> {
                 CacheSpec {
                     bucket: &bucket,
                     key: &resolved,
-                    ttl_secs: idx.config.quote_ttl,
+                    ttl_secs,
                     subject: &resolved,
                     source: idx.provider.kind().as_str(),
                 },
@@ -58,6 +62,32 @@ impl Market<'_> {
             quotes.push(quote);
         }
         Ok(quotes)
+    }
+
+    /// Today's session of one IDX symbol from Stockbit's public page,
+    /// whichever market provider is selected: the quote (bid/offer only while
+    /// the market is open) and the price per minute.
+    pub fn intraday(
+        &self,
+        symbol: &str,
+        policy: CachePolicy,
+    ) -> Result<Fetched<Intraday>, IdxError> {
+        let idx = self.idx;
+        let resolved = idx.resolve(symbol)?;
+        let provider = intraday_provider();
+        cached_fetch(
+            &idx.cache,
+            CacheSpec {
+                bucket: "stockbit-intraday",
+                key: &resolved,
+                ttl_secs: idx.config.quote_ttl.min(stockbit::CACHE_TTL_SECS),
+                subject: &resolved,
+                source: stockbit::SOURCE,
+            },
+            policy,
+            || provider.intraday(&resolved),
+            Ok,
+        )
     }
 
     /// Resolves the history source for an optional `--history-provider`
@@ -380,6 +410,10 @@ mod tests {
             avg_volume: None,
             as_of: None,
             behind_session: false,
+            bid: None,
+            offer: None,
+            market_status: None,
+            session_note: None,
         }
     }
 

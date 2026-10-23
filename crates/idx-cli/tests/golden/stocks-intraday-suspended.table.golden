@@ -1,0 +1,7 @@
+exit: 0
+--- stdout
+MABA.JK 50 +0 (+0.00%)
+prev close 50 · volume 0 · market close
+Note: Stockbit lists the stock as suspended
+Source: Stockbit's public page, delayed at least 10 minutes (Stockbit's terms); bid/offer only while the market is open.
+--- stderr

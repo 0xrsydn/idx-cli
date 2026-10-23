@@ -41,7 +41,7 @@ impl CachePolicy {
 #[derive(Debug, Clone, Serialize)]
 pub struct Fetched<T> {
     pub data: T,
-    /// Provider that produced the data (`msn` or `yahoo`).
+    /// Provider that produced the data (e.g. `msn`, `yahoo`, `ipot`, `stockbit`).
     pub source: &'static str,
     pub fetched_at: DateTime<Utc>,
     /// True when an expired cache entry was served (offline, or after a

@@ -5,8 +5,9 @@ description: idx-mcp serves idx's stock and ownership data to AI agents over MCP
 
 `idx-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
 server over stdio. It gives an agent the same data as the `idx` CLI, as
-[14 tools](/mcp/tools/) (plus an opt-in `ownership_sync`): quotes, price history, screening, company data,
-analysis, comparison, broker summaries, bandarmology, foreign flow, and the KSEI
+[15 tools](/mcp/tools/) (plus an opt-in `ownership_sync`): quotes, today's
+session by the minute, price history, screening, company data, analysis,
+comparison, broker summaries, bandarmology, foreign flow, and the KSEI
 ownership queries.
 
 It shares idx's [config, cache and ownership database](/start/config/#files-idx-keeps),
@@ -27,7 +28,7 @@ Tools that fetch live data return:
 }
 ```
 
-`source` is the provider (`msn` or `yahoo`). Results are cached on disk;
+`source` is the provider (`msn`, `yahoo`, `ipot`, `idx` or `stockbit`). Results are cached on disk;
 `stale` is true when an expired cache entry was served because a fresh fetch
 failed. Ownership tools return their data directly, from the local
 database.
@@ -44,6 +45,7 @@ body, so the agent can decide whether to retry:
 | Input | Limit |
 | --- | --- |
 | tickers per call (`get_quotes`, `compare_stocks`) | 20, duplicates removed |
+| `get_intraday` `tail` | 400 minutes (default: the whole session) |
 | `screen_stocks` `limit` | 200 |
 | `search_investors` `limit` | 100 |
 | `get_ownership_changes` `limit` | 300 per page (default 200); page with `offset` |

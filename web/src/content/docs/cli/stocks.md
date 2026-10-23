@@ -19,6 +19,20 @@ session, the table says so under it, and JSON sets `behind_session`: the
 provider may still show the previous close. `history` takes `--period` (`1d`
 to `5y`) and `--interval` (`1d`, `1wk`, `1mo`).
 
+## Today by the minute
+
+```bash
+idx stocks intraday BBCA
+idx stocks intraday ^JKSE
+idx -o json stocks intraday BBCA | jq '.points[-1]'
+```
+
+`intraday` shows today's session from Stockbit's public page, without a
+login: the quote, the best bid and offer while the market is open, a
+sparkline and the last five minutes. JSON gives every minute in `points`. It
+is delayed at least 10 minutes. See [Stockbit](/cli/stockbit/) for what it
+covers and the terms it comes with.
+
 ## Company data
 
 | Command | What it shows |
@@ -142,6 +156,8 @@ idx stocks screen --filter high-dividend | jq -r '.[].symbol' | idx stocks compa
 
 MSN is the default for quotes, company data and screening; Yahoo serves
 price history. Indo Premier (IPOT) serves broker summaries and foreign flow
-(IDX's own site with `flow --source idx`), whichever provider is selected. Switch with `IDX_PROVIDER=msn|yahoo` and
-`IDX_HISTORY_PROVIDER=auto|yahoo|msn`, or the matching
-[config keys](/start/config/).
+(IDX's own site with `flow --source idx`), and Stockbit serves `intraday`,
+whichever provider is selected. Switch with `--provider msn|yahoo|stockbit`
+(or `IDX_PROVIDER`) and `IDX_HISTORY_PROVIDER=auto|yahoo|msn`, or the
+matching [config keys](/start/config/). `--provider stockbit` serves quotes
+only, with the best bid/offer; see [Stockbit](/cli/stockbit/).

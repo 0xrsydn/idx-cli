@@ -30,6 +30,15 @@ pub struct HistoryParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct IntradayParams {
+    /// IDX ticker, e.g. "BBCA"; indices as "^JKSE" or "IHSG".
+    pub symbol: String,
+    /// Only the latest N minutes (default: the whole session, at most 400).
+    #[serde(default)]
+    pub tail: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ScreenParams {
     /// Screen to run (default "top-performers").
     #[serde(default)]

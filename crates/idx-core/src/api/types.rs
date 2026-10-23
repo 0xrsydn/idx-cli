@@ -57,6 +57,41 @@ pub struct Quote {
     /// quote is returned, not when it is cached.
     #[serde(default)]
     pub behind_session: bool,
+    /// Best bid in IDR (whole Rupiah). Stockbit only, and only while its
+    /// market status is `open`: outside trading it is the closing book, not
+    /// a live one. Absent from JSON when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bid: Option<i64>,
+    /// Best offer in IDR (whole Rupiah), gated like `bid`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offer: Option<i64>,
+    /// The provider's own session state, verbatim (Stockbit
+    /// `market_hour.status`, e.g. `close`). Absent for providers without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub market_status: Option<String>,
+    /// What the provider says about this symbol's session: suspended,
+    /// delisted, or no trades. Never inferred.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_note: Option<String>,
+}
+
+/// One price of today's session, minute by minute (Stockbit's chart).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IntradayPoint {
+    /// The minute, in WIB.
+    pub time: DateTime<FixedOffset>,
+    /// Last price at that minute in IDR; indices carry two decimals.
+    pub price: f64,
+}
+
+/// The latest session of one IDX symbol: its quote and the price per minute.
+/// Stockbit's public page carries no per-minute OHLC or volume.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Intraday {
+    pub quote: Quote,
+    /// Oldest first; empty when the symbol did not trade (suspended,
+    /// delisted, or no session yet), never an error.
+    pub points: Vec<IntradayPoint>,
 }
 
 /// OHLC candle data normalized from Yahoo Finance chart indicators.

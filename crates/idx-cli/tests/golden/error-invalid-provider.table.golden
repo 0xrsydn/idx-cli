@@ -1,4 +1,4 @@
 exit: 2
 --- stdout
 --- stderr
-Error: config error: invalid provider 'bogus' (expected yahoo or msn)
+Error: config error: invalid provider 'bogus' (expected yahoo, msn, or stockbit)

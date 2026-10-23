@@ -26,8 +26,8 @@ use tokio::sync::Semaphore;
 
 use crate::params::{
     AnalysisKind, AnalyzeParams, BandarParams, BrokerParams, ChangesParams, CompanyParams,
-    CompanySection, EntityParams, FlowParams, HistoryParams, ScreenParams, SearchParams,
-    ShareholdersParams, SymbolsParams, SyncParams,
+    CompanySection, EntityParams, FlowParams, HistoryParams, IntradayParams, ScreenParams,
+    SearchParams, ShareholdersParams, SymbolsParams, SyncParams,
 };
 
 const SYNC_TOOL: &str = "ownership_sync";
@@ -43,6 +43,8 @@ const MAX_SEARCH_LIMIT: usize = 100;
 // Pages above a few hundred rows (~40 KB) overflow some agents' tool output.
 const MAX_CHANGES_LIMIT: usize = 300;
 const CHANGES_TOP_TICKERS: usize = 10;
+// A session has about 340 minutes, so this is the whole day.
+const MAX_INTRADAY_POINTS: usize = 400;
 
 /// Tool calls running at once; the rest wait their turn.
 static CALL_SLOTS: Semaphore = Semaphore::const_new(4);
@@ -117,7 +119,11 @@ impl IdxServer {
         description = "Latest quotes (price, change, volume, 52-week range, market cap) \
 for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true \
 when that is before the latest IDX session, so the price is not that session's close: the \
-provider lags, the stock did not trade, or the day was an exchange holiday."
+provider lags, the stock did not trade, or the day was an exchange holiday. When the server \
+runs with the stockbit provider, quotes also carry `market_status` (Stockbit's, e.g. \
+\"open\", \"close\"), `bid`/`offer` (best price, only while the market is open) and \
+`session_note` (suspended, delisted, no trades); Stockbit data is delayed at least 10 \
+minutes."
     )]
     async fn get_quotes(&self, params: Parameters<SymbolsParams>) -> ToolResult {
         let symbols = match checked_symbols(params.0.symbols) {
@@ -127,6 +133,27 @@ provider lags, the stock did not trade, or the day was an exchange holiday."
         self.live(move |idx| {
             let quotes = idx.market().quotes(&symbols, CachePolicy::Default)?;
             Ok(json!({ "quotes": quotes }))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Today's session of one IDX stock or index from Stockbit's public page \
+(no login), whichever provider the server uses: `quote` (price, change, volume, \
+`market_status`, `bid`/`offer` only while the market is open, `session_note`) and \
+`points`, the price per minute in WIB, oldest first. Delayed at least 10 minutes; no \
+per-minute volume. Empty `points` means the stock did not trade this session (see \
+`session_note`), not an error. UPSTREAMBLOCKED means stockbit.com refused this machine \
+(HTTP 403): do not retry at once."
+    )]
+    async fn get_intraday(&self, params: Parameters<IntradayParams>) -> ToolResult {
+        let IntradayParams { symbol, tail } = params.0;
+        self.live(move |idx| {
+            let tail = bounded_limit("tail", tail, MAX_INTRADAY_POINTS, MAX_INTRADAY_POINTS)?;
+            let mut day = idx.market().intraday(&symbol, CachePolicy::Default)?;
+            let points = &mut day.data.points;
+            points.drain(..points.len().saturating_sub(tail));
+            Ok(day)
         })
         .await
     }

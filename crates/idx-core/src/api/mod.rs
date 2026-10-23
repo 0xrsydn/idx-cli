@@ -3,6 +3,7 @@ pub mod ipot;
 #[cfg(feature = "testing")]
 pub mod mock;
 pub mod msn;
+pub mod stockbit;
 pub mod types;
 pub mod yahoo;
 
@@ -13,7 +14,7 @@ use crate::config::{HistoryProviderKind, ProviderKind};
 use crate::error::IdxError;
 use types::{
     Bar, CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, Interval,
-    NewsItem, Period, Quote, SentimentData,
+    Intraday, NewsItem, Period, Quote, SentimentData,
 };
 
 /// IDX trades in Western Indonesia Time (WIB, UTC+7, no DST). Providers stamp
@@ -62,6 +63,13 @@ pub trait TradingSummaryProvider {
         &self,
         date: chrono::NaiveDate,
     ) -> Result<Vec<crate::flow::types::StockDay>, IdxError>;
+}
+
+/// Today's session of one IDX symbol: quote and price per minute. Served by
+/// Stockbit's public page whichever market provider is selected.
+pub trait IntradayProvider {
+    /// `symbol` is resolved, e.g. `BBCA.JK`.
+    fn intraday(&self, symbol: &str) -> Result<Intraday, IdxError>;
 }
 
 pub trait FundamentalsProvider {
@@ -221,7 +229,10 @@ fn mock_enabled() -> bool {
 
 #[cfg(feature = "testing")]
 fn mock_market(provider: ProviderKind) -> Option<Box<dyn MarketDataProvider>> {
-    Some(Box::new(mock::MockProvider::from_fixtures(provider)))
+    match provider {
+        ProviderKind::Stockbit => Some(Box::new(mock::MockStockbitProvider)),
+        _ => Some(Box::new(mock::MockProvider::from_fixtures(provider))),
+    }
 }
 
 #[cfg(not(feature = "testing"))]
@@ -274,6 +285,18 @@ fn build_selected_provider(
             news: Some(Box::new(msn::MsnProvider::new(verbose))),
             screener: Some(Box::new(msn::MsnProvider::new(verbose))),
         },
+        // Quotes only; history falls back to Yahoo (see `history_source`).
+        ProviderKind::Stockbit => SelectedProvider {
+            kind: ProviderKind::Stockbit,
+            market: mock.unwrap_or_else(|| Box::new(stockbit::StockbitProvider::new())),
+            profile: None,
+            financials: None,
+            earnings: None,
+            sentiment: None,
+            insights: None,
+            news: None,
+            screener: None,
+        },
     }
 }
 
@@ -297,6 +320,14 @@ pub fn trading_summary_provider() -> Box<dyn TradingSummaryProvider> {
     Box::new(idx::IdxSiteProvider)
 }
 
+pub fn intraday_provider() -> Box<dyn IntradayProvider> {
+    #[cfg(feature = "testing")]
+    if mock::enabled() {
+        return Box::new(mock::MockStockbitProvider);
+    }
+    Box::new(stockbit::StockbitProvider::new())
+}
+
 /// Today in WIB, the date IDX trades on.
 pub(crate) fn today_wib() -> chrono::NaiveDate {
     #[cfg(feature = "testing")]
@@ -312,8 +343,7 @@ pub fn history_source(provider: ProviderKind, history_mode: HistoryProviderKind)
         HistoryProviderKind::Yahoo => ProviderKind::Yahoo,
         HistoryProviderKind::Msn => ProviderKind::Msn,
         HistoryProviderKind::Auto => match provider {
-            ProviderKind::Yahoo => ProviderKind::Yahoo,
-            ProviderKind::Msn => ProviderKind::Yahoo,
+            ProviderKind::Yahoo | ProviderKind::Msn | ProviderKind::Stockbit => ProviderKind::Yahoo,
         },
     }
 }
@@ -339,6 +369,9 @@ pub fn history_provider(
     match resolved {
         ProviderKind::Yahoo => Ok((resolved, Box::new(yahoo::YahooProvider::new(verbose)))),
         ProviderKind::Msn => Ok((resolved, Box::new(msn::MsnProvider::new(verbose)))),
+        ProviderKind::Stockbit => Err(IdxError::Unsupported(
+            "Stockbit serves no price history; use --history-provider yahoo or msn".to_string(),
+        )),
     }
 }
 

@@ -41,6 +41,11 @@ Options:
   -v, --verbose...
           Increase verbosity (-v, -vv)
 
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
       --offline
           Run without network requests
 
@@ -60,6 +65,7 @@ Usage: idx stocks [OPTIONS] <COMMAND>
 
 Commands:
   quote        Get real-time stock quotes
+  intraday     Today's session price by the minute (Stockbit)
   history      Get historical OHLC data
   technical    Run technical analysis on a stock
   growth       Run growth analysis on a stock
@@ -80,13 +86,14 @@ Commands:
   help         Print this message or the help of the given subcommand(s)
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx stocks quote`
@@ -100,19 +107,67 @@ Arguments:
   <SYMBOLS>...  One or more symbols, comma-separated or space-separated; `-` reads them from stdin
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 
 Examples:
   idx stocks quote BBCA
   idx stocks quote BBCA,BBRI,BMRI
   idx -o json stocks quote BBCA
   echo BBCA BBRI | idx stocks quote -
+  idx --provider stockbit stocks quote BBCA   # with bid/offer while the market is open
+```
+
+### `idx stocks intraday`
+
+```text
+Today's session of one IDX stock or index, by the minute, from Stockbit's public page (no login): the quote, the best bid/offer while the market is open, a sparkline, and the last minutes. Delayed at least 10 minutes per Stockbit's terms; prices only, no per-minute volume. A stock that did not trade has no minutes, which is not an error. Indices use Yahoo's tickers (^JKSE, ^JKLQ45) or Stockbit's (IHSG, LQ45).
+
+Usage: idx stocks intraday [OPTIONS] <SYMBOL>
+
+Arguments:
+  <SYMBOL>
+          Single ticker symbol (e.g. BBCA)
+
+Options:
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx stocks intraday BBCA
+  idx stocks intraday ^JKSE
+  idx -o json stocks intraday BBCA | jq '.points[-1]'
 ```
 
 ### `idx stocks history`
@@ -140,6 +195,8 @@ Options:
           Suppress non-essential output
   -v, --verbose...
           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
       --offline
           Run without network requests
       --no-cache
@@ -173,6 +230,8 @@ Options:
           Suppress non-essential output
   -v, --verbose...
           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
       --offline
           Run without network requests
       --no-cache
@@ -196,13 +255,14 @@ Arguments:
   <SYMBOL>  Single ticker symbol (e.g. BBCA)
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 
 Examples:
   idx stocks growth BBCA
@@ -220,13 +280,14 @@ Arguments:
   <SYMBOL>  Single ticker symbol (e.g. BBCA)
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 
 Examples:
   idx stocks valuation BBCA
@@ -244,13 +305,14 @@ Arguments:
   <SYMBOL>  Single ticker symbol (e.g. BBCA)
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 
 Examples:
   idx stocks risk BBCA
@@ -268,13 +330,14 @@ Arguments:
   <SYMBOL>  Single ticker symbol (e.g. BBCA)
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 
 Examples:
   idx stocks fundamental BBCA
@@ -336,6 +399,11 @@ Options:
           - negotiated: Negotiated market (NG): pre-arranged block trades
 
           [default: all]
+
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
 
       --offline
           Run without network requests
@@ -409,16 +477,21 @@ Options:
 
           [default: all]
 
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
       --offline
           Run without network requests
-
-      --no-cache
-          Bypass local cache
 
       --top <TOP>
           Tier behind the headline signal: 1, 3, 5 or 10 brokers per side
 
           [default: 5]
+
+      --no-cache
+          Bypass local cache
 
   -h, --help
           Print help (see a summary with '-h')
@@ -474,6 +547,11 @@ Options:
   -v, --verbose...
           Increase verbosity (-v, -vv)
 
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
       --offline
           Run without network requests
 
@@ -502,13 +580,14 @@ Arguments:
   <SYMBOL>
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx stocks financials`
@@ -527,6 +606,7 @@ Options:
       --no-color                  Disable colored output
   -q, --quiet                     Suppress non-essential output
   -v, --verbose...                Increase verbosity (-v, -vv)
+      --provider <PROVIDER>       Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
       --offline                   Run without network requests
       --no-cache                  Bypass local cache
   -h, --help                      Print help
@@ -548,17 +628,18 @@ Arguments:
   <SYMBOL>
 
 Options:
-      --forecast         Only include forward earnings rows
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --history          Only include historical earnings rows
-      --no-color         Disable colored output
-      --annual           Only include annual periods
-  -q, --quiet            Suppress non-essential output
-      --quarterly        Only include quarterly periods
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+      --forecast             Only include forward earnings rows
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --history              Only include historical earnings rows
+      --no-color             Disable colored output
+      --annual               Only include annual periods
+  -q, --quiet                Suppress non-essential output
+      --quarterly            Only include quarterly periods
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 
 Examples:
   idx stocks earnings BBCA
@@ -577,13 +658,14 @@ Arguments:
   <SYMBOL>
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx stocks insights`
@@ -597,13 +679,14 @@ Arguments:
   <SYMBOL>
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx stocks news`
@@ -617,14 +700,15 @@ Arguments:
   <SYMBOL>
 
 Options:
-      --limit <LIMIT>    [default: 10]
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+      --limit <LIMIT>        [default: 10]
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx stocks screen`
@@ -635,16 +719,17 @@ MSN screener
 Usage: idx stocks screen [OPTIONS]
 
 Options:
-      --filter <FILTER>  [default: top-performers]
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-      --region <REGION>  [default: id]
-      --limit <LIMIT>    [default: 50]
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+      --filter <FILTER>      [default: top-performers]
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+      --region <REGION>      [default: id]
+      --limit <LIMIT>        [default: 50]
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx stocks compare`
@@ -658,13 +743,14 @@ Arguments:
   <SYMBOLS>...  One or more symbols, comma-separated or space-separated; `-` reads them from stdin
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 
 Examples:
   idx stocks compare BBCA BBRI BMRI
@@ -704,6 +790,11 @@ Options:
   -v, --verbose...
           Increase verbosity (-v, -vv)
 
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
       --offline
           Run without network requests
 
@@ -733,13 +824,14 @@ Create default configuration file
 Usage: idx config init [OPTIONS]
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx config get`
@@ -753,13 +845,14 @@ Arguments:
   <KEY>  Key such as general.provider (see `idx config --help`)
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx config set`
@@ -774,13 +867,14 @@ Arguments:
   <VALUE>
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx config path`
@@ -791,13 +885,14 @@ Print configuration file path
 Usage: idx config path [OPTIONS]
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ## `idx cache`
@@ -813,13 +908,14 @@ Commands:
   help   Print this message or the help of the given subcommand(s)
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx cache info`
@@ -830,13 +926,14 @@ Show cache usage information
 Usage: idx cache info [OPTIONS]
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx cache clear`
@@ -847,13 +944,14 @@ Clear all cached files
 Usage: idx cache clear [OPTIONS]
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ## `idx ownership`
@@ -899,6 +997,11 @@ Options:
   -v, --verbose...
           Increase verbosity (-v, -vv)
 
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
       --offline
           Run without network requests
 
@@ -924,15 +1027,16 @@ Discover the latest IDX-hosted ownership report URLs
 Usage: idx ownership discover [OPTIONS]
 
 Options:
-      --family <FAMILY>  Report family to discover: above1 (default), all, above5, or investor-type [default: above1]
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --limit <LIMIT>    Maximum number of discovered report URLs to print [default: 6]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+      --family <FAMILY>      Report family to discover: above1 (default), all, above5, or investor-type [default: above1]
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --limit <LIMIT>        Maximum number of discovered report URLs to print [default: 6]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 
 Examples:
   idx ownership discover --limit 1
@@ -976,6 +1080,11 @@ Options:
 
   -v, --verbose...
           Increase verbosity (-v, -vv)
+
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
 
       --offline
           Run without network requests
@@ -1028,6 +1137,11 @@ Options:
   -v, --verbose...
           Increase verbosity (-v, -vv)
 
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
       --offline
           Run without network requests
 
@@ -1056,14 +1170,15 @@ Arguments:
   <SYMBOL>
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --source <SOURCE>  [default: all]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --source <SOURCE>      [default: all]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx ownership entity`
@@ -1077,13 +1192,14 @@ Arguments:
   <NAME>  Entity name or part of one, case-insensitive; the shortest match is shown
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 
 Examples:
   idx ownership entity "ASTRA INTERNATIONAL"
@@ -1121,6 +1237,11 @@ Options:
   -v, --verbose...
           Increase verbosity (-v, -vv)
 
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
       --offline
           Run without network requests
 
@@ -1149,6 +1270,7 @@ Options:
       --no-color                   Disable colored output
   -q, --quiet                      Suppress non-essential output
   -v, --verbose...                 Increase verbosity (-v, -vv)
+      --provider <PROVIDER>        Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
       --offline                    Run without network requests
       --no-cache                   Bypass local cache
   -h, --help                       Print help
@@ -1162,15 +1284,16 @@ Rank tickers by ownership concentration
 Usage: idx ownership concentration [OPTIONS]
 
 Options:
-      --by <BY>          [default: hhi]
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-      --top <TOP>        [default: 20]
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+      --by <BY>              [default: hhi]
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+      --top <TOP>            [default: 20]
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx ownership flow`
@@ -1184,13 +1307,14 @@ Arguments:
   <SYMBOL>
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx ownership changes`
@@ -1223,6 +1347,11 @@ Options:
   -v, --verbose...
           Increase verbosity (-v, -vv)
 
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
       --offline
           Run without network requests
 
@@ -1248,15 +1377,16 @@ Arguments:
   <ROOT>  Ticker code or entity name to start from
 
 Options:
-      --depth <DEPTH>    Traversal depth (default 2) [default: 2]
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --format <FORMAT>  Output format: table or dot (Graphviz) [default: table]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+      --depth <DEPTH>        Traversal depth (default 2) [default: 2]
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --format <FORMAT>      Output format: table or dot (Graphviz) [default: table]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx ownership resolve`
@@ -1273,13 +1403,14 @@ Commands:
   help        Print this message or the help of the given subcommand(s)
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 #### `idx ownership resolve unresolved`
@@ -1290,14 +1421,15 @@ List unresolved or low-confidence entity aliases
 Usage: idx ownership resolve unresolved [OPTIONS]
 
 Options:
-      --limit <LIMIT>    [default: 50]
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+      --limit <LIMIT>        [default: 50]
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 #### `idx ownership resolve map`
@@ -1312,13 +1444,14 @@ Arguments:
   <ENTITY>  The canonical entity name to map to
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 #### `idx ownership resolve merge`
@@ -1333,13 +1466,14 @@ Arguments:
   <MERGE>  Entity ID to merge and delete
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ### `idx ownership releases`
@@ -1350,13 +1484,14 @@ List imported KSEI releases
 Usage: idx ownership releases [OPTIONS]
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ## `idx completions`
@@ -1370,13 +1505,14 @@ Arguments:
   <SHELL>  [possible values: bash, zsh, fish]
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```
 
 ## `idx version`
@@ -1387,11 +1523,12 @@ Show idx-cli version
 Usage: idx version [OPTIONS]
 
 Options:
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
 ```

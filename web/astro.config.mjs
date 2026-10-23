@@ -31,7 +31,7 @@ export default defineConfig({
 				},
 				{
 					label: 'CLI',
-					items: ['cli/stocks', 'cli/ownership', 'cli/output', 'cli/reference'],
+					items: ['cli/stocks', 'cli/stockbit', 'cli/ownership', 'cli/output', 'cli/reference'],
 				},
 				{
 					label: 'MCP server',

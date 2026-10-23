@@ -1,0 +1,4 @@
+exit: 5
+--- stdout
+--- stderr
+Error: unsupported: BBCA.JK: Stockbit has no fundamentals; command requires --provider msn or yahoo
