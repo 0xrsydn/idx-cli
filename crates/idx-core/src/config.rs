@@ -31,6 +31,8 @@ pub enum HistoryProviderKind {
     Auto,
     Yahoo,
     Msn,
+    // Needs the user's Stockbit session (`idx stockbit login`).
+    Stockbit,
 }
 
 impl ProviderKind {
@@ -63,6 +65,7 @@ impl HistoryProviderKind {
             Self::Auto => "auto",
             Self::Yahoo => "yahoo",
             Self::Msn => "msn",
+            Self::Stockbit => "stockbit",
         }
     }
 
@@ -73,9 +76,11 @@ impl HistoryProviderKind {
             Ok(Self::Yahoo)
         } else if value.eq_ignore_ascii_case("msn") {
             Ok(Self::Msn)
+        } else if value.eq_ignore_ascii_case("stockbit") {
+            Ok(Self::Stockbit)
         } else {
             Err(IdxError::ConfigError(format!(
-                "invalid history provider '{value}' (expected auto, yahoo, or msn)"
+                "invalid history provider '{value}' (expected auto, yahoo, msn, or stockbit)"
             )))
         }
     }

@@ -15,7 +15,7 @@ use idx_core::analysis::fundamental::{
 use idx_core::analysis::report::TechnicalReport;
 use idx_core::api::types::{
     CompanyProfile, EarningsReport, FinancialStatements, InsightData, Intraday, NewsItem, Ohlc,
-    Quote, SentimentData,
+    OrderBook, Quote, SentimentData,
 };
 use idx_core::broker::types::BrokerSummary;
 use idx_core::config::ProviderKind;
@@ -89,6 +89,17 @@ pub fn render_intraday(
     match format {
         OutputFormat::Table => table::print_intraday(day, no_color),
         OutputFormat::Json | OutputFormat::Jsonl => json::print_json(day),
+    }
+}
+
+pub fn render_orderbook(
+    book: &OrderBook,
+    format: &OutputFormat,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_orderbook(book, no_color),
+        OutputFormat::Json | OutputFormat::Jsonl => json::print_json(book),
     }
 }
 

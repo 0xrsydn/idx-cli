@@ -29,7 +29,7 @@ in scripts. Ask for JSON with `-o json`, `IDX_OUTPUT=json`, or
 ```toml
 [general]
 provider = "msn"           # msn | yahoo | stockbit
-history_provider = "auto"  # auto | yahoo | msn
+history_provider = "auto"  # auto | yahoo | msn | stockbit
 exchange = "JK"
 output = "auto"            # auto | table | json | jsonl
 color = true
@@ -56,6 +56,8 @@ fundamental_ttl = 3600
 | `IDX_CACHE_FUNDAMENTAL_TTL` | `cache.fundamental_ttl` |
 | `IDX_OWNERSHIP_SNAPSHOT_MANIFEST` | `ownership.snapshot_manifest` |
 | `IDX_CURL_IMPERSONATE_BIN` | path to a `curl_chrome*` binary |
+| `IDX_STOCKBIT_REFRESH_TOKEN` | seeds a [Stockbit session](/cli/stockbit/#with-your-stockbit-login) when none is stored |
+| `IDX_STOCKBIT_ACCESS_TOKEN` | seeds the session's access token |
 
 ## Files idx keeps
 
@@ -64,6 +66,7 @@ fundamental_ttl = 3600
 | Config | `~/.config/idx/config.toml` |
 | Cache | `~/.cache/idx/` (`idx cache info`, `idx cache clear`) |
 | Ownership database | `~/.local/share/idx/ownership.db` |
+| Stockbit session (after `idx stockbit login`) | `~/.config/idx/stockbit-session.json`, owner-only |
 
 The MCP server reads the same config, cache and database.
 

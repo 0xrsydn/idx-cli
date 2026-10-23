@@ -73,6 +73,12 @@ fn run() -> Result<(), IdxError> {
                 return Err(err);
             }
         }
+        Commands::Stockbit(cmd) => {
+            if let Err(err) = cli::stockbit::handle(cmd, &config.output) {
+                emit_error(&err, &config.output);
+                return Err(err);
+            }
+        }
         #[cfg(feature = "ownership")]
         Commands::Ownership(cmd) => {
             if let Err(err) = cli::ownership::handle(&cmd.command, &config) {

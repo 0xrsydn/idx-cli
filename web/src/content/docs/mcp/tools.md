@@ -92,6 +92,15 @@ Every IDX holding (above 1%) of one investor, matched by name.
 | --- | --- | --- | --- |
 | `entity` | string | yes | Investor name or part of it, e.g. "DWIMURIA"; the closest match is used. |
 
+## `get_orderbook`
+
+Order book of one IDX stock from the user's own Stockbit session: `bids` and `offers` (best price first) of {price, shares, orders}, the session's OHLC, volume (shares), value and frequency, and foreign buy/sell/net in IDR. `market_status` is Stockbit's state, verbatim; outside STATE_NAME_MARKET_OPEN the book is as the market left it. AUTHERROR means there is no session: call stockbit_status, and ask the user to run `idx stockbit login` in a terminal.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `depth` | integer | no | Price levels per side (default 10, at most 50). |
+| `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
+
 ## `get_ownership_changes`
 
 Holder changes (new, exited, increased, decreased) between two KSEI release dates, optionally for one ticker. Rows come largest change first, one page at a time: `summary` covers all of them (counts by type, tickers with the most changes), and `next_offset` is the `offset` for the next page, or null after the last.
@@ -162,3 +171,9 @@ Search investor names in the KSEI ownership database.
 | --- | --- | --- | --- |
 | `limit` | integer | no | Maximum results (default 20, at most 100). |
 | `query` | string | yes | Full-text query over investor names. |
+
+## `stockbit_status`
+
+Whether a Stockbit session is stored (or seeded by IDX_STOCKBIT_REFRESH_TOKEN) and when its tokens expire; never the tokens. Without one, get_orderbook fails and stockbit-provider quotes use Stockbit's delayed public page; the user adds one with `idx stockbit login` in a terminal.
+
+No inputs.

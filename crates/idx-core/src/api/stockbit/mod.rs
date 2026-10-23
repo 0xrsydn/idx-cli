@@ -15,6 +15,8 @@
 //! - Stockbit's terms describe its market data as delayed at least 10
 //!   minutes and for personal use; frontends say so.
 
+pub mod auth;
+pub mod exodus;
 mod parse;
 
 use std::fs::{File, OpenOptions};
@@ -24,9 +26,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub use parse::{parse_symbol_page, status_error, stockbit_code};
 
-use super::types::{Fundamentals, Intraday, Quote};
-use super::{FundamentalsProvider, IntradayProvider, QuoteProvider};
+use super::types::{Bar, Fundamentals, Interval, Intraday, OrderBook, Period, Quote};
+use super::{
+    FundamentalsProvider, HistoryProvider, IntradayProvider, OrderBookProvider, QuoteProvider,
+};
 use crate::error::IdxError;
+use auth::SessionStore;
+use exodus::Exodus;
 
 pub const SOURCE: &str = "stockbit";
 /// Identifies idx-cli and where to reach its maintainers.
@@ -45,8 +51,13 @@ pub(crate) const CACHE_TTL_SECS: u64 = 5;
 const MIN_INTERVAL: Duration = Duration::from_secs(1);
 const BASE_URL: &str = "https://stockbit.com/symbol/";
 
+/// Quotes come from the user's session when one is stored (live, from
+/// `exodus`), else from the public page. The order book and history need the
+/// session; intraday always reads the public page.
 pub struct StockbitProvider {
     agent: ureq::Agent,
+    /// `None` when the config directory cannot be resolved.
+    exodus: Option<Exodus>,
 }
 
 impl StockbitProvider {
@@ -59,7 +70,20 @@ impl StockbitProvider {
             .timeout_global(Some(Duration::from_secs(20)))
             .build()
             .into();
-        Self { agent }
+        Self {
+            agent,
+            exodus: SessionStore::open().ok().map(Exodus::new),
+        }
+    }
+
+    /// The session API when the user has a session.
+    fn session(&self) -> Option<&Exodus> {
+        self.exodus.as_ref().filter(|e| e.store().has_session())
+    }
+
+    fn require_session(&self) -> Result<&Exodus, IdxError> {
+        self.session()
+            .ok_or_else(|| IdxError::AuthError(auth::NO_SESSION.to_string()))
     }
 
     /// The quote and today's series for a resolved symbol (`BBCA.JK`).
@@ -99,7 +123,7 @@ impl Default for StockbitProvider {
 /// `idx` calls, a CLI beside idx-mcp) share the time of the last request in
 /// `<cache>/stockbit.pace` under an exclusive file lock. When that file is
 /// unusable, pacing is per process.
-fn pace() {
+pub(crate) fn pace() {
     static LAST: Mutex<Option<Instant>> = Mutex::new(None);
     let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(prev) = *last {
@@ -151,7 +175,10 @@ fn now_ms() -> u128 {
 
 impl QuoteProvider for StockbitProvider {
     fn quote(&self, symbol: &str) -> Result<Quote, IdxError> {
-        self.snapshot(symbol).map(|day| day.quote)
+        match self.session() {
+            Some(exodus) => exodus.quote(symbol),
+            None => self.snapshot(symbol).map(|day| day.quote),
+        }
     }
 }
 
@@ -167,10 +194,69 @@ impl IntradayProvider for StockbitProvider {
     }
 }
 
+impl OrderBookProvider for StockbitProvider {
+    fn orderbook(&self, symbol: &str) -> Result<OrderBook, IdxError> {
+        self.require_session()?.orderbook(symbol)
+    }
+}
+
+impl HistoryProvider for StockbitProvider {
+    fn history(
+        &self,
+        symbol: &str,
+        period: &Period,
+        interval: &Interval,
+    ) -> Result<Vec<Bar>, IdxError> {
+        self.require_session()?.daily(symbol, period, interval)
+    }
+}
+
+/// Whether the user has a Stockbit session stored or seeded.
+pub fn has_session() -> bool {
+    SessionStore::open().is_ok_and(|store| store.has_session())
+}
+
 pub(crate) fn fundamentals_unsupported(symbol: &str) -> IdxError {
     IdxError::Unsupported(format!(
         "{symbol}: Stockbit has no fundamentals; command requires --provider msn or yahoo"
     ))
+}
+
+/// Stores a pasted session (stockbit.com's `credentialStorage` cookie or a
+/// refresh token) and checks it with one request, which refreshes it when the
+/// access token is missing or stale. A session Stockbit refuses is removed.
+pub fn login(pasted: &str) -> Result<auth::SessionStatus, IdxError> {
+    let session = auth::session_from_paste(pasted).ok_or_else(|| {
+        IdxError::InvalidInput(
+            "not a Stockbit session: paste the value of stockbit.com's `credentialStorage` \
+             cookie, or a refresh token"
+                .to_string(),
+        )
+    })?;
+    let store = SessionStore::open()?;
+    store.save(&session)?;
+    #[cfg(feature = "testing")]
+    let check = !crate::api::mock::enabled();
+    #[cfg(not(feature = "testing"))]
+    let check = true;
+    if check && let Err(err) = Exodus::new(store.clone()).verify() {
+        let _ = store.clear();
+        return Err(err);
+    }
+    Ok(store.status(chrono::Utc::now().timestamp()))
+}
+
+/// The stored session's state, without a request and without any token.
+pub fn session_status() -> Result<auth::SessionStatus, IdxError> {
+    Ok(SessionStore::open()?.status(chrono::Utc::now().timestamp()))
+}
+
+/// Deletes the stored session: whether there was one, and the state after
+/// (still logged in when `IDX_STOCKBIT_*` seeds one).
+pub fn logout() -> Result<(bool, auth::SessionStatus), IdxError> {
+    let store = SessionStore::open()?;
+    let removed = store.clear()?;
+    Ok((removed, store.status(chrono::Utc::now().timestamp())))
 }
 
 #[cfg(test)]

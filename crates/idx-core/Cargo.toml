@@ -30,6 +30,8 @@ directories = "5"
 chrono.workspace = true
 thiserror = "2"
 fastrand = "2"
+# Decodes a Stockbit session JWT's expiry (`exp`); never verifies or signs.
+base64 = "0.22"
 rusqlite = { workspace = true, optional = true }
 quick-xml = { version = "0.37", optional = true }
 sha2 = { workspace = true, optional = true }

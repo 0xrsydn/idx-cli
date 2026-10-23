@@ -2138,6 +2138,66 @@ fn provider_flag_overrides_env() {
 }
 
 #[test]
+fn stockbit_login_stores_a_private_session_and_logout_removes_it() {
+    let root = test_env_dir("stockbit-login");
+    let cookie = fs::read_to_string(fixture_path(
+        "stockbit_exodus_credential_storage_cookie_constructed.txt",
+    ))
+    .expect("cookie fixture");
+    let session = root.join("config/idx/stockbit-session.json");
+
+    let status = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stockbit", "login"])
+            .write_stdin(cookie.clone()),
+    );
+    assert_eq!(status["logged_in"], true);
+    assert_eq!(status["refresh"]["present"], true);
+    let stored = fs::read_to_string(&session).expect("session file");
+    assert!(stored.contains("\"refresh\""));
+    // Status shows expiries, never a token.
+    assert!(!serde_json::to_string(&status).unwrap().contains("eyJ"));
+    #[cfg(unix)]
+    assert_eq!(
+        fs::metadata(&session).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+
+    let book = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "orderbook", "BBCA"]),
+    );
+    assert_eq!(book["offers"][0]["shares"], 264_462_500);
+
+    let out = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stockbit", "logout"]),
+    );
+    assert_eq!(out["removed"], true);
+    assert!(!session.exists());
+    run_error_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            // The book fetched above is still cached for a few seconds.
+            .args(["-o", "json", "--no-cache", "stocks", "orderbook", "BBCA"]),
+        "AUTHERROR",
+    );
+
+    // Anything that is not a session is refused and stores nothing.
+    run_error_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stockbit", "login"])
+            .write_stdin("not a token"),
+        "INVALIDINPUT",
+    );
+    assert!(!session.exists());
+}
+
+#[test]
 fn invalid_quote_ttl_env_returns_non_zero() {
     test_bin("invalid-quote-ttl")
         .env("IDX_CACHE_QUOTE_TTL", "bogus")

@@ -7,6 +7,7 @@ Usage: idx stocks [OPTIONS] <COMMAND>
 Commands:
   quote        Get real-time stock quotes
   intraday     Today's session price by the minute (Stockbit)
+  orderbook    Order book depth and foreign flow (Stockbit login)
   history      Get historical OHLC data
   technical    Run technical analysis on a stock
   growth       Run growth analysis on a stock
