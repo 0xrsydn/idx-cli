@@ -62,6 +62,11 @@ impl LoginPage {
         format!("http://127.0.0.1:{}/login/{}", self.port, self.secret)
     }
 
+    /// The port the page listens on.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
     /// Serves until `verify` accepts a paste or `timeout` passes. `verify`
     /// returns the error text to show on the page when the paste is refused.
     ///

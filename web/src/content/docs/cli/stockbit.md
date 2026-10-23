@@ -99,12 +99,17 @@ minutes). A session Stockbit refuses leaves a previously stored one in place.
 The page listens on this machine's loopback interface only, so the browser
 must run on the same machine: from another host over SSH, or from a browser
 outside a container or WSL distro, `127.0.0.1` is a different machine and the
-page will not load. Forward it instead, with a pinned port:
+page will not load. idx notices an SSH session (`SSH_CONNECTION`) and prints
+the exact command to run on the machine with the browser, on port 7878:
+
+```bash
+ssh -L 7878:127.0.0.1:7878 <this-host>   # run where the browser is, keep it open
+```
+
+Elsewhere, pin the port yourself and forward it the same way:
 
 ```bash
 idx stockbit login --no-browser --port 7878
-# from the machine with the browser:
-ssh -L 7878:127.0.0.1:7878 <this-host>   # then open the printed URL
 ```
 
 **One refresher per session.** Stockbit replaces the refresh token every time

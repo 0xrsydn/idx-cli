@@ -57,7 +57,7 @@ pub fn handle(cmd: &StockbitCmd, format: &OutputFormat) -> Result<(), IdxError> 
     match &cmd.command {
         StockbitSubcommand::Login { no_browser, port } => {
             let status = if std::io::stdin().is_terminal() {
-                match login_in_browser(port.unwrap_or(0), !no_browser) {
+                match login_in_browser(*port, !no_browser) {
                     Ok(()) => stockbit::session_status()?,
                     Err(err) => {
                         runtime::warn(format!("browser login unavailable ({err}); paste instead"));
@@ -105,17 +105,53 @@ pub fn handle(cmd: &StockbitCmd, format: &OutputFormat) -> Result<(), IdxError> 
 }
 
 /// Serves the local login page and waits for a session it can verify.
-fn login_in_browser(port: u16, open: bool) -> Result<(), IdxError> {
-    let page = stockbit::loopback::LoginPage::bind(port)?;
+///
+/// The page is only reachable from this machine. Over SSH the browser is
+/// usually somewhere else, so idx picks a stable port, skips opening a
+/// browser here, and prints the forward to run on the machine with the
+/// browser.
+fn login_in_browser(port: Option<u16>, open: bool) -> Result<(), IdxError> {
+    let ssh = std::env::var("SSH_CONNECTION").ok();
+    // A stable port makes the printed `ssh -L` match what the page serves.
+    let page = stockbit::loopback::LoginPage::bind(port.unwrap_or(if ssh.is_some() {
+        DEFAULT_SSH_PORT
+    } else {
+        0
+    }))?;
     println!("Open this page to connect Stockbit: {}", page.url());
-    if open {
-        open_in_browser(&page.url());
+    match &ssh {
+        Some(connection) => print_ssh_hint(connection, page.port()),
+        None if open => open_in_browser(&page.url()),
+        None => {}
     }
     page.wait(LOGIN_TIMEOUT, |pasted| {
         stockbit::login(pasted)
             .map(|_| ())
             .map_err(|err| err.to_string())
     })
+}
+
+/// Port the page uses over SSH, so `ssh -L 7878:…:7878` matches it.
+const DEFAULT_SSH_PORT: u16 = 7878;
+
+/// The forward to run where the browser is, from `SSH_CONNECTION`
+/// (`client_ip client_port server_ip server_port`).
+fn print_ssh_hint(connection: &str, port: u16) {
+    let fields: Vec<&str> = connection.split_whitespace().collect();
+    let target = match (std::env::var("USER").ok(), fields.get(2)) {
+        (Some(user), Some(server)) => format!("{user}@{server}"),
+        (None, Some(server)) => (*server).to_string(),
+        _ => "<this host>".to_string(),
+    };
+    runtime::warn(
+        "this shell is over SSH: the page listens on the remote machine, so open it from the \
+         machine with your browser",
+    );
+    println!(
+        "\nFrom the machine you are sitting at, run (and keep it open):\n  \
+         ssh -L {port}:127.0.0.1:{port} {target}\n\
+         then open the URL above there.\n"
+    );
 }
 
 /// Opens `url` with the desktop's default browser, best effort.
