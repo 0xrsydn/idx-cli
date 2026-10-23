@@ -12,11 +12,12 @@ history lives in git.
 - `screen presets` / `screen run <PRESET>`: built-in screener presets
   (graduate `screen` out of `stocks` only if these grow into a richer workflow)
 - Multi-period financial statements (today `financials` is single-period)
-- Order book depth: no free, login-free source exists (IDX sells delayed depth
-  to vendors). Planned as the Stockbit login follow-on: opt-in with the
-  user's own account, the depth ladder, intraday OHLCV and token refresh from
-  `exodus.stockbit.com`; fzn0x/idx (MIT) maps the endpoints. The public page
-  already gives the best bid/offer (L1) while the market is open.
+- Order book depth without a login: no free source exists (IDX sells delayed
+  depth to vendors); `stocks orderbook` needs the user's Stockbit login.
+- Stockbit login follow-ups: a browser capture for `idx stockbit login`
+  (Chrome DevTools, as fzn0x/idx does) instead of pasting the cookie,
+  intraday OHLCV from the session's `1d` chart, and observing the session
+  API's open-market state name (assumed `STATE_NAME_MARKET_OPEN`).
 - Observe Stockbit's `market_hour.status` in the pre-open (08:45-09:00) and
   the closing auction (15:50-16:00) before `--watch` or alerts build on it;
   `open`, `break` and `close` are known, and the bid/offer gate hides the book
@@ -50,8 +51,8 @@ history lives in git.
 - Stockbit's terms call its data delayed at least 10 minutes and for
   personal, non-commercial use (on 2026-10-23 the last trade was within a
   minute of the clock); its CDN refuses some user agents with a 403
-  (`UPSTREAMBLOCKED`). Its order-book sizes are not shown: the page does not
-  say whether they are lots or shares.
+  (`UPSTREAMBLOCKED`). The public page's best bid/offer sizes are not shown
+  yet; they are shares (equal to the session API's book on 2026-10-23).
 - Yahoo can return `429` from datacenter IPs; requests retry with backoff but
   can still fail.
 - `stocks technical` reports the SMA200 trend as unavailable when fewer than

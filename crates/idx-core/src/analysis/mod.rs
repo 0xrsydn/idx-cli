@@ -11,6 +11,7 @@ use crate::api::history_provider;
 use crate::api::types::{Fundamentals, Interval, Period};
 use crate::broker::types::{BrokerBoard, BrokerInvestor, BrokerRange};
 use crate::client::{CachePolicy, CacheSpec, Fetched, Idx, cached_fetch};
+use crate::config::HistoryProviderKind;
 use crate::error::IdxError;
 use crate::market::HistorySource;
 use bandar::{BandarReport, analyze_bandar, check_top};
@@ -110,8 +111,16 @@ impl Analysis<'_> {
         Ok(BandarScreen { reports, failures })
     }
 
+    /// Where `technical` reads its year of daily history from, for an
+    /// optional `--history-provider` override.
+    pub fn technical_source(&self, mode: Option<HistoryProviderKind>) -> HistorySource {
+        self.idx
+            .market()
+            .history_source(mode, &Period::OneYear, &Interval::Day)
+    }
+
     /// Technical analysis over one year of daily history from `source`
-    /// (see `Market::history_source`).
+    /// (see `technical_source`).
     pub fn technical(
         &self,
         symbol: &str,
@@ -119,9 +128,8 @@ impl Analysis<'_> {
         policy: CachePolicy,
     ) -> Result<Fetched<TechnicalReport>, IdxError> {
         let idx = self.idx;
-        let (provider_kind, provider) =
-            history_provider(idx.provider.kind(), source.mode, idx.config.verbose)?;
-        let bucket = format!("{}-technical", provider_kind.as_str());
+        let provider = history_provider(source.provider, idx.config.verbose);
+        let bucket = format!("{}-technical", source.provider.as_str());
         let resolved = idx.resolve(symbol)?;
         cached_fetch(
             &idx.cache,
@@ -130,7 +138,7 @@ impl Analysis<'_> {
                 key: &resolved,
                 ttl_secs: idx.config.quote_ttl,
                 subject: &resolved,
-                source: provider_kind.as_str(),
+                source: source.provider.as_str(),
             },
             policy,
             || provider.history(&resolved, &Period::OneYear, &Interval::Day),

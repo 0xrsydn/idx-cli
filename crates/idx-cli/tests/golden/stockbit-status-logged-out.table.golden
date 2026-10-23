@@ -1,0 +1,8 @@
+exit: 0
+--- stdout
+logged in:     no
+access token:  none
+refresh token: none
+session file:  <ROOT>/config/idx/stockbit-session.json
+Run `idx stockbit login` to add one.
+--- stderr

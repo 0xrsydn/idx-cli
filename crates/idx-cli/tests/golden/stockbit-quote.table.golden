@@ -8,5 +8,5 @@ exit: 0
 │ MABA.JK ┆ 50    ┆ +0   ┆ +0.00% ┆ 0           ┆ -   ┆ -     ┆ close  ┆ -     │
 └─────────┴───────┴──────┴────────┴─────────────┴─────┴───────┴────────┴───────┘
 Note: MABA.JK: Stockbit lists the stock as suspended
-Source: Stockbit's public page, delayed at least 10 minutes (Stockbit's terms); bid/offer only while the market is open.
+Source: Stockbit, your session when logged in (`idx stockbit status`), else its public page, delayed at least 10 minutes (Stockbit's terms); bid/offer only while the market is open.
 --- stderr

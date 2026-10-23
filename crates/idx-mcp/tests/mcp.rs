@@ -9,7 +9,7 @@ use idx_core::config::CoreConfig;
 use idx_core::investor::{ImportSource, Investor};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 15] = [
+const TOOLS: [&str; 17] = [
     "analyze_bandar",
     "analyze_stock",
     "compare_stocks",
@@ -18,6 +18,7 @@ const TOOLS: [&str; 15] = [
     "get_foreign_flow",
     "get_intraday",
     "get_investor_holdings",
+    "get_orderbook",
     "get_ownership_changes",
     "get_price_history",
     "get_quotes",
@@ -25,7 +26,14 @@ const TOOLS: [&str; 15] = [
     "ownership_status",
     "screen_stocks",
     "search_investors",
+    "stockbit_status",
 ];
+
+/// An unsigned test token expiring in 2100, as a seeded Stockbit session.
+const TEST_SESSION: (&str, &str) = (
+    "IDX_STOCKBIT_REFRESH_TOKEN",
+    "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln",
+);
 
 struct Client {
     child: Child,
@@ -360,6 +368,39 @@ fn stockbit_provider_quotes_carry_market_status_and_blocks_surface_once() {
         body["message"].as_str().unwrap().contains("does not retry"),
         "{body}"
     );
+}
+
+#[test]
+fn the_order_book_needs_a_session_and_status_never_shows_tokens() {
+    let mut client = Client::start(&[], false);
+    let status = client.ok("stockbit_status", json!({}));
+    assert_eq!(status["logged_in"], false);
+    let (is_error, body) = client.call("get_orderbook", json!({"symbol": "BBCA"}));
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "AUTHERROR");
+
+    let mut client = Client::start_with_env(&[], false, &[TEST_SESSION]);
+    let status = client.ok("stockbit_status", json!({}));
+    assert_eq!(status["logged_in"], true);
+    assert!(!status.to_string().contains(TEST_SESSION.1));
+
+    let book = client.ok("get_orderbook", json!({"symbol": "BBCA", "depth": 2}));
+    assert_fetched(&book);
+    assert_eq!(book["source"], "stockbit");
+    let offers = book["data"]["offers"].as_array().unwrap();
+    assert_eq!(offers.len(), 2);
+    assert_eq!(
+        offers[0],
+        json!({"price": 5175, "shares": 264_462_500, "orders": 3284})
+    );
+    assert_eq!(book["data"]["foreign_net"], -2_329_493_087_500_i64);
+    assert_eq!(book["data"]["market_status"], "STATE_NAME_MARKET_CLOSED");
+    for depth in [0, 51] {
+        let (is_error, body) =
+            client.call("get_orderbook", json!({"symbol": "BBCA", "depth": depth}));
+        assert!(is_error, "{body}");
+        assert_eq!(body["code"], "INVALIDINPUT");
+    }
 }
 
 #[test]

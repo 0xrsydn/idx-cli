@@ -22,6 +22,7 @@ Commands:
   config       Manage configuration
   cache        Manage local cache
   ownership    Ownership intelligence (bootstrap with `ownership sync`)
+  stockbit     Your Stockbit session (opt-in: order book, live quotes)
   completions  Generate shell completions
   version      Show idx-cli version
   help         Print this message or the help of the given subcommand(s)
@@ -66,6 +67,7 @@ Usage: idx stocks [OPTIONS] <COMMAND>
 Commands:
   quote        Get real-time stock quotes
   intraday     Today's session price by the minute (Stockbit)
+  orderbook    Order book depth and foreign flow (Stockbit login)
   history      Get historical OHLC data
   technical    Run technical analysis on a stock
   growth       Run growth analysis on a stock
@@ -170,6 +172,57 @@ Examples:
   idx -o json stocks intraday BBCA | jq '.points[-1]'
 ```
 
+### `idx stocks orderbook`
+
+```text
+The order book of one IDX stock from your own Stockbit session (`idx stockbit login`): bid and offer levels with lots and queued orders, the session's OHLC, volume, value and foreign buy, sell and net. Outside trading it is the book as the market left it, and the output says so.
+
+Usage: idx stocks orderbook [OPTIONS] <SYMBOL>
+
+Arguments:
+  <SYMBOL>
+          Single ticker symbol (e.g. BBCA)
+
+Options:
+      --depth <DEPTH>
+          Price levels per side (1-50)
+
+          [default: 10]
+
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx stocks orderbook BBCA
+  idx stocks orderbook BBRI --depth 5
+  idx -o json stocks orderbook TLKM | jq '.offers[0]'
+```
+
 ### `idx stocks history`
 
 ```text
@@ -190,7 +243,7 @@ Options:
       --no-color
           Disable colored output
       --history-provider <HISTORY_PROVIDER>
-          [possible values: auto, yahoo, msn]
+          [possible values: auto, yahoo, msn, stockbit]
   -q, --quiet
           Suppress non-essential output
   -v, --verbose...
@@ -221,7 +274,7 @@ Arguments:
 
 Options:
       --history-provider <HISTORY_PROVIDER>
-          [possible values: auto, yahoo, msn]
+          [possible values: auto, yahoo, msn, stockbit]
   -o, --output <OUTPUT>
           Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
       --no-color
@@ -1482,6 +1535,134 @@ Options:
 List imported KSEI releases
 
 Usage: idx ownership releases [OPTIONS]
+
+Options:
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
+```
+
+## `idx stockbit`
+
+```text
+Your own Stockbit session, for `stocks orderbook`, live `--provider stockbit` quotes and Stockbit daily history. Opt-in and personal: idx uses your account's tokens, stored in the config directory with owner-only permissions, and never logs them. Stockbit rotates the refresh token on every refresh, so a browser sharing the session is logged out once idx refreshes: log in through a separate browser profile for idx. Stockbit's terms allow personal, non-commercial use.
+
+Usage: idx stockbit [OPTIONS] <COMMAND>
+
+Commands:
+  login   Connect a session in your browser, or from stdin
+  status  Show whether a session is stored and when its tokens expire
+  logout  Delete the stored session
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx stockbit login                 # paste the credentialStorage cookie
+  pbpaste | idx stockbit login
+  idx stockbit status
+  idx stockbit logout
+```
+
+### `idx stockbit login`
+
+```text
+In a terminal, opens a local page on 127.0.0.1 with two one-click ways to hand idx your Stockbit session: a bookmarklet that reads stockbit.com's cookie in your own browser, or a read-the-clipboard button. Without a browser (or with --no-browser), the page URL is printed instead. With stdin piped, it reads the value of stockbit.com's `credentialStorage` cookie (DevTools, Application, Cookies) or a refresh token from stdin, as before. Either way idx checks the session with one request. Servers can set IDX_STOCKBIT_REFRESH_TOKEN instead.
+
+Usage: idx stockbit login [OPTIONS]
+
+Options:
+      --no-browser
+          Print the page URL instead of opening a browser
+
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --no-color
+          Disable colored output
+
+      --port <PORT>
+          Fixed port for the local page (for `ssh -L`); default: any free one
+
+  -q, --quiet
+          Suppress non-essential output
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+### `idx stockbit status`
+
+```text
+Show whether a session is stored and when its tokens expire
+
+Usage: idx stockbit status [OPTIONS]
+
+Options:
+  -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --no-color             Disable colored output
+  -q, --quiet                Suppress non-essential output
+  -v, --verbose...           Increase verbosity (-v, -vv)
+      --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
+      --offline              Run without network requests
+      --no-cache             Bypass local cache
+  -h, --help                 Print help
+```
+
+### `idx stockbit logout`
+
+```text
+Delete the stored session
+
+Usage: idx stockbit logout [OPTIONS]
 
 Options:
   -o, --output <OUTPUT>      Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]

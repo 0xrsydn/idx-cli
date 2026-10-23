@@ -263,6 +263,28 @@ args = ["stocks", "intraday", "MABA"]
 name = "stockbit-quote"
 args = ["--provider", "stockbit", "stocks", "quote", "BBCA,MABA"]
 
+# With a session: IDX_STOCKBIT_REFRESH_TOKEN seeds an unsigned test token that
+# expires in 2100; the mock serves the recorded exodus responses.
+
+[[case]]
+name = "stockbit-session-orderbook"
+args = ["stocks", "orderbook", "BBCA", "--depth", "3"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "stockbit-session-quote"
+args = ["--provider", "stockbit", "stocks", "quote", "BBCA"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "stockbit-session-history"
+args = ["--provider", "stockbit", "stocks", "history", "BBCA", "--period", "1mo"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "stockbit-status-logged-out"
+args = ["stockbit", "status"]
+
 # --- stocks: broker summaries (IPOT) and foreign flow (IDX) --------------------
 
 [[case]]
@@ -365,6 +387,15 @@ args = ["stocks", "intraday", "ZZZZ"]
 [[case]]
 name = "error-stockbit-fundamental-unsupported"
 args = ["--provider", "stockbit", "stocks", "fundamental", "BBCA"]
+
+[[case]]
+name = "error-orderbook-no-session"
+args = ["stocks", "orderbook", "BBCA"]
+
+[[case]]
+name = "error-stockbit-history-window"
+args = ["stocks", "history", "BBCA", "--period", "5y", "--history-provider", "stockbit"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
 
 # --- ownership --------------------------------------------------------------------
 

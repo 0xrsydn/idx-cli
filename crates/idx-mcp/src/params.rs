@@ -39,6 +39,15 @@ pub struct IntradayParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct OrderBookParams {
+    /// IDX ticker, e.g. "BBCA".
+    pub symbol: String,
+    /// Price levels per side (default 10, at most 50).
+    #[serde(default)]
+    pub depth: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ScreenParams {
     /// Screen to run (default "top-performers").
     #[serde(default)]

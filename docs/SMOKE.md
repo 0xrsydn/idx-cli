@@ -60,7 +60,12 @@ scripts/live-smoke.sh --dry-run
   whose MSN key ratios contain non-finite values.
 - `stockbit`: `intraday` for the ticker and `^JKSE`, and
   `--provider stockbit stocks quote`, on the new binary only. A run outside the
-  session sees `market_status: close` and no bid/offer.
+  session sees `market_status: close` and no bid/offer. These run without a
+  Stockbit login: each side has its own config, and seeding it with a real
+  refresh token would rotate (and so retire) that token. Check the login
+  features by hand with your own session: `idx stockbit status`,
+  `idx stocks orderbook BBCA`, `idx --provider stockbit stocks quote BBCA` and
+  `idx --provider stockbit stocks history BBCA --period 1y`.
 - `ownership`: `discover`, then imports the newest supported report into a temp
   DB and lists `releases`. IDX sits behind Cloudflare and returns `403` to many
   datacenter IPs, including GitHub-hosted runners; run it from a network IDX accepts.

@@ -6,8 +6,8 @@ use crate::config::{HistoryProviderKind, IdxConfig};
 use crate::output::{
     render_bandar, render_broker_summary, render_compare, render_earnings, render_financials,
     render_foreign_flow, render_fundamental, render_growth, render_history, render_insights,
-    render_intraday, render_news, render_profile, render_quotes, render_risk, render_screener,
-    render_sentiment, render_technical, render_valuation,
+    render_intraday, render_news, render_orderbook, render_profile, render_quotes, render_risk,
+    render_screener, render_sentiment, render_technical, render_valuation,
 };
 use idx_core::analysis::BandarQuery;
 use idx_core::analysis::bandar::DEFAULT_TOP;
@@ -23,6 +23,8 @@ use idx_core::{CachePolicy, Idx, runtime};
 /// separated by whitespace or commas.
 /// Most symbols one `bandar` screen fetches, one request each.
 const MAX_BANDAR_SYMBOLS: usize = 100;
+/// Most price levels shown per side of an order book.
+const MAX_BOOK_DEPTH: usize = 50;
 
 fn expand_symbols(args: &[String]) -> Result<Vec<String>, IdxError> {
     let mut symbols = Vec::new();
@@ -145,6 +147,21 @@ Indices use Yahoo's tickers (^JKSE, ^JKLQ45) or Stockbit's (IHSG, LQ45).",
     Intraday {
         /// Single ticker symbol (e.g. BBCA).
         symbol: String,
+    },
+    #[command(
+        about = "Order book depth and foreign flow (Stockbit login)",
+        long_about = "The order book of one IDX stock from your own Stockbit session (`idx stockbit \
+login`): bid and offer levels with lots and queued orders, the session's OHLC, volume, value \
+and foreign buy, sell and net. Outside trading it is the book as the market left it, and \
+the output says so.",
+        after_help = "Examples:\n  idx stocks orderbook BBCA\n  idx stocks orderbook BBRI --depth 5\n  idx -o json stocks orderbook TLKM | jq '.offers[0]'"
+    )]
+    Orderbook {
+        /// Single ticker symbol (e.g. BBCA).
+        symbol: String,
+        /// Price levels per side (1-50).
+        #[arg(long, default_value_t = 10)]
+        depth: usize,
     },
     #[command(
         about = "Get historical OHLC data",
@@ -332,13 +349,26 @@ pub fn handle(
             let day = idx.market().intraday(symbol, policy)?;
             render_intraday(&day.data, format, no_color)
         }
+        StocksSubcommand::Orderbook { symbol, depth } => {
+            if !(1..=MAX_BOOK_DEPTH).contains(depth) {
+                return Err(IdxError::InvalidInput(format!(
+                    "--depth must be 1 to {MAX_BOOK_DEPTH} (got {depth})"
+                )));
+            }
+            let mut book = idx.market().orderbook(symbol, policy)?.data;
+            book.bids.truncate(*depth);
+            book.offers.truncate(*depth);
+            render_orderbook(&book, format, no_color)
+        }
         StocksSubcommand::History {
             symbol,
             period,
             interval,
             history_provider,
         } => {
-            let source = idx.market().history_source(*history_provider);
+            let source = idx
+                .market()
+                .history_source(*history_provider, period, interval);
             announce_history_fallback(&idx, source, config);
             let history = idx
                 .market()
@@ -350,7 +380,7 @@ pub fn handle(
             symbol,
             history_provider,
         } => {
-            let source = idx.market().history_source(*history_provider);
+            let source = idx.analysis().technical_source(*history_provider);
             announce_history_fallback(&idx, source, config);
             let report = idx.analysis().technical(symbol, source, policy)?;
             render_technical(&report.data, format, no_color)

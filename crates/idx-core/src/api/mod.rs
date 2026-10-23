@@ -14,7 +14,7 @@ use crate::config::{HistoryProviderKind, ProviderKind};
 use crate::error::IdxError;
 use types::{
     Bar, CompanyProfile, EarningsReport, FinancialStatements, Fundamentals, InsightData, Interval,
-    Intraday, NewsItem, Period, Quote, SentimentData,
+    Intraday, NewsItem, OrderBook, Period, Quote, SentimentData,
 };
 
 /// IDX trades in Western Indonesia Time (WIB, UTC+7, no DST). Providers stamp
@@ -70,6 +70,12 @@ pub trait TradingSummaryProvider {
 pub trait IntradayProvider {
     /// `symbol` is resolved, e.g. `BBCA.JK`.
     fn intraday(&self, symbol: &str) -> Result<Intraday, IdxError>;
+}
+
+/// The order book of one IDX stock: needs the user's Stockbit session.
+pub trait OrderBookProvider {
+    /// `symbol` is resolved, e.g. `BBCA.JK`.
+    fn orderbook(&self, symbol: &str) -> Result<OrderBook, IdxError>;
 }
 
 pub trait FundamentalsProvider {
@@ -242,9 +248,12 @@ fn mock_market(_provider: ProviderKind) -> Option<Box<dyn MarketDataProvider>> {
 
 #[cfg(feature = "testing")]
 fn mock_history(provider: ProviderKind, verbose: bool) -> Option<Box<dyn HistoryProvider>> {
-    Some(Box::new(
-        mock::MockProvider::from_fixtures_with_history_verbose(provider, verbose),
-    ))
+    match provider {
+        ProviderKind::Stockbit => Some(Box::new(mock::MockStockbitProvider)),
+        _ => Some(Box::new(
+            mock::MockProvider::from_fixtures_with_history_verbose(provider, verbose),
+        )),
+    }
 }
 
 #[cfg(not(feature = "testing"))]
@@ -285,7 +294,7 @@ fn build_selected_provider(
             news: Some(Box::new(msn::MsnProvider::new(verbose))),
             screener: Some(Box::new(msn::MsnProvider::new(verbose))),
         },
-        // Quotes only; history falls back to Yahoo (see `history_source`).
+        // Quotes only; history needs a session (see `history_source`).
         ProviderKind::Stockbit => SelectedProvider {
             kind: ProviderKind::Stockbit,
             market: mock.unwrap_or_else(|| Box::new(stockbit::StockbitProvider::new())),
@@ -328,6 +337,14 @@ pub fn intraday_provider() -> Box<dyn IntradayProvider> {
     Box::new(stockbit::StockbitProvider::new())
 }
 
+pub fn orderbook_provider() -> Box<dyn OrderBookProvider> {
+    #[cfg(feature = "testing")]
+    if mock::enabled() {
+        return Box::new(mock::MockStockbitProvider);
+    }
+    Box::new(stockbit::StockbitProvider::new())
+}
+
 /// Today in WIB, the date IDX trades on.
 pub(crate) fn today_wib() -> chrono::NaiveDate {
     #[cfg(feature = "testing")]
@@ -338,40 +355,44 @@ pub(crate) fn today_wib() -> chrono::NaiveDate {
 }
 
 /// The provider that serves history for `provider` under `history_mode`.
-pub fn history_source(provider: ProviderKind, history_mode: HistoryProviderKind) -> ProviderKind {
+/// `auto` uses Stockbit when it is the selected provider, the user has a
+/// session and the window is one of its daily charts; otherwise Yahoo, whose
+/// candles are full OHLCV for any window.
+pub fn history_source(
+    provider: ProviderKind,
+    history_mode: HistoryProviderKind,
+    period: &Period,
+    interval: &Interval,
+    stockbit_session: bool,
+) -> ProviderKind {
     match history_mode {
         HistoryProviderKind::Yahoo => ProviderKind::Yahoo,
         HistoryProviderKind::Msn => ProviderKind::Msn,
-        HistoryProviderKind::Auto => match provider {
-            ProviderKind::Yahoo | ProviderKind::Msn | ProviderKind::Stockbit => ProviderKind::Yahoo,
-        },
+        HistoryProviderKind::Stockbit => ProviderKind::Stockbit,
+        HistoryProviderKind::Auto => {
+            if provider == ProviderKind::Stockbit
+                && stockbit_session
+                && stockbit::exodus::history_window(period, interval).is_some()
+            {
+                ProviderKind::Stockbit
+            } else {
+                ProviderKind::Yahoo
+            }
+        }
     }
 }
 
-/// Resolves a history provider based on the selected market data provider and
-/// history provider strategy.
-///
-/// `history_mode=auto` keeps using Yahoo for IDX history because Yahoo provides
-/// full OHLCV candles. Explicit `msn` opts into MSN's price-only chart feed.
-pub fn history_provider(
-    provider: ProviderKind,
-    history_mode: HistoryProviderKind,
-    verbose: bool,
-) -> Result<(ProviderKind, Box<dyn HistoryProvider>), IdxError> {
-    let resolved = history_source(provider, history_mode);
-
+/// The history provider for a source from `history_source`.
+pub fn history_provider(source: ProviderKind, verbose: bool) -> Box<dyn HistoryProvider> {
     if mock_enabled()
-        && let Some(mock) = mock_history(resolved, verbose)
+        && let Some(mock) = mock_history(source, verbose)
     {
-        return Ok((resolved, mock));
+        return mock;
     }
-
-    match resolved {
-        ProviderKind::Yahoo => Ok((resolved, Box::new(yahoo::YahooProvider::new(verbose)))),
-        ProviderKind::Msn => Ok((resolved, Box::new(msn::MsnProvider::new(verbose)))),
-        ProviderKind::Stockbit => Err(IdxError::Unsupported(
-            "Stockbit serves no price history; use --history-provider yahoo or msn".to_string(),
-        )),
+    match source {
+        ProviderKind::Yahoo => Box::new(yahoo::YahooProvider::new(verbose)),
+        ProviderKind::Msn => Box::new(msn::MsnProvider::new(verbose)),
+        ProviderKind::Stockbit => Box::new(stockbit::StockbitProvider::new()),
     }
 }
 
@@ -470,6 +491,74 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "unsupported: screen: command requires --provider msn"
+        );
+    }
+
+    #[test]
+    fn auto_history_uses_stockbit_only_with_a_session_and_a_daily_window() {
+        use super::history_source;
+        use crate::api::types::{Interval, Period};
+        use crate::config::HistoryProviderKind::{Auto, Stockbit, Yahoo};
+
+        let source = |provider, mode, period, interval, session| {
+            history_source(provider, mode, &period, &interval, session)
+        };
+        let year = (Period::OneYear, Interval::Day);
+        assert_eq!(
+            source(
+                ProviderKind::Stockbit,
+                Auto,
+                year.0.clone(),
+                year.1.clone(),
+                true
+            ),
+            ProviderKind::Stockbit
+        );
+        // No session, a window Stockbit charts weekly, or another provider.
+        assert_eq!(
+            source(
+                ProviderKind::Stockbit,
+                Auto,
+                year.0.clone(),
+                year.1.clone(),
+                false
+            ),
+            ProviderKind::Yahoo
+        );
+        assert_eq!(
+            source(
+                ProviderKind::Stockbit,
+                Auto,
+                Period::FiveYears,
+                Interval::Day,
+                true
+            ),
+            ProviderKind::Yahoo
+        );
+        assert_eq!(
+            source(
+                ProviderKind::Msn,
+                Auto,
+                year.0.clone(),
+                year.1.clone(),
+                true
+            ),
+            ProviderKind::Yahoo
+        );
+        // An explicit choice wins either way.
+        assert_eq!(
+            source(
+                ProviderKind::Msn,
+                Stockbit,
+                year.0.clone(),
+                year.1.clone(),
+                false
+            ),
+            ProviderKind::Stockbit
+        );
+        assert_eq!(
+            source(ProviderKind::Stockbit, Yahoo, year.0, year.1, true),
+            ProviderKind::Yahoo
         );
     }
 }

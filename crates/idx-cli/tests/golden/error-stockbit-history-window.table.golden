@@ -1,0 +1,4 @@
+exit: 5
+--- stdout
+--- stderr
+Error: unsupported: Stockbit history covers 5d to 1y of daily candles, not 5y at 1d; use --history-provider yahoo

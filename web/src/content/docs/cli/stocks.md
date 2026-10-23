@@ -33,6 +33,18 @@ sparkline and the last five minutes. JSON gives every minute in `points`. It
 is delayed at least 10 minutes. See [Stockbit](/cli/stockbit/) for what it
 covers and the terms it comes with.
 
+## Order book (Stockbit login)
+
+```bash
+idx stocks orderbook BBCA
+idx stocks orderbook BBRI --depth 5
+```
+
+With your own Stockbit session (`idx stockbit login`), `orderbook` shows
+every bid and offer level with lots and queued orders, the session's OHLC,
+value and trades, and foreign buy, sell and net. Without one it answers
+`AUTHERROR`. See [Stockbit](/cli/stockbit/#with-your-stockbit-login).
+
 ## Company data
 
 | Command | What it shows |
@@ -156,8 +168,10 @@ idx stocks screen --filter high-dividend | jq -r '.[].symbol' | idx stocks compa
 
 MSN is the default for quotes, company data and screening; Yahoo serves
 price history. Indo Premier (IPOT) serves broker summaries and foreign flow
-(IDX's own site with `flow --source idx`), and Stockbit serves `intraday`,
-whichever provider is selected. Switch with `--provider msn|yahoo|stockbit`
-(or `IDX_PROVIDER`) and `IDX_HISTORY_PROVIDER=auto|yahoo|msn`, or the
-matching [config keys](/start/config/). `--provider stockbit` serves quotes
-only, with the best bid/offer; see [Stockbit](/cli/stockbit/).
+(IDX's own site with `flow --source idx`), and Stockbit serves `intraday`
+and, with your login, `orderbook`, whichever provider is selected. Switch
+with `--provider msn|yahoo|stockbit` (or `IDX_PROVIDER`) and
+`IDX_HISTORY_PROVIDER=auto|yahoo|msn|stockbit`, or the matching
+[config keys](/start/config/). `--provider stockbit` serves quotes only, with
+the best bid/offer, live when you are logged in; see
+[Stockbit](/cli/stockbit/).

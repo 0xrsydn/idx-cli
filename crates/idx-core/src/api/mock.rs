@@ -1,10 +1,11 @@
 //! Fixture-backed provider for tests, enabled by the `testing` feature and
 //! `IDX_USE_MOCK_PROVIDER`. Release builds do not contain it.
 
-use super::types::{Bar, Fundamentals, Interval, Intraday, Period, Quote};
+use super::stockbit::exodus;
+use super::types::{Bar, Fundamentals, Interval, Intraday, OrderBook, Period, Quote};
 use super::{
-    BrokerSummaryProvider, FundamentalsProvider, HistoryProvider, IntradayProvider, QuoteProvider,
-    TradingSummaryProvider, idx, ipot, msn, stockbit, yahoo,
+    BrokerSummaryProvider, FundamentalsProvider, HistoryProvider, IntradayProvider,
+    OrderBookProvider, QuoteProvider, TradingSummaryProvider, idx, ipot, msn, stockbit, yahoo,
 };
 use crate::broker::types::{BrokerBoard, BrokerInvestor, BrokerQuery};
 use crate::config::ProviderKind;
@@ -135,22 +136,31 @@ impl HistoryProvider for MockProvider {
     }
 }
 
-/// Stockbit symbol pages from `tests/fixtures/stockbit_symbol_<code>.html`;
-/// a code without a fixture is Stockbit's 404. `IDX_MOCK_STOCKBIT_STATUS`
-/// (e.g. `403`) answers that HTTP status instead, and `IDX_MOCK_ERROR` fails
-/// as for the other providers.
+/// Stockbit from fixtures. Without a session (none stored or seeded through
+/// `IDX_STOCKBIT_REFRESH_TOKEN`): the public page,
+/// `tests/fixtures/stockbit_symbol_<code>.html`. With one: the session API,
+/// `tests/fixtures/stockbit_exodus_orderbook_<code>.json` and
+/// `stockbit_exodus_chart_candle_<code>_<window>.json`, with the market state
+/// from `stockbit_exodus_market_session.json`. A code without a fixture is
+/// Stockbit's 404. `IDX_MOCK_STOCKBIT_STATUS` (e.g. `403`) answers that HTTP
+/// status instead, and `IDX_MOCK_ERROR` fails as for the other providers.
 pub struct MockStockbitProvider;
 
 impl MockStockbitProvider {
-    fn snapshot(&self, symbol: &str) -> Result<Intraday, IdxError> {
+    fn failure(&self, symbol: &str) -> Option<IdxError> {
         if std::env::var("IDX_MOCK_ERROR").is_ok() {
-            return Err(IdxError::ProviderUnavailable);
+            return Some(IdxError::ProviderUnavailable);
         }
-        if let Ok(status) = std::env::var("IDX_MOCK_STOCKBIT_STATUS") {
-            return Err(stockbit::status_error(
-                status.parse().unwrap_or(500),
-                symbol,
-            ));
+        let status = std::env::var("IDX_MOCK_STOCKBIT_STATUS").ok()?;
+        Some(stockbit::status_error(
+            status.parse().unwrap_or(500),
+            symbol,
+        ))
+    }
+
+    fn snapshot(&self, symbol: &str) -> Result<Intraday, IdxError> {
+        if let Some(err) = self.failure(symbol) {
+            return Err(err);
         }
         let code = stockbit::stockbit_code(symbol)?;
         let path = format!(
@@ -162,10 +172,32 @@ impl MockStockbitProvider {
             Err(_) => Err(stockbit::status_error(404, symbol)),
         }
     }
+
+    /// A session API fixture, or the error a request would meet.
+    fn exodus(&self, symbol: &str, name: &str) -> Result<String, IdxError> {
+        if !stockbit::has_session() {
+            return Err(IdxError::AuthError(stockbit::auth::NO_SESSION.to_string()));
+        }
+        if let Some(err) = self.failure(symbol) {
+            return Err(err);
+        }
+        std::fs::read_to_string(format!("tests/fixtures/stockbit_exodus_{name}"))
+            .map_err(|_| IdxError::SymbolNotFound(symbol.to_string()))
+    }
+
+    fn book(&self, symbol: &str) -> Result<OrderBook, IdxError> {
+        let code = stockbit::stockbit_code(symbol)?.to_ascii_lowercase();
+        let body = self.exodus(symbol, &format!("orderbook_{code}.json"))?;
+        let state = self.exodus(symbol, "market_session.json")?;
+        exodus::parse_orderbook(symbol, &body, exodus::parse_market_status(&state))
+    }
 }
 
 impl QuoteProvider for MockStockbitProvider {
     fn quote(&self, symbol: &str) -> Result<Quote, IdxError> {
+        if stockbit::has_session() {
+            return self.book(symbol).map(|book| exodus::quote_from_book(&book));
+        }
         let mut quote = self.snapshot(symbol)?.quote;
         // Quotes are judged against the clock (behind the session, a week
         // old); a fixed trade time would make their output age.
@@ -183,6 +215,27 @@ impl FundamentalsProvider for MockStockbitProvider {
 impl IntradayProvider for MockStockbitProvider {
     fn intraday(&self, symbol: &str) -> Result<Intraday, IdxError> {
         self.snapshot(symbol)
+    }
+}
+
+impl OrderBookProvider for MockStockbitProvider {
+    fn orderbook(&self, symbol: &str) -> Result<OrderBook, IdxError> {
+        self.book(symbol)
+    }
+}
+
+impl HistoryProvider for MockStockbitProvider {
+    fn history(
+        &self,
+        symbol: &str,
+        period: &Period,
+        interval: &Interval,
+    ) -> Result<Vec<Bar>, IdxError> {
+        let window = exodus::history_window(period, interval)
+            .ok_or_else(|| exodus::unsupported_window(period, interval))?;
+        let code = stockbit::stockbit_code(symbol)?.to_ascii_lowercase();
+        let body = self.exodus(symbol, &format!("chart_candle_{code}_{window}.json"))?;
+        exodus::daily_for_period(&body, period)
     }
 }
 

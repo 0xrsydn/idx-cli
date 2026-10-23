@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+{"logged_in":false,"access":{"present":false,"expires_at":null,"expires_in_secs":null},"refresh":{"present":false,"expires_at":null,"expires_in_secs":null},"session_file":"<ROOT>/config/idx/stockbit-session.json"}
+--- stderr

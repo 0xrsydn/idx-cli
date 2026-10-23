@@ -11,8 +11,8 @@ use idx_core::analysis::fundamental::{
 use idx_core::analysis::report::TechnicalReport;
 use idx_core::analysis::signals::Signal;
 use idx_core::api::types::{
-    CompanyProfile, EarningsData, EarningsReport, FinancialStatements, InsightData, Intraday,
-    NewsItem, Ohlc, Quote, SentimentData,
+    BookLevel, CompanyProfile, EarningsData, EarningsReport, FinancialStatements, InsightData,
+    Intraday, NewsItem, Ohlc, OrderBook, Quote, SentimentData,
 };
 use idx_core::broker::types::{BrokerBoard, BrokerFlow, BrokerInvestor, BrokerKind, BrokerSummary};
 use idx_core::error::IdxError;
@@ -128,6 +128,13 @@ fn pct_cell(change_pct: Option<f64>, no_color: bool) -> Cell {
 /// Printed under every Stockbit table: what the data is and is not.
 const STOCKBIT_SOURCE_NOTE: &str = "Source: Stockbit's public page, delayed at least 10 \
 minutes (Stockbit's terms); bid/offer only while the market is open.";
+/// Under `--provider stockbit` quotes, which may come from either source.
+const STOCKBIT_QUOTE_NOTE: &str = "Source: Stockbit, your session when logged in (`idx \
+stockbit status`), else its public page, delayed at least 10 minutes (Stockbit's terms); \
+bid/offer only while the market is open.";
+/// Under the order book, which comes from the user's own session.
+const STOCKBIT_SESSION_NOTE: &str =
+    "Source: your Stockbit session; for personal, non-commercial use (Stockbit's terms).";
 
 fn opt_idr(value: Option<i64>) -> String {
     value.map(format_idr).unwrap_or_else(|| "-".to_string())
@@ -160,7 +167,12 @@ pub fn print_stockbit_quotes(quotes: &[Quote], no_color: bool) -> Result<(), Idx
             cell(q.volume.map(format_u64).unwrap_or_else(|| "-".to_string())),
             cell(opt_idr(q.bid)),
             cell(opt_idr(q.offer)),
-            cell(q.market_status.as_deref().unwrap_or("-")),
+            cell(
+                q.market_status
+                    .as_deref()
+                    .map(market_words)
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
             cell(q.as_of.map(wib_minute).unwrap_or_else(|| "-".to_string())),
         ]);
     }
@@ -177,7 +189,7 @@ pub fn print_stockbit_quotes(quotes: &[Quote], no_color: bool) -> Result<(), Idx
     for note in stale_quote_notes(quotes, chrono::Utc::now()) {
         println!("{}", terminal_safe(&note));
     }
-    println!("{STOCKBIT_SOURCE_NOTE}");
+    println!("{STOCKBIT_QUOTE_NOTE}");
     Ok(())
 }
 
@@ -256,6 +268,105 @@ pub fn print_intraday(day: &Intraday, no_color: bool) -> Result<(), IdxError> {
         println!("No trades this session.");
     }
     println!("{STOCKBIT_SOURCE_NOTE}");
+    Ok(())
+}
+
+/// Stockbit's market state for people: `STATE_NAME_MARKET_CLOSED` reads
+/// `closed`.
+fn market_words(state: &str) -> String {
+    state
+        .strip_prefix("STATE_NAME_MARKET_")
+        .unwrap_or(state)
+        .replace('_', " ")
+        .to_lowercase()
+}
+
+pub fn print_orderbook(book: &OrderBook, no_color: bool) -> Result<(), IdxError> {
+    let change = match (book.change, book.change_pct) {
+        (Some(c), Some(p)) => format!(" {c:+} ({p:+.2}%)"),
+        (Some(c), None) => format!(" {c:+}"),
+        _ => String::new(),
+    };
+    let change = match book.change {
+        _ if no_color || change.is_empty() => change,
+        Some(c) if c >= 0 => change.green(),
+        _ => change.red(),
+    };
+    let name = book
+        .name
+        .as_deref()
+        .map(|n| format!(" {}", terminal_safe(n)))
+        .unwrap_or_default();
+    println!(
+        "{}{change}",
+        format!(
+            "{}{name} {}",
+            terminal_safe(&book.symbol),
+            format_idr(book.price)
+        )
+        .bold()
+    );
+    let count = |v: Option<u64>| v.map(format_u64).unwrap_or_else(|| "-".to_string());
+    println!(
+        "prev close {} · open {} · high {} · low {} · volume {} · value {} · {} trades",
+        opt_idr(book.prev_close),
+        opt_idr(book.open),
+        opt_idr(book.high),
+        opt_idr(book.low),
+        count(book.volume),
+        count(book.value),
+        count(book.frequency)
+    );
+    if book.foreign_buy.is_some() || book.foreign_sell.is_some() {
+        println!(
+            "foreign buy {} · sell {} · net {}",
+            opt_idr(book.foreign_buy),
+            opt_idr(book.foreign_sell),
+            opt_idr(book.foreign_net)
+        );
+    }
+    match book.market_status.as_deref() {
+        Some(idx_core::api::stockbit::exodus::MARKET_OPEN) => println!("market open"),
+        Some(state) => println!(
+            "market {}: the book as the market left it",
+            terminal_safe(&market_words(state))
+        ),
+        None => println!("market state unknown: the book may not be live"),
+    }
+    if let Some(note) = &book.session_note {
+        println!("Note: {}", terminal_safe(note));
+    }
+    if book.bids.is_empty() && book.offers.is_empty() {
+        println!("No bids or offers.");
+    } else {
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_header(vec!["ORDERS", "LOTS", "BID", "OFFER", "LOTS", "ORDERS"]);
+        let side = |level: Option<&BookLevel>| match level {
+            Some(l) => [
+                format_u64(l.orders),
+                format_u64(l.shares / 100),
+                format_idr(l.price),
+            ],
+            None => ["".to_string(), "".to_string(), "".to_string()],
+        };
+        for i in 0..book.bids.len().max(book.offers.len()) {
+            let [bid_orders, bid_lots, bid] = side(book.bids.get(i));
+            let [offer_orders, offer_lots, offer] = side(book.offers.get(i));
+            table.add_row(vec![
+                cell(bid_orders),
+                cell(bid_lots),
+                cell(bid),
+                cell(offer),
+                cell(offer_lots),
+                cell(offer_orders),
+            ]);
+        }
+        println!("{table}");
+    }
+    println!("{STOCKBIT_SESSION_NOTE}");
     Ok(())
 }
 

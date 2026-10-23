@@ -1,0 +1,17 @@
+exit: 0
+--- stdout
+BBCA.JK Bank Central Asia Tbk. 5,175 -900 (-14.81%)
+prev close 6,075 · open 5,825 · high 5,825 · low 5,175 · volume 1,241,098,200 · value 6,474,934,315,000 · 185,072 trades
+foreign buy 1,616,461,977,500 · sell 3,945,955,065,000 · net -2,329,493,087,500
+market closed: the book as the market left it
+┌────────┬──────┬─────┬───────┬───────────┬────────┐
+│ ORDERS ┆ LOTS ┆ BID ┆ OFFER ┆ LOTS      ┆ ORDERS │
+╞════════╪══════╪═════╪═══════╪═══════════╪════════╡
+│        ┆      ┆     ┆ 5,175 ┆ 2,644,625 ┆ 3,284  │
+├╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┤
+│        ┆      ┆     ┆ 5,200 ┆ 100,534   ┆ 337    │
+├╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┤
+│        ┆      ┆     ┆ 5,225 ┆ 37,114    ┆ 396    │
+└────────┴──────┴─────┴───────┴───────────┴────────┘
+Source: your Stockbit session; for personal, non-commercial use (Stockbit's terms).
+--- stderr

@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+[{"symbol":"BBCA.JK","price":5175,"change":-900,"change_pct":-14.81,"volume":1241098200,"market_cap":null,"week52_high":null,"week52_low":null,"week52_position":null,"range_signal":null,"prev_close":6075,"avg_volume":null,"as_of":null,"behind_session":false,"market_status":"STATE_NAME_MARKET_CLOSED"}]
+--- stderr

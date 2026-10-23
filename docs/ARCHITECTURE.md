@@ -164,16 +164,17 @@ WIB as the fallback.
   `chart.prices[]` holds one price per minute in WIB with no offset, after a
   synthetic first row at the previous close; per-minute OHLC and volume are
   empty. An unknown code is HTTP 404 with the 404 page.
-- Stockbit's JSON API (`exodus.stockbit.com`: chart, order book) answers 401
-  without a user's bearer token; it is not used.
+- Stockbit's JSON API (`exodus.stockbit.com`) answers 401 without a user's
+  bearer token; it is used only with the user's own session (below).
 - Bid and offer are kept only while `market_hour.status` is `open`, so a
   closing book never reads as a live one. Observed 2026-10-23: `open` during
   trading (bid/offer set), `break` from 11:30 on a Friday, `close` after
   hours; any other value fails closed. In session the chart gained a point
   every minute and the last trade was within a minute of the clock, although
   Stockbit's terms call its data delayed at least 10 minutes. Order-book
-  sizes are dropped: the page does not say whether they are lots or shares.
-  `as_of` comes from `date`/`time`
+  sizes are not shown; they are shares (BBCA's best bid on 2026-10-23 was
+  1,357,500 on the page and 13,575 lots in the session API's book). `as_of`
+  comes from `date`/`time`
   only when the stock traded (a suspended stock carries today's date).
   `session_note` repeats what the page says (suspended, delisted) or "no
   trades this session"; it is never inferred.
@@ -189,6 +190,41 @@ WIB as the fallback.
   personal use; frontends say so. Fixtures (`tests/fixtures/stockbit_*`) are
   pages recorded 2026-10-22 after the close, cut to the fields read.
 
+### Stockbit session (opt-in login)
+- `idx stockbit login` stores the user's session from a pasted
+  `credentialStorage` cookie (or a bare refresh token) in
+  `<config dir>/stockbit-session.json`, written atomically with mode 0600;
+  `IDX_STOCKBIT_REFRESH_TOKEN` / `IDX_STOCKBIT_ACCESS_TOKEN` fill fields the
+  file lacks. In a terminal it first serves a page on 127.0.0.1
+  (`api/stockbit/loopback.rs`): a bookmarklet that reads the cookie in the
+  user's own browser and opens the page with it in the URL fragment, or a
+  clipboard button; a per-run secret guards the path, the page is `no-store`
+  with a strict CSP, and the server stops on success or after five minutes.
+  Piped stdin keeps the paste path. `api/stockbit/auth.rs` reads expiries
+  from the JWTs (`exp`,
+  unverified) and refreshes an access token within an hour of expiry with
+  `POST /login/refresh` (bearer = refresh token), which rotates both tokens.
+  Because a refresh token is spent once, refreshes run under an exclusive
+  lock on `stockbit-session.lock` and re-read the file first, so concurrent
+  idx processes never spend the same token. A data request answered 401 (or
+  a JSON 403) refreshes once and retries once; a second refusal is
+  `AUTHERROR`. Tokens never reach output, errors, logs or cache keys
+  (`Session`'s `Debug` redacts them).
+- `api/stockbit/exodus.rs` (endpoints and units mapped by fzn0x/idx, MIT;
+  its recordings are `tests/fixtures/stockbit_exodus_*`):
+  `/company-price-feed/v2/orderbook/companies/{CODE}` gives the depth ladder
+  (`volume` in shares, `que_num` orders), OHLC, value, frequency and foreign
+  buy/sell/net; `/company-price-feed/market-time/session` the market state
+  (`STATE_NAME_MARKET_CLOSED`, cached 30 s per process); `/charts/{CODE}/daily`
+  daily candles for `1m`/`3m`/`1y` windows (volume in lots, returned in
+  shares). Requests share the public page's cross-process pacing.
+- With a session, `--provider stockbit` quotes come from the order book (bid
+  and offer only in `STATE_NAME_MARKET_OPEN`, a name assumed until observed
+  in session), `stocks orderbook` works, and `auto` history under the stockbit
+  provider uses Stockbit's daily windows (`5d` to `1y`, trimmed from `1m`,
+  `3m` or `1y`), Yahoo otherwise. Without one, quotes use the public page and
+  the order book is `AUTHERROR`.
+
 ### Capability Gating
 ```
 MarketDataProvider = QuoteProvider + FundamentalsProvider
@@ -196,15 +232,17 @@ HistoryProvider    = separate trait, not all providers implement
 
 Factory functions:
   default_provider(kind) → Box<dyn MarketDataProvider>
-  history_provider(kind, mode, verbose) → Result<(ProviderKind, Box<dyn HistoryProvider>)>
+  history_provider(source, verbose) → Box<dyn HistoryProvider>   (source from history_source)
   broker_provider() → Box<dyn BrokerSummaryProvider>
   trading_summary_provider() → Box<dyn TradingSummaryProvider>
   intraday_provider() → Box<dyn IntradayProvider>
+  orderbook_provider() → Box<dyn OrderBookProvider>
 ```
 
-`ProviderKind::Stockbit` implements quotes only: fundamentals are
-`UNSUPPORTED`, the MSN-only capabilities say "requires --provider msn", and
-`auto` history falls back to Yahoo.
+`ProviderKind::Stockbit` serves quotes (and, with a session, daily history):
+fundamentals are `UNSUPPORTED`, the MSN-only capabilities say "requires
+--provider msn", and `auto` history uses Yahoo unless a session covers the
+window.
 
 ## Ownership Module (SQLite-backed)
 

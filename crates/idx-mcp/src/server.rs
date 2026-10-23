@@ -26,8 +26,8 @@ use tokio::sync::Semaphore;
 
 use crate::params::{
     AnalysisKind, AnalyzeParams, BandarParams, BrokerParams, ChangesParams, CompanyParams,
-    CompanySection, EntityParams, FlowParams, HistoryParams, IntradayParams, ScreenParams,
-    SearchParams, ShareholdersParams, SymbolsParams, SyncParams,
+    CompanySection, EntityParams, FlowParams, HistoryParams, IntradayParams, OrderBookParams,
+    ScreenParams, SearchParams, ShareholdersParams, SymbolsParams, SyncParams,
 };
 
 const SYNC_TOOL: &str = "ownership_sync";
@@ -45,6 +45,8 @@ const MAX_CHANGES_LIMIT: usize = 300;
 const CHANGES_TOP_TICKERS: usize = 10;
 // A session has about 340 minutes, so this is the whole day.
 const MAX_INTRADAY_POINTS: usize = 400;
+const BOOK_DEPTH: usize = 10;
+const MAX_BOOK_DEPTH: usize = 50;
 
 /// Tool calls running at once; the rest wait their turn.
 static CALL_SLOTS: Semaphore = Semaphore::const_new(4);
@@ -158,6 +160,34 @@ per-minute volume. Empty `points` means the stock did not trade this session (se
         .await
     }
 
+    #[tool(
+        description = "Order book of one IDX stock from the user's own Stockbit session: \
+`bids` and `offers` (best price first) of {price, shares, orders}, the session's OHLC, \
+volume (shares), value and frequency, and foreign buy/sell/net in IDR. `market_status` is \
+Stockbit's state, verbatim; outside STATE_NAME_MARKET_OPEN the book is as the market left \
+it. AUTHERROR means there is no session: call stockbit_status, and ask the user to run \
+`idx stockbit login` in a terminal."
+    )]
+    async fn get_orderbook(&self, params: Parameters<OrderBookParams>) -> ToolResult {
+        let OrderBookParams { symbol, depth } = params.0;
+        self.live(move |idx| {
+            let depth = bounded_limit("depth", depth, BOOK_DEPTH, MAX_BOOK_DEPTH)?;
+            let mut book = idx.market().orderbook(&symbol, CachePolicy::Default)?;
+            book.data.bids.truncate(depth);
+            book.data.offers.truncate(depth);
+            Ok(book)
+        })
+        .await
+    }
+
+    #[tool(description = "Whether a Stockbit session is stored (or seeded by \
+IDX_STOCKBIT_REFRESH_TOKEN) and when its tokens expire; never the tokens. Without one, \
+get_orderbook fails and stockbit-provider quotes use Stockbit's delayed public page; the \
+user adds one with `idx stockbit login` in a terminal.")]
+    async fn stockbit_status(&self) -> ToolResult {
+        blocking(idx_core::api::stockbit::session_status).await
+    }
+
     #[tool(description = "OHLCV price history for one IDX ticker.")]
     async fn get_price_history(&self, params: Parameters<HistoryParams>) -> ToolResult {
         let HistoryParams {
@@ -168,7 +198,7 @@ per-minute volume. Empty `points` means the stock did not trade this session (se
         self.live(move |idx| {
             let period = period.as_deref().unwrap_or("3mo").parse()?;
             let interval = interval.as_deref().unwrap_or("1d").parse()?;
-            let source = idx.market().history_source(None);
+            let source = idx.market().history_source(None, &period, &interval);
             idx.market()
                 .history(&symbol, &period, &interval, source, CachePolicy::Default)
         })
@@ -365,7 +395,7 @@ are listed under `errors`; the call fails only if every analysis fails."
                 let name = kind.as_str();
                 match kind {
                     AnalysisKind::Technical => {
-                        let source = idx.market().history_source(None);
+                        let source = analysis.technical_source(None);
                         report.add(name, analysis.technical(&symbol, source, policy))
                     }
                     AnalysisKind::Growth => report.add(name, analysis.growth(&symbol, policy)),
