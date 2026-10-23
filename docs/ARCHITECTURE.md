@@ -172,8 +172,9 @@ WIB as the fallback.
   hours; any other value fails closed. In session the chart gained a point
   every minute and the last trade was within a minute of the clock, although
   Stockbit's terms call its data delayed at least 10 minutes. Order-book
-  sizes are dropped: the page does not say whether they are lots or shares.
-  `as_of` comes from `date`/`time`
+  sizes are not shown; they are shares (BBCA's best bid on 2026-10-23 was
+  1,357,500 on the page and 13,575 lots in the session API's book). `as_of`
+  comes from `date`/`time`
   only when the stock traded (a suspended stock carries today's date).
   `session_note` repeats what the page says (suspended, delisted) or "no
   trades this session"; it is never inferred.

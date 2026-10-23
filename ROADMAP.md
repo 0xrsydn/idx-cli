@@ -51,8 +51,8 @@ history lives in git.
 - Stockbit's terms call its data delayed at least 10 minutes and for
   personal, non-commercial use (on 2026-10-23 the last trade was within a
   minute of the clock); its CDN refuses some user agents with a 403
-  (`UPSTREAMBLOCKED`). Its order-book sizes are not shown: the page does not
-  say whether they are lots or shares.
+  (`UPSTREAMBLOCKED`). The public page's best bid/offer sizes are not shown
+  yet; they are shares (equal to the session API's book on 2026-10-23).
 - Yahoo can return `429` from datacenter IPs; requests retry with backoff but
   can still fail.
 - `stocks technical` reports the SMA200 trend as unavailable when fewer than
