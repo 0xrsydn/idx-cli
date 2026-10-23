@@ -2117,6 +2117,27 @@ fn invalid_provider_env_honors_json_output() {
 }
 
 #[test]
+fn provider_flag_overrides_env() {
+    let quotes = run_success_json(
+        test_bin("provider-flag")
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args([
+                "-o",
+                "json",
+                "--provider",
+                "stockbit",
+                "stocks",
+                "quote",
+                "BBCA",
+            ]),
+    );
+    // Only Stockbit reports the market's state; MSN has a market cap.
+    assert_eq!(quotes[0]["market_status"], "close");
+    assert_eq!(quotes[0]["market_cap"], Value::Null);
+}
+
+#[test]
 fn invalid_quote_ttl_env_returns_non_zero() {
     test_bin("invalid-quote-ttl")
         .env("IDX_CACHE_QUOTE_TTL", "bogus")

@@ -42,12 +42,12 @@ contents. The native macOS installer job runs separately to exercise BSD tools.
 
 ## Live drift check
 
-Fixtures cannot tell when MSN, Yahoo, or IDX change their responses.
+Fixtures cannot tell when MSN, Yahoo, IPOT, IDX, or Stockbit change their responses.
 `scripts/live-smoke.sh` runs shipped commands against the real upstreams and
 validates each JSON output shape. It is opt-in and never part of the gate.
 
 ```bash
-nix develop --command scripts/live-smoke.sh                   # stocks + ownership
+nix develop --command scripts/live-smoke.sh                   # stocks + stockbit + ownership
 nix develop --command scripts/live-smoke.sh --group stocks --symbol BBRI
 nix develop --command scripts/live-smoke.sh --bin ./result/bin/idx
 nix develop --command scripts/live-smoke.sh --compare ./old/bin/idx  # A/B against an older build
@@ -58,9 +58,15 @@ scripts/live-smoke.sh --dry-run
   `flow` and `flow --source idx` on the new binary only, so an older `--compare` build that predates
   them is fine), plus `compare BUMI,ADRO,AIMS`,
   whose MSN key ratios contain non-finite values.
+- `stockbit`: `intraday` for the ticker and `^JKSE`, and
+  `--provider stockbit stocks quote`, on the new binary only. A run outside the
+  session sees `market_status: close` and no bid/offer.
 - `ownership`: `discover`, then imports the newest supported report into a temp
   DB and lists `releases`. IDX sits behind Cloudflare and returns `403` to many
   datacenter IPs, including GitHub-hosted runners; run it from a network IDX accepts.
+
+A case whose upstream refuses us (`UPSTREAMBLOCKED`, an HTTP 403) prints
+`BLOCKED (HTTP 403)` and counts as a failure, never as a pass.
 
 `--compare <old-idx>` runs every case with both binaries back to back, each
 with its own config and cache, and fails on a different exit code, any added,

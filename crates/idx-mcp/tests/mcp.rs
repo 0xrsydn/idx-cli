@@ -9,13 +9,14 @@ use idx_core::config::CoreConfig;
 use idx_core::investor::{ImportSource, Investor};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 14] = [
+const TOOLS: [&str; 15] = [
     "analyze_bandar",
     "analyze_stock",
     "compare_stocks",
     "get_broker_summary",
     "get_company",
     "get_foreign_flow",
+    "get_intraday",
     "get_investor_holdings",
     "get_ownership_changes",
     "get_price_history",
@@ -36,6 +37,10 @@ struct Client {
 
 impl Client {
     fn start(args: &[&str], seed: bool) -> Self {
+        Self::start_with_env(args, seed, &[])
+    }
+
+    fn start_with_env(args: &[&str], seed: bool, env: &[(&str, &str)]) -> Self {
         let home = tempdir::Dir::new();
         if seed {
             seed_ownership_db(&home.path().join("data/idx/ownership.db"));
@@ -50,6 +55,7 @@ impl Client {
             .env("XDG_CACHE_HOME", home.path().join("cache"))
             .env("XDG_DATA_HOME", home.path().join("data"))
             .env("IDX_USE_MOCK_PROVIDER", "1")
+            .envs(env.iter().copied())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -297,6 +303,63 @@ fn live_tools_wrap_data_with_freshness() {
     let compared = client.ok("compare_stocks", json!({"symbols": ["BBCA", "BBRI"]}));
     assert_eq!(compared["reports"].as_array().unwrap().len(), 2);
     assert_eq!(compared["failures"], json!([]));
+}
+
+#[test]
+fn intraday_is_stockbit_whichever_provider_and_empty_sessions_are_data() {
+    let mut client = Client::start(&[], false);
+
+    let day = client.ok("get_intraday", json!({"symbol": "BBCA"}));
+    assert_fetched(&day);
+    assert_eq!(day["source"], "stockbit");
+    let quote = &day["data"]["quote"];
+    assert_eq!(quote["symbol"], "BBCA.JK");
+    assert_eq!(quote["market_status"], "close");
+    // The closing book is not reported as a live one.
+    assert!(
+        quote.get("bid").is_none() && quote.get("offer").is_none(),
+        "{quote}"
+    );
+    assert_eq!(day["data"]["points"].as_array().unwrap().len(), 335);
+
+    let tail = client.ok("get_intraday", json!({"symbol": "BBCA", "tail": 2}));
+    let points = tail["data"]["points"].as_array().unwrap();
+    assert_eq!(points.len(), 2);
+    assert_eq!(points[1]["time"], "2026-10-22T16:14:00+07:00");
+
+    let suspended = client.ok("get_intraday", json!({"symbol": "MABA"}));
+    assert_eq!(suspended["data"]["points"], json!([]));
+    assert_eq!(
+        suspended["data"]["quote"]["session_note"],
+        "Stockbit lists the stock as suspended"
+    );
+
+    for (arguments, code) in [
+        (json!({"symbol": "ZZZZ"}), "SYMBOLNOTFOUND"),
+        (json!({"symbol": "BBCA", "tail": 0}), "INVALIDINPUT"),
+        (json!({"symbol": "BBCA", "tail": 401}), "INVALIDINPUT"),
+    ] {
+        let (is_error, body) = client.call("get_intraday", arguments.clone());
+        assert!(is_error, "{arguments}: {body}");
+        assert_eq!(body["code"], code, "{arguments}: {body}");
+    }
+}
+
+#[test]
+fn stockbit_provider_quotes_carry_market_status_and_blocks_surface_once() {
+    let mut client = Client::start_with_env(&[], false, &[("IDX_PROVIDER", "stockbit")]);
+    let quotes = client.ok("get_quotes", json!({"symbols": ["BBCA"]}));
+    assert_eq!(quotes["quotes"][0]["source"], "stockbit");
+    assert_eq!(quotes["quotes"][0]["data"]["market_status"], "close");
+
+    let mut blocked = Client::start_with_env(&[], false, &[("IDX_MOCK_STOCKBIT_STATUS", "403")]);
+    let (is_error, body) = blocked.call("get_intraday", json!({"symbol": "BBCA"}));
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "UPSTREAMBLOCKED");
+    assert!(
+        body["message"].as_str().unwrap().contains("does not retry"),
+        "{body}"
+    );
 }
 
 #[test]

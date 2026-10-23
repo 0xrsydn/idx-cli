@@ -19,10 +19,14 @@ What an agent needs to know:
 - On failure stdout is empty and stderr holds one JSON object,
   `{"error": true, "code": "...", "message": "..."}`.
 - Exit codes say what to do next: `2` fix the input, `3` not found (or no
-  cached data offline), `4` provider unavailable, retry later, `5`
+  cached data offline), `4` provider unavailable or blocked, retry later, `5`
   unsupported, `1` other.
 - Tickers are IDX codes (`BBCA`); `.JK` is optional. Several tickers can be
   passed at once to `stocks quote` and `stocks compare`.
+- `stocks intraday` and `--provider stockbit` read Stockbit's public page,
+  paced to one request a second across idx processes. Ask for the symbols
+  you need rather than looping over the market; on `UPSTREAMBLOCKED`, stop
+  instead of retrying.
 - Ownership queries need `idx ownership sync` once; after that they run
   offline. `idx -o json ownership releases` shows which months exist.
 

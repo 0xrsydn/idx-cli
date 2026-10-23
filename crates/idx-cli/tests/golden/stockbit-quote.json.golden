@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+[{"symbol":"BBCA.JK","price":5175,"change":-100,"change_pct":-1.9,"volume":286928500,"market_cap":null,"week52_high":null,"week52_low":null,"week52_position":null,"range_signal":null,"prev_close":5275,"avg_volume":null,"as_of":null,"behind_session":false,"market_status":"close"},{"symbol":"MABA.JK","price":50,"change":0,"change_pct":0.0,"volume":0,"market_cap":null,"week52_high":null,"week52_low":null,"week52_position":null,"range_signal":null,"prev_close":50,"avg_volume":null,"as_of":null,"behind_session":false,"market_status":"close","session_note":"Stockbit lists the stock as suspended"}]
+--- stderr

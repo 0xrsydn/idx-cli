@@ -1,10 +1,10 @@
 //! Fixture-backed provider for tests, enabled by the `testing` feature and
 //! `IDX_USE_MOCK_PROVIDER`. Release builds do not contain it.
 
-use super::types::{Bar, Fundamentals, Interval, Period, Quote};
+use super::types::{Bar, Fundamentals, Interval, Intraday, Period, Quote};
 use super::{
-    BrokerSummaryProvider, FundamentalsProvider, HistoryProvider, QuoteProvider,
-    TradingSummaryProvider, idx, ipot, msn, yahoo,
+    BrokerSummaryProvider, FundamentalsProvider, HistoryProvider, IntradayProvider, QuoteProvider,
+    TradingSummaryProvider, idx, ipot, msn, stockbit, yahoo,
 };
 use crate::broker::types::{BrokerBoard, BrokerInvestor, BrokerQuery};
 use crate::config::ProviderKind;
@@ -45,6 +45,10 @@ impl MockProvider {
         match provider {
             ProviderKind::Yahoo => Self::from_yahoo_fixtures(history_verbose),
             ProviderKind::Msn => Self::from_msn_fixtures(),
+            // `MockStockbitProvider` serves Stockbit; it has no history.
+            ProviderKind::Stockbit => Self::with_error(IdxError::Unsupported(
+                "Stockbit serves no price history".to_string(),
+            )),
         }
     }
 
@@ -128,6 +132,57 @@ impl HistoryProvider for MockProvider {
         _interval: &Interval,
     ) -> Result<Vec<Bar>, IdxError> {
         self.history.clone()
+    }
+}
+
+/// Stockbit symbol pages from `tests/fixtures/stockbit_symbol_<code>.html`;
+/// a code without a fixture is Stockbit's 404. `IDX_MOCK_STOCKBIT_STATUS`
+/// (e.g. `403`) answers that HTTP status instead, and `IDX_MOCK_ERROR` fails
+/// as for the other providers.
+pub struct MockStockbitProvider;
+
+impl MockStockbitProvider {
+    fn snapshot(&self, symbol: &str) -> Result<Intraday, IdxError> {
+        if std::env::var("IDX_MOCK_ERROR").is_ok() {
+            return Err(IdxError::ProviderUnavailable);
+        }
+        if let Ok(status) = std::env::var("IDX_MOCK_STOCKBIT_STATUS") {
+            return Err(stockbit::status_error(
+                status.parse().unwrap_or(500),
+                symbol,
+            ));
+        }
+        let code = stockbit::stockbit_code(symbol)?;
+        let path = format!(
+            "tests/fixtures/stockbit_symbol_{}.html",
+            code.to_ascii_lowercase()
+        );
+        match std::fs::read_to_string(path) {
+            Ok(html) => stockbit::parse_symbol_page(symbol, &html),
+            Err(_) => Err(stockbit::status_error(404, symbol)),
+        }
+    }
+}
+
+impl QuoteProvider for MockStockbitProvider {
+    fn quote(&self, symbol: &str) -> Result<Quote, IdxError> {
+        let mut quote = self.snapshot(symbol)?.quote;
+        // Quotes are judged against the clock (behind the session, a week
+        // old); a fixed trade time would make their output age.
+        quote.as_of = None;
+        Ok(quote)
+    }
+}
+
+impl FundamentalsProvider for MockStockbitProvider {
+    fn fundamentals(&self, symbol: &str) -> Result<Fundamentals, IdxError> {
+        Err(stockbit::fundamentals_unsupported(symbol))
+    }
+}
+
+impl IntradayProvider for MockStockbitProvider {
+    fn intraday(&self, symbol: &str) -> Result<Intraday, IdxError> {
+        self.snapshot(symbol)
     }
 }
 

@@ -6,8 +6,8 @@ use crate::config::{HistoryProviderKind, IdxConfig};
 use crate::output::{
     render_bandar, render_broker_summary, render_compare, render_earnings, render_financials,
     render_foreign_flow, render_fundamental, render_growth, render_history, render_insights,
-    render_news, render_profile, render_quotes, render_risk, render_screener, render_sentiment,
-    render_technical, render_valuation,
+    render_intraday, render_news, render_profile, render_quotes, render_risk, render_screener,
+    render_sentiment, render_technical, render_valuation,
 };
 use idx_core::analysis::BandarQuery;
 use idx_core::analysis::bandar::DEFAULT_TOP;
@@ -126,12 +126,25 @@ pub struct StocksCmd {
 pub enum StocksSubcommand {
     #[command(
         about = "Get real-time stock quotes",
-        after_help = "Examples:\n  idx stocks quote BBCA\n  idx stocks quote BBCA,BBRI,BMRI\n  idx -o json stocks quote BBCA\n  echo BBCA BBRI | idx stocks quote -"
+        after_help = "Examples:\n  idx stocks quote BBCA\n  idx stocks quote BBCA,BBRI,BMRI\n  idx -o json stocks quote BBCA\n  echo BBCA BBRI | idx stocks quote -\n  idx --provider stockbit stocks quote BBCA   # with bid/offer while the market is open"
     )]
     Quote {
         /// One or more symbols, comma-separated or space-separated; `-` reads them from stdin.
         #[arg(required = true)]
         symbols: Vec<String>,
+    },
+    #[command(
+        about = "Today's session price by the minute (Stockbit)",
+        long_about = "Today's session of one IDX stock or index, by the minute, from Stockbit's \
+public page (no login): the quote, the best bid/offer while the market is open, a sparkline, \
+and the last minutes. Delayed at least 10 minutes per Stockbit's terms; prices only, no \
+per-minute volume. A stock that did not trade has no minutes, which is not an error. \
+Indices use Yahoo's tickers (^JKSE, ^JKLQ45) or Stockbit's (IHSG, LQ45).",
+        after_help = "Examples:\n  idx stocks intraday BBCA\n  idx stocks intraday ^JKSE\n  idx -o json stocks intraday BBCA | jq '.points[-1]'"
+    )]
+    Intraday {
+        /// Single ticker symbol (e.g. BBCA).
+        symbol: String,
     },
     #[command(
         about = "Get historical OHLC data",
@@ -313,7 +326,11 @@ pub fn handle(
         StocksSubcommand::Quote { symbols } => {
             let quotes = idx.market().quotes(&expand_symbols(symbols)?, policy)?;
             let quotes: Vec<_> = quotes.into_iter().map(|q| q.data).collect();
-            render_quotes(&quotes, format, no_color)
+            render_quotes(&quotes, config.core.provider, format, no_color)
+        }
+        StocksSubcommand::Intraday { symbol } => {
+            let day = idx.market().intraday(symbol, policy)?;
+            render_intraday(&day.data, format, no_color)
         }
         StocksSubcommand::History {
             symbol,

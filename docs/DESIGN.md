@@ -184,7 +184,7 @@ is another 20-30% smaller than pretty JSON.
   | 1 | other failure | `IO`, `DATABASEERROR`, `PARSEERROR`, ... |
   | 2 | invalid usage or input | clap errors, `INVALIDINPUT`, `CONFIGERROR` |
   | 3 | not found or no data | `SYMBOLNOTFOUND`, `NOMARKETDATA`, `CACHEMISS` |
-  | 4 | upstream unavailable, retry later | `HTTP`, `RATELIMITED`, `PROVIDERUNAVAILABLE`, `OFFLINE`, `AUTHERROR` |
+  | 4 | upstream unavailable or blocked, retry later | `HTTP`, `RATELIMITED`, `PROVIDERUNAVAILABLE`, `OFFLINE`, `AUTHERROR`, `UPSTREAMBLOCKED` |
   | 5 | unsupported | `UNSUPPORTED` |
 
 - JSON keeps today's top-level shape: no `{data, meta}` wrapper, so `jq` paths

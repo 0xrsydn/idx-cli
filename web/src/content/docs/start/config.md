@@ -28,7 +28,7 @@ in scripts. Ask for JSON with `-o json`, `IDX_OUTPUT=json`, or
 
 ```toml
 [general]
-provider = "msn"           # msn | yahoo
+provider = "msn"           # msn | yahoo | stockbit
 history_provider = "auto"  # auto | yahoo | msn
 exchange = "JK"
 output = "auto"            # auto | table | json | jsonl

@@ -11,8 +11,8 @@ use idx_core::analysis::fundamental::{
 use idx_core::analysis::report::TechnicalReport;
 use idx_core::analysis::signals::Signal;
 use idx_core::api::types::{
-    CompanyProfile, EarningsData, EarningsReport, FinancialStatements, InsightData, NewsItem, Ohlc,
-    Quote, SentimentData,
+    CompanyProfile, EarningsData, EarningsReport, FinancialStatements, InsightData, Intraday,
+    NewsItem, Ohlc, Quote, SentimentData,
 };
 use idx_core::broker::types::{BrokerBoard, BrokerFlow, BrokerInvestor, BrokerKind, BrokerSummary};
 use idx_core::error::IdxError;
@@ -61,12 +61,7 @@ pub fn print_quotes(quotes: &[Quote], no_color: bool) -> Result<(), IdxError> {
         ]);
 
     for q in quotes {
-        let pct_cell = match q.change_pct {
-            None => cell("-"),
-            Some(pct) if no_color => cell(format!("{pct:+.2}%")),
-            Some(pct) if pct >= 0.0 => cell(format!("{pct:+.2}%")).fg(Color::Green),
-            Some(pct) => cell(format!("{pct:+.2}%")).fg(Color::Red),
-        };
+        let pct_cell = pct_cell(q.change_pct, no_color);
         table.add_row(vec![
             cell(&q.symbol),
             cell(format_idr(q.price)),
@@ -116,6 +111,182 @@ fn stale_quote_notes(quotes: &[Quote], now: chrono::DateTime<chrono::Utc>) -> Ve
                 ))
             } else {
                 None
+            }
+        })
+        .collect()
+}
+
+fn pct_cell(change_pct: Option<f64>, no_color: bool) -> Cell {
+    match change_pct {
+        None => cell("-"),
+        Some(pct) if no_color => cell(format!("{pct:+.2}%")),
+        Some(pct) if pct >= 0.0 => cell(format!("{pct:+.2}%")).fg(Color::Green),
+        Some(pct) => cell(format!("{pct:+.2}%")).fg(Color::Red),
+    }
+}
+
+/// Printed under every Stockbit table: what the data is and is not.
+const STOCKBIT_SOURCE_NOTE: &str = "Source: Stockbit's public page, delayed at least 10 \
+minutes (Stockbit's terms); bid/offer only while the market is open.";
+
+fn opt_idr(value: Option<i64>) -> String {
+    value.map(format_idr).unwrap_or_else(|| "-".to_string())
+}
+
+fn wib_minute(time: chrono::DateTime<chrono::FixedOffset>) -> String {
+    time.format("%Y-%m-%d %H:%M").to_string()
+}
+
+/// Quotes from `--provider stockbit`: Stockbit has no market cap or 52-week
+/// range, but a best bid/offer and the market's state.
+pub fn print_stockbit_quotes(quotes: &[Quote], no_color: bool) -> Result<(), IdxError> {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec![
+            "SYMBOL", "PRICE", "CHG", "CHG%", "VOLUME", "BID", "OFFER", "MARKET", "AS OF",
+        ]);
+    for q in quotes {
+        table.add_row(vec![
+            cell(&q.symbol),
+            cell(format_idr(q.price)),
+            cell(
+                q.change
+                    .map(|c| format!("{c:+}"))
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            pct_cell(q.change_pct, no_color),
+            cell(q.volume.map(format_u64).unwrap_or_else(|| "-".to_string())),
+            cell(opt_idr(q.bid)),
+            cell(opt_idr(q.offer)),
+            cell(q.market_status.as_deref().unwrap_or("-")),
+            cell(q.as_of.map(wib_minute).unwrap_or_else(|| "-".to_string())),
+        ]);
+    }
+    println!("{table}");
+    for q in quotes {
+        if let Some(note) = &q.session_note {
+            println!(
+                "Note: {}: {}",
+                terminal_safe(&q.symbol),
+                terminal_safe(note)
+            );
+        }
+    }
+    for note in stale_quote_notes(quotes, chrono::Utc::now()) {
+        println!("{}", terminal_safe(&note));
+    }
+    println!("{STOCKBIT_SOURCE_NOTE}");
+    Ok(())
+}
+
+/// Minutes listed under the intraday chart.
+const INTRADAY_TAIL: usize = 5;
+/// Widest the intraday sparkline gets, in characters.
+const SPARKLINE_WIDTH: usize = 60;
+
+pub fn print_intraday(day: &Intraday, no_color: bool) -> Result<(), IdxError> {
+    let q = &day.quote;
+    let change = match (q.change, q.change_pct) {
+        (Some(c), Some(p)) => format!(" {c:+} ({p:+.2}%)"),
+        (Some(c), None) => format!(" {c:+}"),
+        _ => String::new(),
+    };
+    let change = match q.change {
+        _ if no_color || change.is_empty() => change,
+        Some(c) if c >= 0 => change.green(),
+        _ => change.red(),
+    };
+    println!(
+        "{}{change}",
+        format!("{} {}", terminal_safe(&q.symbol), format_idr(q.price)).bold()
+    );
+    let mut facts = vec![
+        format!("prev close {}", opt_idr(q.prev_close)),
+        format!(
+            "volume {}",
+            q.volume.map(format_u64).unwrap_or_else(|| "-".to_string())
+        ),
+        format!(
+            "market {}",
+            terminal_safe(q.market_status.as_deref().unwrap_or("unknown"))
+        ),
+    ];
+    if let Some(as_of) = q.as_of {
+        facts.push(format!("last trade {} WIB", wib_minute(as_of)));
+    }
+    println!("{}", facts.join(" · "));
+    if q.bid.is_some() || q.offer.is_some() {
+        println!("bid {} · offer {}", opt_idr(q.bid), opt_idr(q.offer));
+    }
+    if let Some(note) = &q.session_note {
+        println!("Note: {}", terminal_safe(note));
+    }
+
+    let prices: Vec<f64> = day.points.iter().map(|p| p.price).collect();
+    if let (Some(first), Some(last)) = (day.points.first(), day.points.last()) {
+        let (low, high) = prices
+            .iter()
+            .fold((f64::MAX, f64::MIN), |(lo, hi), p| (lo.min(*p), hi.max(*p)));
+        println!();
+        println!("{}", sparkline(&prices, SPARKLINE_WIDTH));
+        println!(
+            "{} to {} WIB · low {} · high {} · {} minutes",
+            first.time.format("%H:%M"),
+            last.time.format("%H:%M"),
+            format_price(low),
+            format_price(high),
+            day.points.len()
+        );
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_header(vec!["TIME", "PRICE"]);
+        let start = day.points.len().saturating_sub(INTRADAY_TAIL);
+        for point in &day.points[start..] {
+            table.add_row(vec![
+                cell(point.time.format("%H:%M")),
+                cell(format_price(point.price)),
+            ]);
+        }
+        println!("{table}");
+    } else if q.session_note.is_none() {
+        println!("No trades this session.");
+    }
+    println!("{STOCKBIT_SOURCE_NOTE}");
+    Ok(())
+}
+
+/// Whole Rupiah for stocks, two decimals for an index level.
+fn format_price(price: f64) -> String {
+    let cents = (price * 100.0).round() as i64;
+    if cents % 100 == 0 {
+        format_idr(cents / 100)
+    } else {
+        format!("{}.{:02}", format_idr(cents / 100), (cents % 100).abs())
+    }
+}
+
+/// One block per bucket of points (the bucket's last price), scaled from the
+/// lowest to the highest price.
+fn sparkline(prices: &[f64], width: usize) -> String {
+    const BARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    let width = width.min(prices.len());
+    if width == 0 {
+        return String::new();
+    }
+    let (low, high) = prices
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(lo, hi), p| (lo.min(*p), hi.max(*p)));
+    (1..=width)
+        .map(|i| {
+            let price = prices[i * prices.len() / width - 1];
+            if high > low {
+                BARS[((price - low) / (high - low) * 7.0).round() as usize]
+            } else {
+                BARS[3]
             }
         })
         .collect()
@@ -1410,6 +1581,10 @@ mod tests {
             avg_volume: None,
             as_of: Some(chrono::DateTime::parse_from_rfc3339(as_of).unwrap()),
             behind_session: false,
+            bid: None,
+            offer: None,
+            market_status: None,
+            session_note: None,
         }
     }
 

@@ -1,0 +1,12 @@
+exit: 0
+--- stdout
+┌─────────┬───────┬──────┬────────┬─────────────┬─────┬───────┬────────┬───────┐
+│ SYMBOL  ┆ PRICE ┆ CHG  ┆ CHG%   ┆ VOLUME      ┆ BID ┆ OFFER ┆ MARKET ┆ AS OF │
+╞═════════╪═══════╪══════╪════════╪═════════════╪═════╪═══════╪════════╪═══════╡
+│ BBCA.JK ┆ 5,175 ┆ -100 ┆ -1.90% ┆ 286,928,500 ┆ -   ┆ -     ┆ close  ┆ -     │
+├╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┤
+│ MABA.JK ┆ 50    ┆ +0   ┆ +0.00% ┆ 0           ┆ -   ┆ -     ┆ close  ┆ -     │
+└─────────┴───────┴──────┴────────┴─────────────┴─────┴───────┴────────┴───────┘
+Note: MABA.JK: Stockbit lists the stock as suspended
+Source: Stockbit's public page, delayed at least 10 minutes (Stockbit's terms); bid/offer only while the market is open.
+--- stderr

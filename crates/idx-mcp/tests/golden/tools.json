@@ -288,6 +288,33 @@
     "name": "get_foreign_flow"
   },
   {
+    "description": "Today's session of one IDX stock or index from Stockbit's public page (no login), whichever provider the server uses: `quote` (price, change, volume, `market_status`, `bid`/`offer` only while the market is open, `session_note`) and `points`, the price per minute in WIB, oldest first. Delayed at least 10 minutes; no per-minute volume. Empty `points` means the stock did not trade this session (see `session_note`), not an error. UPSTREAMBLOCKED means stockbit.com refused this machine (HTTP 403): do not retry at once.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "symbol": {
+          "description": "IDX ticker, e.g. \"BBCA\"; indices as \"^JKSE\" or \"IHSG\".",
+          "type": "string"
+        },
+        "tail": {
+          "default": null,
+          "description": "Only the latest N minutes (default: the whole session, at most 400).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "name": "get_intraday"
+  },
+  {
     "description": "Every IDX holding (above 1%) of one investor, matched by name.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -397,7 +424,7 @@
     "name": "get_price_history"
   },
   {
-    "description": "Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close: the provider lags, the stock did not trade, or the day was an exchange holiday.",
+    "description": "Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close: the provider lags, the stock did not trade, or the day was an exchange holiday. When the server runs with the stockbit provider, quotes also carry `market_status` (Stockbit's, e.g. \"open\", \"close\"), `bid`/`offer` (best price, only while the market is open) and `session_note` (suspended, delisted, no trades); Stockbit data is delayed at least 10 minutes.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {

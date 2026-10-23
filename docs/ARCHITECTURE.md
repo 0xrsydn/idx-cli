@@ -55,6 +55,9 @@ command parses arguments, makes one idx-core call, and renders the result.
   (`BrokerSummaryProvider`). See [Broker Summaries](#broker-summaries).
 - **IDX (idx.co.id)** — the daily trading summary behind `stocks flow
   --source idx` (`TradingSummaryProvider`). See [Foreign Flow](#foreign-flow).
+- **Stockbit (public page)** — `stocks intraday` whichever provider is
+  selected (`IntradayProvider`), and quotes under the opt-in
+  `--provider stockbit`. See [Stockbit](#stockbit).
 
 ### MSN Endpoints
 - `https://assets.msn.com/service/`: quotes, charts, equities, earnings,
@@ -151,6 +154,41 @@ WIB as the fallback.
   range fails on one. `foreign_net_value` is net shares at the session's
   average price (value over volume), an estimate.
 
+### Stockbit
+- `GET https://stockbit.com/symbol/{CODE}` needs no login. Next.js
+  server-renders the quote and today's chart into the page's `__NEXT_DATA__`
+  JSON; `api/stockbit/parse.rs` reads it purely. `props.pageProps.company`
+  is the quote (numbers mostly as strings, an index price as a float string),
+  `orderbook.{bid,offer}.price` the best bid and offer, `market_hour.status`
+  the market's state, and `status` `STATUS_ACTIVE|SUSPENDED|DELISTED`.
+  `chart.prices[]` holds one price per minute in WIB with no offset, after a
+  synthetic first row at the previous close; per-minute OHLC and volume are
+  empty. An unknown code is HTTP 404 with the 404 page.
+- Stockbit's JSON API (`exodus.stockbit.com`: chart, order book) answers 401
+  without a user's bearer token; it is not used.
+- Bid and offer are kept only while `market_hour.status` is `open`, so a
+  closing book never reads as a live one. Observed 2026-10-23: `open` during
+  trading (bid/offer set), `break` from 11:30 on a Friday, `close` after
+  hours; any other value fails closed. In session the chart gained a point
+  every minute and the last trade was within a minute of the clock, although
+  Stockbit's terms call its data delayed at least 10 minutes. Order-book
+  sizes are dropped: the page does not say whether they are lots or shares.
+  `as_of` comes from `date`/`time`
+  only when the stock traded (a suspended stock carries today's date).
+  `session_note` repeats what the page says (suspended, delisted) or "no
+  trades this session"; it is never inferred.
+- CloudFront in front of the page answers a static 403 to some user agents
+  (`curl/`, `axios/`, `Go-http-client/`, empty) and does not fingerprint TLS,
+  so a plain ureq request with `idx-cli/<version> (+repo)` passes. A 403 is
+  `UPSTREAMBLOCKED` and is not retried. Requests are at least 1 s apart
+  across the user's idx processes (the last request's time sits in
+  `<cache>/stockbit.pace` under a file lock, so a shell loop of `idx` calls is
+  paced too), and snapshots are cached for 5 s (at most `quote_ttl`), which
+  coalesces an agent's quote-then-intraday burst across MCP calls.
+- Stockbit's terms call its data delayed at least 10 minutes and for
+  personal use; frontends say so. Fixtures (`tests/fixtures/stockbit_*`) are
+  pages recorded 2026-10-22 after the close, cut to the fields read.
+
 ### Capability Gating
 ```
 MarketDataProvider = QuoteProvider + FundamentalsProvider
@@ -161,7 +199,12 @@ Factory functions:
   history_provider(kind, mode, verbose) → Result<(ProviderKind, Box<dyn HistoryProvider>)>
   broker_provider() → Box<dyn BrokerSummaryProvider>
   trading_summary_provider() → Box<dyn TradingSummaryProvider>
+  intraday_provider() → Box<dyn IntradayProvider>
 ```
+
+`ProviderKind::Stockbit` implements quotes only: fundamentals are
+`UNSUPPORTED`, the MSN-only capabilities say "requires --provider msn", and
+`auto` history falls back to Yahoo.
 
 ## Ownership Module (SQLite-backed)
 
@@ -239,7 +282,9 @@ CLI flags > environment variables > config file > defaults
   bidirectional overrides replaced before it reaches a terminal table.
 - Exit codes by class: `0` success, `2` `INVALIDINPUT`/`CONFIGERROR` and clap usage
   errors, `3` `SYMBOLNOTFOUND`/`NOMARKETDATA`/`CACHEMISS`, `4` `HTTP`/`RATELIMITED`/
-  `PROVIDERUNAVAILABLE`/`OFFLINE`/`AUTHERROR`, `5` `UNSUPPORTED`, `1` everything else
+  `PROVIDERUNAVAILABLE`/`OFFLINE`/`AUTHERROR`/`UPSTREAMBLOCKED`, `5` `UNSUPPORTED`,
+  `1` everything else. `UPSTREAMBLOCKED` is an upstream refusing this client
+  outright (a CDN 403 page); retrying at once does not help.
 - A totally failed `stocks compare` emits one structured error in JSON mode; per-symbol warnings are retained for partial success, not printed ahead of a total-failure error.
 
 ## CLI Output and Offline Cache

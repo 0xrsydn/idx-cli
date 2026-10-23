@@ -11,6 +11,7 @@ Tickers are IDX codes; the `.JK` suffix is optional.
 idx stocks quote BBCA                 # one quote
 idx stocks quote BBCA BBRI BMRI       # several (spaces or commas)
 idx stocks history BBCA --period 1y   # daily OHLCV
+idx stocks intraday BBCA              # today by the minute (Stockbit)
 idx stocks technical BBCA             # trend, RSI, MACD, moving averages
 idx stocks fundamental BBCA           # growth, valuation and risk together
 idx stocks compare BBCA BBRI BMRI     # fundamentals side by side

@@ -31,7 +31,7 @@ export default defineConfig({
 				},
 				{
 					label: 'CLI',
-					items: ['cli/stocks', 'cli/ownership', 'cli/output', 'cli/reference'],
+					items: ['cli/stocks', 'cli/stockbit', 'cli/ownership', 'cli/output', 'cli/reference'],
 				},
 				{
 					label: 'MCP server',
@@ -56,7 +56,7 @@ export default defineConfig({
 					projectName: 'idx-cli',
 					details: [
 						'- `idx` is a CLI; `idx-mcp` is an MCP server over the same library. Both read the same config, cache and ownership database.',
-						'- Output is JSON whenever stdout is not a terminal. Errors are one JSON object on stderr; exit codes: 2 invalid input, 3 not found, 4 upstream unavailable, 5 unsupported, 1 other.',
+						'- Output is JSON whenever stdout is not a terminal. Errors are one JSON object on stderr; exit codes: 2 invalid input, 3 not found, 4 upstream unavailable or blocked, 5 unsupported, 1 other.',
 						'- Every page is also available as Markdown by appending `.md` to its path, for example `/agents/install.md`.',
 					].join('\n'),
 				}),

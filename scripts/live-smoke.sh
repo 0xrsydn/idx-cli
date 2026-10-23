@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Live provider drift check: runs shipped commands against real MSN, Yahoo,
-# and IDX endpoints and validates the JSON output shape. Deterministic CLI
-# behavior is covered by tests/cli.rs and tests/golden.rs; this answers "do the
-# upstreams still look the way our parsers expect?"
+# IPOT, IDX, and Stockbit endpoints and validates the JSON output shape.
+# Deterministic CLI behavior is covered by tests/cli.rs and tests/golden.rs;
+# this answers "do the upstreams still look the way our parsers expect?"
+# An upstream that refuses us (UPSTREAMBLOCKED, HTTP 403) is reported as
+# BLOCKED, never as a pass.
 #
 # With --compare <old-idx>, every case also runs the old binary back to back
 # and fails on any difference in exit code or JSON structure, and on any value
@@ -26,7 +28,8 @@ usage() {
 Usage: scripts/live-smoke.sh [options]
 
 Options:
-  --group <stocks|ownership>  Restrict to a group. Repeatable. Default: both
+  --group <name>              stocks, stockbit, or ownership. Repeatable.
+                              Default: all three
   --symbol <ticker>           Primary ticker. Default: BBCA
   --bin <path>                Use an existing idx binary (skips cargo build)
   --compare <old-idx>         Also run an older idx binary and diff the results
@@ -46,12 +49,12 @@ while [[ $# -gt 0 ]]; do
         *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
 done
-[[ ${#GROUPS_SELECTED[@]} -eq 0 ]] && GROUPS_SELECTED=(stocks ownership)
+[[ ${#GROUPS_SELECTED[@]} -eq 0 ]] && GROUPS_SELECTED=(stocks stockbit ownership)
 
 for group in "${GROUPS_SELECTED[@]}"; do
     case "$group" in
-        stocks|ownership) ;;
-        *) echo "invalid --group '$group' (expected stocks or ownership)" >&2; exit 2 ;;
+        stocks|stockbit|ownership) ;;
+        *) echo "invalid --group '$group' (expected stocks, stockbit, or ownership)" >&2; exit 2 ;;
     esac
 done
 
@@ -99,8 +102,10 @@ def types: [paths(scalars) as $p | select(getpath($p) != null)
 # jq filter describing the JSON shape each command must keep.
 contract() {
     case "$1" in
-        "stocks quote "*|"stocks screen"*)
+        "stocks quote "*|"stocks screen"*|"--provider stockbit stocks quote "*)
             echo 'type == "array" and length > 0 and all(.[]; (.symbol | type == "string") and (.price | type == "number"))' ;;
+        "stocks intraday "*)
+            echo '(.quote.symbol | type == "string") and (.quote.price | type == "number") and (.quote.market_status | type == "string") and (.points | type == "array") and all(.points[]; (.time | type == "string") and (.price | type == "number"))' ;;
         "stocks history "*)
             echo 'type == "array" and length > 0 and all(.[]; (.date | type == "string") and (.close | type == "number"))' ;;
         "stocks technical "*)
@@ -172,6 +177,11 @@ run_case() {
         fi
     fi
     if (( status != 0 )); then
+        if grep -q 'UPSTREAMBLOCKED' "$log.stderr"; then
+            FAILURES+=("$name: BLOCKED, upstream refused us with HTTP 403 (see $log.stderr)")
+            echo "     BLOCKED (HTTP 403)"
+            return
+        fi
         FAILURES+=("$name: exit $status (see $log.stderr)")
         echo "     FAIL exit"
         return
@@ -236,6 +246,13 @@ if selected stocks; then
     run_new_case bandar "stocks bandar $SYMBOL,BBRI,TLKM"
     run_new_case flow "stocks flow $SYMBOL --days 3"
     run_new_case flow-idx "stocks flow $SYMBOL --days 3 --source idx"
+fi
+
+if selected stockbit; then
+    # Stockbit's public page (no login): one request per case, 1 s apart.
+    run_new_case intraday "stocks intraday $SYMBOL"
+    run_new_case intraday-index "stocks intraday ^JKSE"
+    run_new_case quote-stockbit "--provider stockbit stocks quote $SYMBOL"
 fi
 
 if selected ownership; then

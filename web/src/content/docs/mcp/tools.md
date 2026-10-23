@@ -75,6 +75,15 @@ Foreign investors' buying and selling of one IDX ticker, session by session (old
 | `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
 | `to` | string | no | Last session of the range, YYYY-MM-DD (default today). |
 
+## `get_intraday`
+
+Today's session of one IDX stock or index from Stockbit's public page (no login), whichever provider the server uses: `quote` (price, change, volume, `market_status`, `bid`/`offer` only while the market is open, `session_note`) and `points`, the price per minute in WIB, oldest first. Delayed at least 10 minutes; no per-minute volume. Empty `points` means the stock did not trade this session (see `session_note`), not an error. UPSTREAMBLOCKED means stockbit.com refused this machine (HTTP 403): do not retry at once.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `symbol` | string | yes | IDX ticker, e.g. "BBCA"; indices as "^JKSE" or "IHSG". |
+| `tail` | integer | no | Only the latest N minutes (default: the whole session, at most 400). |
+
 ## `get_investor_holdings`
 
 Every IDX holding (above 1%) of one investor, matched by name.
@@ -107,7 +116,7 @@ OHLCV price history for one IDX ticker.
 
 ## `get_quotes`
 
-Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close: the provider lags, the stock did not trade, or the day was an exchange holiday.
+Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close: the provider lags, the stock did not trade, or the day was an exchange holiday. When the server runs with the stockbit provider, quotes also carry `market_status` (Stockbit's, e.g. "open", "close"), `bid`/`offer` (best price, only while the market is open) and `session_note` (suspended, delisted, no trades); Stockbit data is delayed at least 10 minutes.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
