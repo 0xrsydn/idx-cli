@@ -47,6 +47,35 @@ pub struct OrderBookParams {
     pub depth: Option<usize>,
 }
 
+/// How `stockbit_login` signs in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LoginMethod {
+    Auto,
+    Browser,
+    Page,
+}
+
+impl LoginMethod {
+    pub const ALL: [Self; 3] = [Self::Auto, Self::Browser, Self::Page];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Browser => "browser",
+            Self::Page => "page",
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LoginParams {
+    /// "auto" (default): a browser window when idx-mcp's machine has a display and no SSH, else the local page; "browser" or "page" picks one.
+    #[serde(default)]
+    #[schemars(schema_with = "login_method_schema")]
+    pub method: Option<LoginMethod>,
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ScreenParams {
     /// Screen to run (default "top-performers").
@@ -274,6 +303,10 @@ fn board_schema(_: &mut SchemaGenerator) -> Schema {
 
 fn flow_source_schema(_: &mut SchemaGenerator) -> Schema {
     string_enum(FlowSource::ALL.map(FlowSource::as_str).to_vec())
+}
+
+fn login_method_schema(_: &mut SchemaGenerator) -> Schema {
+    string_enum(LoginMethod::ALL.map(LoginMethod::as_str).to_vec())
 }
 
 fn top_schema(_: &mut SchemaGenerator) -> Schema {

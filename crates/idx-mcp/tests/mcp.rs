@@ -9,7 +9,7 @@ use idx_core::config::CoreConfig;
 use idx_core::investor::{ImportSource, Investor};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 17] = [
+const TOOLS: [&str; 18] = [
     "analyze_bandar",
     "analyze_stock",
     "compare_stocks",
@@ -26,6 +26,7 @@ const TOOLS: [&str; 17] = [
     "ownership_status",
     "screen_stocks",
     "search_investors",
+    "stockbit_login",
     "stockbit_status",
 ];
 
@@ -368,6 +369,104 @@ fn stockbit_provider_quotes_carry_market_status_and_blocks_surface_once() {
         body["message"].as_str().unwrap().contains("does not retry"),
         "{body}"
     );
+}
+
+/// The sign-in tool answers at once. With no browser to open (the mock
+/// provider never starts one), auto falls back to the page and says why; the
+/// page takes the cookie the way the browser would, and stockbit_status
+/// reports the sign-in finishing.
+#[test]
+fn stockbit_login_returns_a_page_that_takes_the_cookie() {
+    let mut client = Client::start(&[], false);
+    let login = client.ok("stockbit_login", json!({}));
+    assert_eq!(login["method"], "page", "{login}");
+    assert_eq!(login["state"], "waiting", "{login}");
+    assert!(login["reason"].is_string(), "auto says why: {login}");
+    let url = login["url"].as_str().expect("url").to_string();
+    assert!(url.starts_with("http://127.0.0.1:"), "{login}");
+    assert!(
+        login["forward"].as_str().unwrap().starts_with("ssh -L "),
+        "{login}"
+    );
+    assert_eq!(login["already_open"], false, "{login}");
+    assert!(login["next"].as_str().unwrap().contains("stockbit_status"));
+
+    // A second call hands back the page that is already up.
+    let again = client.ok("stockbit_login", json!({}));
+    assert_eq!(again["url"], login["url"]);
+    assert_eq!(again["already_open"], true, "{again}");
+
+    let waiting = client.ok("stockbit_status", json!({}));
+    assert_eq!(waiting["logged_in"], false, "{waiting}");
+    assert_eq!(waiting["sign_in"]["state"], "waiting", "{waiting}");
+
+    let cookie = std::fs::read_to_string(
+        core_dir().join("tests/fixtures/stockbit_exodus_credential_storage_cookie_constructed.txt"),
+    )
+    .expect("cookie fixture");
+    let (status, body) = post(&url, cookie.trim());
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"ok\":true"), "{body}");
+
+    // The sign-in's thread records the outcome just after the page answers.
+    let mut status = client.ok("stockbit_status", json!({}));
+    for _ in 0..50 {
+        if status["sign_in"]["state"] != "waiting" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        status = client.ok("stockbit_status", json!({}));
+    }
+    assert_eq!(status["logged_in"], true, "{status}");
+    assert_eq!(status["sign_in"]["state"], "signed_in", "{status}");
+
+    // Now there is nothing to sign in to.
+    let done = client.ok("stockbit_login", json!({}));
+    assert_eq!(done["state"], "signed_in", "{done}");
+    assert_eq!(done["method"], "existing", "{done}");
+}
+
+/// Asking for the browser where there is none fails, instead of quietly
+/// serving the page.
+#[test]
+fn stockbit_login_with_the_browser_forced_fails_without_one() {
+    let mut client = Client::start(&[], false);
+    let (is_error, body) = client.call("stockbit_login", json!({"method": "browser"}));
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "UNSUPPORTED", "{body}");
+    let status = client.ok("stockbit_status", json!({}));
+    assert!(status.get("sign_in").is_none(), "nothing started: {status}");
+}
+
+/// POSTs to the sign-in page the way its own script does.
+fn post(url: &str, body: &str) -> (u16, String) {
+    use std::io::Read;
+    use std::net::TcpStream;
+
+    let rest = url.trim_start_matches("http://");
+    let (authority, path) = rest.split_once('/').expect("path");
+    let mut stream = TcpStream::connect(authority).expect("connect to the page");
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .unwrap();
+    write!(
+        stream,
+        "POST /{path} HTTP/1.1\r\nHost: {authority}\r\nContent-Type: text/plain\r\n\
+         Content-Length: {}\r\n\r\n{body}",
+        body.len()
+    )
+    .unwrap();
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).unwrap();
+    let status = raw
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+    (
+        status,
+        raw.split("\r\n\r\n").nth(1).unwrap_or_default().to_string(),
+    )
 }
 
 #[test]

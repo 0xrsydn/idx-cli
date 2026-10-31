@@ -94,6 +94,57 @@ pub struct SessionStatus {
     pub session_file: String,
 }
 
+/// Where the session and idx's browser profile live: beside `config.toml`,
+/// or in the other default location when that is where they are.
+///
+/// On macOS the config directory depends on the environment: a shell that
+/// sets `XDG_CONFIG_HOME=~/.config` and an app started from the Dock, which
+/// does not, resolve to different places, and the CLI and an MCP client must
+/// still find one session. A custom `XDG_CONFIG_HOME` has no other location,
+/// so a run isolated with one never reaches the user's session.
+pub fn session_dir() -> Result<PathBuf, IdxError> {
+    let config = crate::config::config_path()?;
+    let primary = config
+        .parent()
+        .ok_or_else(|| IdxError::ConfigError("config path has no directory".to_string()))?
+        .to_path_buf();
+    let other = if cfg!(target_os = "macos") {
+        std::env::var_os("HOME").and_then(|home| other_default(&primary, Path::new(&home)))
+    } else {
+        None
+    };
+    Ok(choose_dir(primary, other))
+}
+
+/// The second default config location, when `primary` is one of the two.
+fn other_default(primary: &Path, home: &Path) -> Option<PathBuf> {
+    let dot_config = home.join(".config/idx");
+    let library = home.join("Library/Application Support/idx");
+    if primary == dot_config {
+        Some(library)
+    } else if primary == library {
+        Some(dot_config)
+    } else {
+        None
+    }
+}
+
+/// The directory holding a session, else a browser profile, else `primary`.
+fn choose_dir(primary: PathBuf, other: Option<PathBuf>) -> PathBuf {
+    let Some(other) = other else {
+        return primary;
+    };
+    for entry in [SESSION_FILE, super::browser::PROFILE_DIR] {
+        if primary.join(entry).exists() {
+            return primary;
+        }
+        if other.join(entry).exists() {
+            return other;
+        }
+    }
+    primary
+}
+
 /// Reads, writes and refreshes the session.
 #[derive(Debug, Clone)]
 pub struct SessionStore {
@@ -102,19 +153,15 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
-    /// The session beside `config.toml`, seeded from the environment.
+    /// The session in `session_dir`, seeded from the environment.
     pub fn open() -> Result<Self, IdxError> {
-        let config = crate::config::config_path()?;
-        let dir = config
-            .parent()
-            .ok_or_else(|| IdxError::ConfigError("config path has no directory".to_string()))?;
         let env = |name| {
             std::env::var(name)
                 .map(|v| normalize_token(&v))
                 .unwrap_or_default()
         };
         Ok(Self::at(
-            dir.to_path_buf(),
+            session_dir()?,
             Session {
                 access: env(ENV_ACCESS),
                 refresh: env(ENV_REFRESH),
@@ -392,6 +439,50 @@ mod tests {
     use std::cell::Cell;
 
     use super::*;
+
+    /// The two default locations pair up; anything else stands alone, so
+    /// a run with its own `XDG_CONFIG_HOME` cannot reach the user's session.
+    #[test]
+    fn only_the_two_default_locations_pair_up() {
+        let home = Path::new("/Users/me");
+        let dot_config = home.join(".config/idx");
+        let library = home.join("Library/Application Support/idx");
+        assert_eq!(other_default(&dot_config, home), Some(library.clone()));
+        assert_eq!(other_default(&library, home), Some(dot_config));
+        assert_eq!(other_default(Path::new("/tmp/run/idx"), home), None);
+    }
+
+    /// A session anywhere beats a profile, a profile beats nothing, and with
+    /// neither the primary location is used.
+    #[test]
+    fn the_session_is_found_in_either_location() {
+        let root = std::env::temp_dir().join(format!(
+            "idx-session-dir-{}-{}",
+            std::process::id(),
+            fastrand::u32(..)
+        ));
+        let (primary, other) = (root.join("primary"), root.join("other"));
+        std::fs::create_dir_all(&primary).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let choose = || choose_dir(primary.clone(), Some(other.clone()));
+
+        assert_eq!(choose(), primary);
+        assert_eq!(choose_dir(primary.clone(), None), primary);
+
+        std::fs::create_dir(other.join(super::super::browser::PROFILE_DIR)).unwrap();
+        assert_eq!(choose(), other, "a profile says where the user signs in");
+
+        std::fs::write(primary.join(SESSION_FILE), "{}").unwrap();
+        assert_eq!(choose(), primary, "a session beats a profile");
+
+        std::fs::remove_file(primary.join(SESSION_FILE)).unwrap();
+        std::fs::write(other.join(SESSION_FILE), "{}").unwrap();
+        assert_eq!(choose(), other);
+
+        std::fs::write(primary.join(SESSION_FILE), "{}").unwrap();
+        assert_eq!(choose(), primary, "with two, the primary one wins");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     fn fixture(name: &str) -> String {
         std::fs::read_to_string(format!(

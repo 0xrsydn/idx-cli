@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use idx_core::analysis::BandarQuery;
 use idx_core::analysis::bandar::{BandarReport, DEFAULT_TOP};
 use idx_core::analysis::fundamental::FundamentalReport;
+use idx_core::api::stockbit::{self, signin};
 use idx_core::broker::types::BrokerRange;
 use idx_core::config::CoreConfig;
 use idx_core::error::IdxError;
@@ -26,8 +27,9 @@ use tokio::sync::Semaphore;
 
 use crate::params::{
     AnalysisKind, AnalyzeParams, BandarParams, BrokerParams, ChangesParams, CompanyParams,
-    CompanySection, EntityParams, FlowParams, HistoryParams, IntradayParams, OrderBookParams,
-    ScreenParams, SearchParams, ShareholdersParams, SymbolsParams, SyncParams,
+    CompanySection, EntityParams, FlowParams, HistoryParams, IntradayParams, LoginMethod,
+    LoginParams, OrderBookParams, ScreenParams, SearchParams, ShareholdersParams, SymbolsParams,
+    SyncParams,
 };
 
 const SYNC_TOOL: &str = "ownership_sync";
@@ -165,8 +167,8 @@ per-minute volume. Empty `points` means the stock did not trade this session (se
 `bids` and `offers` (best price first) of {price, shares, orders}, the session's OHLC, \
 volume (shares), value and frequency, and foreign buy/sell/net in IDR. `market_status` is \
 Stockbit's state, verbatim; outside STATE_NAME_MARKET_OPEN the book is as the market left \
-it. AUTHERROR means there is no session: call stockbit_status, and ask the user to run \
-`idx stockbit login` in a terminal."
+it. AUTHERROR means there is no session: call stockbit_status, then stockbit_login for a URL \
+the user can open."
     )]
     async fn get_orderbook(&self, params: Parameters<OrderBookParams>) -> ToolResult {
         let OrderBookParams { symbol, depth } = params.0;
@@ -183,9 +185,28 @@ it. AUTHERROR means there is no session: call stockbit_status, and ask the user 
     #[tool(description = "Whether a Stockbit session is stored (or seeded by \
 IDX_STOCKBIT_REFRESH_TOKEN) and when its tokens expire; never the tokens. Without one, \
 get_orderbook fails and stockbit-provider quotes use Stockbit's delayed public page; the \
-user adds one with `idx stockbit login` in a terminal.")]
+user adds one with stockbit_login, or `idx stockbit login` in a terminal. After \
+stockbit_login, `sign_in.state` says whether that sign-in is waiting, signed_in or failed \
+(with `sign_in.error`).")]
     async fn stockbit_status(&self) -> ToolResult {
-        blocking(idx_core::api::stockbit::session_status).await
+        blocking(login_status).await
+    }
+
+    #[tool(
+        description = "Start a Stockbit sign-in and return at once; this call does not wait \
+for it. With method auto (the default), idx-mcp opens a browser window on Stockbit's own \
+sign-in page when its machine has a display and is not reached over SSH (`method: \
+\"browser\"` in the answer): the user signs in there and the window closes by itself. \
+Otherwise it serves a page on 127.0.0.1 (`method: \"page\"`, with `url` and an `ssh -L` \
+`forward` for a browser on another machine) that takes stockbit.com's session cookie from the \
+user's own browser. Never ask the user for their password, and never type it. Then poll \
+stockbit_status until `sign_in.state` is signed_in or failed. A session that already works \
+answers state signed_in without opening anything; a second call while one is waiting returns \
+it again (`already_open`)."
+    )]
+    async fn stockbit_login(&self, params: Parameters<LoginParams>) -> ToolResult {
+        let LoginParams { method } = params.0;
+        blocking(move || start_login(method)).await
     }
 
     #[tool(description = "OHLCV price history for one IDX ticker.")]
@@ -578,6 +599,49 @@ impl SectionReport {
         }
         Ok(Value::Object(out))
     }
+}
+
+/// Starts idx-core's background sign-in and adds what the agent does next.
+fn start_login(method: Option<LoginMethod>) -> Result<Value, IdxError> {
+    let options = signin::Options {
+        method: match method {
+            None | Some(LoginMethod::Auto) => signin::Method::Auto,
+            Some(LoginMethod::Browser) => signin::Method::Browser,
+            Some(LoginMethod::Page) => signin::Method::Page,
+        },
+        port: None,
+        // The server cannot tell whether the user sits at this machine.
+        open_page: false,
+    };
+    let progress = signin::start_background(&options)?;
+    let next = match (&progress.state, &progress.started) {
+        (signin::State::SignedIn, _) => {
+            "A stored session already works: nothing to sign in to. Call get_orderbook."
+        }
+        (_, signin::Started::Browser { .. }) => {
+            "A browser window is open on Stockbit's sign-in page, on the machine running \
+             idx-mcp. Ask the user to sign in there; never ask for their password. Then poll \
+             stockbit_status until sign_in.state is signed_in or failed."
+        }
+        _ => {
+            "Give the user the URL (with `forward` when their browser is on another machine). \
+             With stockbit.com open and signed in, they click the page's bookmarklet; never ask \
+             for their password. Then poll stockbit_status until sign_in.state is signed_in or \
+             failed."
+        }
+    };
+    let mut value = to_json(progress)?;
+    value["next"] = json!(next);
+    Ok(value)
+}
+
+/// The session's state, plus this server's sign-in when one has run.
+fn login_status() -> Result<Value, IdxError> {
+    let mut value = to_json(stockbit::session_status()?)?;
+    if let Some(progress) = signin::progress() {
+        value["sign_in"] = to_json(progress)?;
+    }
+    Ok(value)
 }
 
 async fn blocking<T, F>(f: F) -> ToolResult

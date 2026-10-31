@@ -16,9 +16,11 @@
 //!   minutes and for personal use; frontends say so.
 
 pub mod auth;
+pub mod browser;
 pub mod exodus;
 pub mod loopback;
 mod parse;
+pub mod signin;
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -215,6 +217,30 @@ impl HistoryProvider for StockbitProvider {
 /// Whether the user has a Stockbit session stored or seeded.
 pub fn has_session() -> bool {
     SessionStore::open().is_ok_and(|store| store.has_session())
+}
+
+/// Whether the stored session still works, checked with one request.
+///
+/// The check refreshes the access token when it is close to expiry, which
+/// spends the refresh token and rotates the pair; a session Stockbit refuses
+/// is reported as `AUTHERROR` and left in place. Frontends use this to skip a
+/// fresh sign-in when the session in hand is still good.
+pub fn verify_session() -> Result<(), IdxError> {
+    let store = SessionStore::open()?;
+    if !store.has_session() {
+        return Err(IdxError::AuthError(
+            "no Stockbit session stored".to_string(),
+        ));
+    }
+    // As in `login`: the mock provider stands in for the network.
+    #[cfg(feature = "testing")]
+    let check = !crate::api::mock::enabled();
+    #[cfg(not(feature = "testing"))]
+    let check = true;
+    if check {
+        Exodus::new(store).verify()?;
+    }
+    Ok(())
 }
 
 pub(crate) fn fundamentals_unsupported(symbol: &str) -> IdxError {

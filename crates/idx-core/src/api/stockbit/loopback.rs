@@ -67,15 +67,15 @@ impl LoginPage {
         self.port
     }
 
-    /// Serves until `verify` accepts a paste or `timeout` passes. `verify`
-    /// returns the error text to show on the page when the paste is refused.
+    /// Serves until `verify` accepts a paste or `timeout` passes. The error
+    /// `verify` returns for a refused paste is shown on the page.
     ///
     /// Each connection gets its own thread: browsers open idle preconnects,
     /// and answering them one at a time used to hold the page back for the
     /// read timeout on every one.
     pub fn wait<F>(&self, timeout: Duration, verify: F) -> Result<(), IdxError>
     where
-        F: Fn(&str) -> Result<(), String> + Send + Sync + 'static,
+        F: Fn(&str) -> Result<(), IdxError> + Send + Sync + 'static,
     {
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
         let verify = std::sync::Arc::new(verify);
@@ -136,12 +136,38 @@ window.open('{target}#t='+encodeURIComponent(m[1]))}})()"
     }
 }
 
+/// The forward to run where the browser is, for the page on `port`:
+/// `ssh -L <port>:127.0.0.1:<port> <user>@<host>`.
+///
+/// The target comes from `SSH_CONNECTION` (`client_ip client_port server_ip
+/// server_port`) when idx runs inside an SSH session, else from `USER` and
+/// `HOSTNAME`, else it is left for the reader to fill in.
+pub fn ssh_forward(port: u16) -> String {
+    let target = ssh_target().unwrap_or_else(|| "<this host>".to_string());
+    format!("ssh -L {port}:127.0.0.1:{port} {target}")
+}
+
+fn ssh_target() -> Option<String> {
+    if let Ok(connection) = std::env::var("SSH_CONNECTION") {
+        let fields: Vec<&str> = connection.split_whitespace().collect();
+        if let Some(server) = fields.get(2) {
+            return Some(match std::env::var("USER") {
+                Ok(user) => format!("{user}@{server}"),
+                Err(_) => (*server).to_string(),
+            });
+        }
+    }
+    let user = std::env::var("USER").ok()?;
+    let host = std::env::var("HOSTNAME").ok()?;
+    Some(format!("{user}@{host}"))
+}
+
 /// Answers one request; true when a paste was accepted.
 fn serve_once(
     mut stream: TcpStream,
     page_path: &str,
     page: &str,
-    verify: &dyn Fn(&str) -> Result<(), String>,
+    verify: &dyn Fn(&str) -> Result<(), IdxError>,
 ) -> bool {
     let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
     let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
@@ -168,8 +194,8 @@ fn serve_once(
                 );
                 return true;
             }
-            Err(message) => {
-                let body = serde_json::json!({ "ok": false, "message": message });
+            Err(err) => {
+                let body = serde_json::json!({ "ok": false, "message": err.to_string() });
                 respond(
                     &mut stream,
                     200,
@@ -278,76 +304,240 @@ fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8])
 const PAGE: &str = r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Connect Stockbit to idx</title>
 <style>
-:root{--bg:#fff;--fg:#111;--muted:#666;--line:#e5e5e5;--accent:#111;--ok:#1a7f37;--err:#b42318;--card:#fafafa}
-@media (prefers-color-scheme:dark){:root{--bg:#0d0d0d;--fg:#f2f2f2;--muted:#9a9a9a;--line:#2a2a2a;--accent:#f2f2f2;--card:#161616}}
+:root{
+color-scheme:light dark;
+--bg:#f4f5f8;--glow:rgba(47,92,240,.10);--panel:#fff;--panel-2:#f7f8fb;
+--ink:#12141a;--muted:#6a7180;--line:#e5e8ef;--line-strong:#d2d7e2;
+--accent:#2f5cf0;--accent-ink:#fff;
+--ok:#0e7a48;--ok-bg:#eaf7f0;--ok-line:#bfe6d1;
+--err:#b42318;--err-bg:#fdf2f1;--err-line:#f0cecb;
+--shadow:0 1px 2px rgba(16,24,40,.05),0 18px 40px -20px rgba(16,24,40,.25)
+}
+@media (prefers-color-scheme:dark){:root{
+--bg:#0b0c0f;--glow:rgba(122,162,255,.09);--panel:#14161b;--panel-2:#191c22;
+--ink:#edeef2;--muted:#99a0b0;--line:#252932;--line-strong:#333a46;
+--accent:#7aa2ff;--accent-ink:#0b0c0f;
+--ok:#5fd39a;--ok-bg:#0f1f19;--ok-line:#1e4135;
+--err:#ff8f86;--err-bg:#231413;--err-line:#4a2523;
+--shadow:0 1px 2px rgba(0,0,0,.5),0 18px 44px -20px rgba(0,0,0,.9)
+}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-main{max-width:640px;margin:0 auto;padding:48px 24px 64px}
-h1{font-size:22px;letter-spacing:-.01em;margin:0 0 6px}
-p.lede{color:var(--muted);margin:0 0 28px}
-h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:28px 0 10px}
-.step{border:1px solid var(--line);border-radius:12px;padding:18px;background:var(--card);margin-bottom:14px}
-.step p{margin:0 0 12px}
-.btn{display:inline-block;border:1px solid var(--accent);background:var(--accent);color:var(--bg);border-radius:9px;padding:9px 14px;font:inherit;font-weight:600;cursor:pointer;text-decoration:none}
-.btn[disabled]{opacity:.5;cursor:default}
-.btn.ghost{background:transparent;color:var(--fg);border-color:var(--line);font-weight:500}
-code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:1px 5px}
-textarea{width:100%;min-height:76px;margin-top:10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--fg);padding:10px;font:13px ui-monospace,Menlo,monospace;resize:vertical}
-#status{margin-top:18px;font-weight:600;min-height:1.4em}
-#status.ok{color:var(--ok)}#status.err{color:var(--err)}
-.foot{color:var(--muted);font-size:13px;margin-top:28px}
-.foot a{color:inherit}
+body{margin:0;padding:clamp(20px,5vw,56px) 20px;background:var(--bg);
+background-image:radial-gradient(900px 420px at 50% -180px,var(--glow),transparent 70%);
+background-repeat:no-repeat;color:var(--ink);
+font:15px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+-webkit-font-smoothing:antialiased}
+.card{max-width:640px;margin:0 auto;background:var(--panel);border:1px solid var(--line);
+border-radius:20px;padding:clamp(24px,4.4vw,40px);box-shadow:var(--shadow)}
+.brand{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:20px}
+.mark{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:var(--accent);color:var(--accent-ink)}
+.mark svg{width:16px;height:16px}
+.sep{opacity:.45}
+h1{font-size:clamp(22px,3.2vw,26px);line-height:1.25;letter-spacing:-.02em;margin:0 0 8px;text-wrap:balance}
+.lede{color:var(--muted);margin:0 0 26px}
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.step{display:flex;gap:14px;border:1px solid var(--line);background:var(--panel-2);border-radius:14px;padding:16px 18px}
+.num{flex:0 0 auto;display:grid;place-items:center;width:24px;height:24px;margin-top:2px;border-radius:50%;
+border:1px solid var(--line-strong);background:var(--panel);color:var(--muted);font-size:12px;font-weight:700}
+.step h2{font-size:15px;letter-spacing:-.01em;margin:0 0 4px}
+.step p{margin:0 0 13px;color:var(--muted);font-size:14px}
+.step p:last-child{margin-bottom:0}
+.btn{display:inline-flex;align-items:center;gap:8px;border:1px solid transparent;border-radius:10px;
+padding:10px 16px;font:inherit;font-size:14px;font-weight:600;line-height:1.2;cursor:pointer;
+text-decoration:none;background:var(--accent);color:var(--accent-ink);
+box-shadow:0 1px 2px rgba(16,24,40,.10);transition:filter .12s ease,transform .12s ease,background-color .12s ease}
+.btn:hover{filter:brightness(1.07)}
+.btn:active{transform:translateY(1px)}
+.btn.ghost{background:var(--panel);color:var(--ink);border-color:var(--line-strong);box-shadow:none}
+.btn.ghost:hover{background:var(--panel-2);filter:none}
+.btn[disabled]{opacity:.55;cursor:progress;transform:none}
+.hint{margin:13px 0 0;color:var(--muted);font-size:13px}
+.manual{margin-top:14px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
+summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;
+cursor:pointer;font-size:14px;font-weight:600;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary svg{width:16px;height:16px;flex:0 0 auto;color:var(--muted);transition:transform .16s ease}
+.manual[open] summary svg{transform:rotate(180deg)}
+.manual-body{padding:0 18px 18px;border-top:1px solid var(--line)}
+.mini{margin:15px 0;padding-left:19px;color:var(--muted);font-size:13.5px;line-height:1.75}
+.mini li::marker{color:var(--line-strong)}
+textarea{width:100%;min-height:84px;border:1px solid var(--line-strong);border-radius:10px;
+background:var(--panel);color:var(--ink);padding:11px 12px;resize:vertical;
+font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+textarea::placeholder{color:var(--muted);opacity:.75}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--panel-2);
+border:1px solid var(--line);border-radius:6px;padding:1px 5px;white-space:nowrap}
+kbd{font:12px ui-monospace,Menlo,monospace;background:var(--panel-2);border:1px solid var(--line-strong);
+border-bottom-width:2px;border-radius:5px;padding:0 5px}
+em{font-style:normal;color:var(--ink)}
+.status{display:flex;align-items:center;gap:10px;margin:18px 0 0;padding:12px 14px;
+border:1px solid transparent;border-radius:11px;font-size:14px;font-weight:600}
+.status[hidden]{display:none}
+.status.pending{color:var(--muted);background:var(--panel-2);border-color:var(--line)}
+.status.pending::before{content:"";flex:0 0 auto;width:14px;height:14px;border-radius:50%;
+border:2px solid var(--line-strong);border-top-color:var(--accent);animation:spin .7s linear infinite}
+.status.err{color:var(--err);background:var(--err-bg);border-color:var(--err-line)}
+.status.err::before{content:"!";flex:0 0 auto;display:grid;place-items:center;width:16px;height:16px;
+border-radius:50%;background:var(--err);color:var(--err-bg);font-size:11px;font-weight:800}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){
+.status.pending::before{animation-duration:2.4s}
+.btn{transition:none}
+}
+.done{padding:6px 0 10px;text-align:center}
+.done[hidden]{display:none}
+.done .check{display:grid;place-items:center;width:52px;height:52px;margin:0 auto 16px;
+border-radius:50%;background:var(--ok-bg);border:1px solid var(--ok-line);color:var(--ok)}
+.done .check svg{width:26px;height:26px}
+.done h2{font-size:18px;letter-spacing:-.01em;margin:0 0 6px}
+.done p{margin:0;color:var(--muted);font-size:14px}
+.foot{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);
+color:var(--muted);font-size:13px;line-height:1.65}
+.foot p{margin:0 0 8px}
+.foot p:last-child{margin-bottom:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
 </style></head>
-<body><main>
-<h1>Connect Stockbit to idx</h1>
-<p class="lede">One step. idx stores the session on this machine only, and never sends it anywhere but Stockbit.</p>
-
-<div class="step">
-<p><strong>1.</strong> Open <a href="https://stockbit.com/symbol/BBCA" target="_blank" rel="noreferrer">stockbit.com</a> and make sure you are logged in.</p>
+<body><main class="card">
+<div class="brand">
+<span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.7 14.3 14.3 9.7"/><path d="M7.4 12.6l-1.3 1.3a3.6 3.6 0 0 0 5 5l1.3-1.3"/><path d="M16.6 11.4l1.3-1.3a3.6 3.6 0 0 0-5-5L11.6 6.4"/></svg></span>
+<span>idx</span><span class="sep" aria-hidden="true">/</span><span>Stockbit</span>
 </div>
 
-<div class="step">
-<p><strong>2.</strong> While on stockbit.com, click this bookmarklet. It reads your Stockbit session cookie in your own browser and hands it to this page.</p>
-<p><a class="btn" href="__BOOKMARKLET__">Send my Stockbit session</a></p>
-<p class="lede" style="margin:0">If your browser blocks it, drag the button to your bookmarks bar and click it there.</p>
-</div>
+<header class="head">
+<h1>Connect your Stockbit account</h1>
+<p class="lede">idx then reads live quotes and the order book with your own session. The session stays on this machine.</p>
+</header>
 
-<div class="step">
-<p><strong>Or copy it by hand.</strong> On stockbit.com: DevTools, Application, Cookies, <code>https://stockbit.com</code>, copy the <code>credentialStorage</code> value, then paste it here.</p>
-<textarea id="paste" placeholder="credentialStorage value"></textarea>
-<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+<section id="app">
+<ol class="steps">
+<li class="step">
+<span class="num" aria-hidden="true">1</span>
+<div>
+<h2>Sign in to Stockbit</h2>
+<p>Open stockbit.com in this browser and sign in. If the tab is already signed in, go to the next step.</p>
+<a class="btn ghost" href="https://stockbit.com/symbol/BBCA" target="_blank" rel="noreferrer">Open stockbit.com</a>
+</div>
+</li>
+<li class="step">
+<span class="num" aria-hidden="true">2</span>
+<div>
+<h2>Send the session to idx</h2>
+<p>While the Stockbit tab is open, click this button. It reads the session cookie in your own browser.</p>
+<a class="btn" id="bookmarklet" href="__BOOKMARKLET__">Send my Stockbit session</a>
+<p class="hint">If the browser blocks it, drag the button to your bookmarks bar, open stockbit.com, then click it there.</p>
+</div>
+</li>
+</ol>
+
+<details class="manual" id="manual">
+<summary><span>Or paste the cookie by hand</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+<div class="manual-body">
+<ol class="mini">
+<li>On stockbit.com, open DevTools with <kbd>F12</kbd>.</li>
+<li>Go to <em>Application</em>, then <em>Cookies</em>, then <code>https://stockbit.com</code>.</li>
+<li>Copy the value of <code>credentialStorage</code> and paste it below.</li>
+</ol>
+<textarea id="paste" placeholder="credentialStorage value" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+<div class="row">
 <button class="btn" id="send">Connect</button>
 <button class="btn ghost" id="clip">Paste from clipboard</button>
 </div>
 </div>
+</details>
 
-<p id="status"></p>
-<p class="foot">idx keeps only the two tokens Stockbit issues, in a file only you can read. Stockbit replaces the refresh token each time it is used, so a browser sharing this session will be signed out once idx refreshes it. This page closes when you finish, or after a few minutes.</p>
+<p id="status" class="status" role="status" aria-live="polite" hidden></p>
+</section>
+
+<section id="done" class="done" hidden aria-live="polite">
+<span class="check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6.5-10.5 11L4 12"/></svg></span>
+<h2>Connected</h2>
+<p id="done-msg">You can close this tab and go back to idx.</p>
+</section>
+
+<footer class="foot">
+<p>idx keeps only the two tokens Stockbit issues, in a file only you can read. Stockbit replaces the refresh token each time it is used, so a browser that shares this session signs out once idx refreshes it.</p>
+<p>This page stops listening after a few minutes.</p>
+</footer>
 </main>
 <script>
 const target = "__TARGET__";
-const status = document.getElementById('status');
-const setStatus = (text, kind) => { status.textContent = text; status.className = kind || ''; };
-async function send(text) {
-  if (!text || !text.trim()) { setStatus('Nothing to send yet.', 'err'); return; }
-  setStatus('Checking with Stockbit…');
-  try {
-    const response = await fetch(target, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text });
-    const result = await response.json();
-    setStatus(result.message, result.ok ? 'ok' : 'err');
-  } catch (error) { setStatus('Could not reach idx: ' + error, 'err'); }
+const app = document.getElementById('app');
+const done = document.getElementById('done');
+const statusEl = document.getElementById('status');
+const manual = document.getElementById('manual');
+const paste = document.getElementById('paste');
+const head = document.querySelector('.head');
+const buttons = [document.getElementById('send'), document.getElementById('clip')];
+let busy = false;
+
+function setStatus(text, kind) {
+  statusEl.hidden = !text;
+  statusEl.className = 'status' + (kind ? ' ' + kind : '');
+  statusEl.textContent = text || '';
 }
-document.getElementById('send').addEventListener('click', () => send(document.getElementById('paste').value));
+function setBusy(value) {
+  busy = value;
+  for (const button of buttons) { button.disabled = value; }
+}
+function askForPaste(message) {
+  if (message) { setStatus(message, 'err'); }
+  manual.open = true;
+  paste.focus();
+}
+
+async function send(value) {
+  const text = (value || '').trim();
+  if (busy) { return false; }
+  if (!text) { askForPaste('Paste the credentialStorage value first.'); return false; }
+  setBusy(true);
+  setStatus('Checking the session with Stockbit\u2026', 'pending');
+  try {
+    const response = await fetch(target, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: text
+    });
+    const result = await response.json();
+    if (result.ok) {
+      setStatus('');
+      head.hidden = true;
+      app.hidden = true;
+      done.hidden = false;
+      return true;
+    }
+    setStatus(result.message, 'err');
+  } catch (error) {
+    setStatus('Could not reach idx: ' + error, 'err');
+  } finally {
+    setBusy(false);
+  }
+  return false;
+}
+
+document.getElementById('send').addEventListener('click', () => send(paste.value));
 document.getElementById('clip').addEventListener('click', async () => {
-  try { send(await navigator.clipboard.readText()); }
-  catch (error) { setStatus('Clipboard blocked (' + error + '). Paste into the box instead.', 'err'); }
+  try {
+    send(await navigator.clipboard.readText());
+  } catch (error) {
+    askForPaste('The browser blocked the clipboard. Paste the value into the box instead.');
+  }
+});
+paste.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    send(paste.value);
+  }
 });
 if (location.hash.startsWith('#t=')) {
   const value = decodeURIComponent(location.hash.slice(3));
   history.replaceState(null, '', location.pathname);
-  send(value);
+  send(value).then((ok) => {
+    if (!ok) { paste.value = value; manual.open = true; }
+  });
 }
 </script>
 </body></html>
@@ -394,7 +584,7 @@ mod tests {
         let handle = std::thread::spawn(move || {
             let verify = |paste: &str| match paste.trim() {
                 "good" => Ok(()),
-                _ => Err("not a Stockbit session".to_string()),
+                _ => Err(IdxError::InvalidInput("not a Stockbit session".to_string())),
             };
             page.wait(Duration::from_secs(10), verify)
         });
@@ -419,12 +609,39 @@ mod tests {
         handle.join().unwrap().expect("accepted");
     }
 
+    /// The CSP allows no fetch of its own, so a stray asset would fail
+    /// silently; the page also has to keep the two entry points the docs name.
+    #[test]
+    fn the_page_is_self_contained_and_keeps_both_entry_points() {
+        let page = LoginPage::bind(0).unwrap().page();
+        for forbidden in ["<script src", "<link", "@import", "url(http"] {
+            assert!(!page.contains(forbidden), "page needs {forbidden}");
+        }
+        assert_eq!(
+            page.matches("https://").count(),
+            2,
+            "one link out, and the cookie path spelled out"
+        );
+        for url in page.split("https://").skip(1) {
+            assert!(
+                url.starts_with("stockbit.com"),
+                "page links somewhere else: {}",
+                &url[..url.len().min(40)]
+            );
+        }
+        assert!(page.contains("https://stockbit.com/symbol/BBCA"));
+        assert!(page.contains("Send my Stockbit session"));
+        assert!(page.contains("Paste from clipboard"));
+    }
+
     #[test]
     fn times_out_without_a_paste() {
         let page = LoginPage::bind(0).unwrap();
         let started = Instant::now();
         let err = page
-            .wait(Duration::from_millis(150), |_| Err("no".to_string()))
+            .wait(Duration::from_millis(150), |_| {
+                Err(IdxError::InvalidInput("no".to_string()))
+            })
             .unwrap_err();
         assert!(err.to_string().contains("timed out"), "{err}");
         assert!(started.elapsed() < Duration::from_secs(5));
@@ -437,7 +654,7 @@ mod tests {
         let url = page.url();
         let handle = std::thread::spawn(move || {
             page.wait(Duration::from_secs(10), |_| {
-                Err("not a Stockbit session".to_string())
+                Err(IdxError::InvalidInput("not a Stockbit session".to_string()))
             })
         });
         std::thread::sleep(Duration::from_millis(100));

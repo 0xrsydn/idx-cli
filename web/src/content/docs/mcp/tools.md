@@ -94,7 +94,7 @@ Every IDX holding (above 1%) of one investor, matched by name.
 
 ## `get_orderbook`
 
-Order book of one IDX stock from the user's own Stockbit session: `bids` and `offers` (best price first) of {price, shares, orders}, the session's OHLC, volume (shares), value and frequency, and foreign buy/sell/net in IDR. `market_status` is Stockbit's state, verbatim; outside STATE_NAME_MARKET_OPEN the book is as the market left it. AUTHERROR means there is no session: call stockbit_status, and ask the user to run `idx stockbit login` in a terminal.
+Order book of one IDX stock from the user's own Stockbit session: `bids` and `offers` (best price first) of {price, shares, orders}, the session's OHLC, volume (shares), value and frequency, and foreign buy/sell/net in IDR. `market_status` is Stockbit's state, verbatim; outside STATE_NAME_MARKET_OPEN the book is as the market left it. AUTHERROR means there is no session: call stockbit_status, then stockbit_login for a URL the user can open.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -172,8 +172,16 @@ Search investor names in the KSEI ownership database.
 | `limit` | integer | no | Maximum results (default 20, at most 100). |
 | `query` | string | yes | Full-text query over investor names. |
 
+## `stockbit_login`
+
+Start a Stockbit sign-in and return at once; this call does not wait for it. With method auto (the default), idx-mcp opens a browser window on Stockbit's own sign-in page when its machine has a display and is not reached over SSH (`method: "browser"` in the answer): the user signs in there and the window closes by itself. Otherwise it serves a page on 127.0.0.1 (`method: "page"`, with `url` and an `ssh -L` `forward` for a browser on another machine) that takes stockbit.com's session cookie from the user's own browser. Never ask the user for their password, and never type it. Then poll stockbit_status until `sign_in.state` is signed_in or failed. A session that already works answers state signed_in without opening anything; a second call while one is waiting returns it again (`already_open`).
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `method` | `auto` / `browser` / `page` | no | "auto" (default): a browser window when idx-mcp's machine has a display and no SSH, else the local page; "browser" or "page" picks one. |
+
 ## `stockbit_status`
 
-Whether a Stockbit session is stored (or seeded by IDX_STOCKBIT_REFRESH_TOKEN) and when its tokens expire; never the tokens. Without one, get_orderbook fails and stockbit-provider quotes use Stockbit's delayed public page; the user adds one with `idx stockbit login` in a terminal.
+Whether a Stockbit session is stored (or seeded by IDX_STOCKBIT_REFRESH_TOKEN) and when its tokens expire; never the tokens. Without one, get_orderbook fails and stockbit-provider quotes use Stockbit's delayed public page; the user adds one with stockbit_login, or `idx stockbit login` in a terminal. After stockbit_login, `sign_in.state` says whether that sign-in is waiting, signed_in or failed (with `sign_in.error`).
 
 No inputs.

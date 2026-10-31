@@ -4,7 +4,7 @@ use clap::{Args, Subcommand};
 
 use crate::output::text::terminal_safe;
 use crate::output::{OutputFormat, json};
-use idx_core::api::stockbit::{self, auth::SessionStatus, auth::TokenInfo};
+use idx_core::api::stockbit::{self, auth::SessionStatus, auth::TokenInfo, signin};
 use idx_core::error::IdxError;
 use idx_core::runtime;
 
@@ -14,10 +14,9 @@ use idx_core::runtime;
     long_about = "Your own Stockbit session, for `stocks orderbook`, live `--provider stockbit` \
 quotes and Stockbit daily history. Opt-in and personal: idx uses your account's tokens, \
 stored in the config directory with owner-only permissions, and never logs them. Stockbit \
-rotates the refresh token on every refresh, so a browser sharing the session is logged out \
-once idx refreshes: log in through a separate browser profile for idx. Stockbit's terms \
-allow personal, non-commercial use.",
-    after_help = "Examples:\n  idx stockbit login                 # paste the credentialStorage cookie\n  pbpaste | idx stockbit login\n  idx stockbit status\n  idx stockbit logout"
+rotates the refresh token on every refresh, so one session has one owner: `login` signs in \
+through a browser profile only idx uses. Stockbit's terms allow personal, non-commercial use.",
+    after_help = "Examples:\n  idx stockbit login                 # sign in through a browser\n  idx stockbit login --no-browser    # local page: bookmarklet or paste\n  pbpaste | idx stockbit login       # the credentialStorage cookie on stdin\n  idx stockbit status\n  idx stockbit logout"
 )]
 pub struct StockbitCmd {
     #[command(subcommand)]
@@ -27,20 +26,23 @@ pub struct StockbitCmd {
 #[derive(Debug, Subcommand)]
 pub enum StockbitSubcommand {
     #[command(
-        about = "Connect a session in your browser, or from stdin",
-        long_about = "In a terminal, opens a local page on 127.0.0.1 with two one-click ways to \
-hand idx your Stockbit session: a bookmarklet that reads stockbit.com's cookie in your own \
-browser, or a read-the-clipboard button. Without a browser (or with --no-browser), the page \
-URL is printed instead. With stdin piped, it reads the value of stockbit.com's \
-`credentialStorage` cookie (DevTools, Application, Cookies) or a refresh token from stdin, \
-as before. Either way idx checks the session with one request. Servers can set \
-IDX_STOCKBIT_REFRESH_TOKEN instead."
+        about = "Sign in through your browser, or from stdin",
+        long_about = "In a terminal, idx opens Chrome (or Chromium, Edge, Brave, Helium) on \
+Stockbit's sign-in page with a profile only idx uses. Sign in there: idx reads the session \
+cookie over the DevTools protocol, checks it with one request, takes it out of that profile, \
+and closes the window. Your password, one-time codes and any reCAPTCHA stay in the browser. \
+A stored session that still works means nothing to do: idx exits at once. Over SSH, without \
+a display, without such a browser, or with --no-browser, idx serves a local page on \
+127.0.0.1 instead, with a bookmarklet that reads the cookie in your own browser and a \
+clipboard button. With stdin piped, it reads the value of stockbit.com's \
+`credentialStorage` cookie (DevTools, Application, Cookies) or a refresh token from stdin. \
+Servers can set IDX_STOCKBIT_REFRESH_TOKEN instead; IDX_STOCKBIT_BROWSER picks the browser."
     )]
     Login {
-        /// Print the page URL instead of opening a browser
+        /// Use the local page instead of a browser sign-in
         #[arg(long)]
         no_browser: bool,
-        /// Fixed port for the local page (for `ssh -L`); default: any free one
+        /// Port for the local page (for `ssh -L`); default 7878, or any free one
         #[arg(long)]
         port: Option<u16>,
     },
@@ -50,27 +52,29 @@ IDX_STOCKBIT_REFRESH_TOKEN instead."
     Logout,
 }
 
-/// How long the local page waits for the session.
-const LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
-
 pub fn handle(cmd: &StockbitCmd, format: &OutputFormat) -> Result<(), IdxError> {
     match &cmd.command {
         StockbitSubcommand::Login { no_browser, port } => {
-            let status = if std::io::stdin().is_terminal() {
-                match login_in_browser(*port, !no_browser) {
-                    Ok(()) => stockbit::session_status()?,
-                    Err(err) => {
-                        runtime::warn(format!("browser login unavailable ({err}); paste instead"));
-                        stockbit::login(&read_paste()?)?
-                    }
-                }
+            let interactive = std::io::stdin().is_terminal();
+            // A session that still works means there is nothing to sign in to.
+            let reuse = interactive && stockbit::verify_session().is_ok();
+            let status = if reuse {
+                stockbit::session_status()?
+            } else if interactive {
+                sign_in(*no_browser, *port, format)?
             } else {
                 stockbit::login(&read_paste()?)?
             };
             if format.is_json() {
                 return json::print_json(&status);
             }
-            println!("Stored and checked your Stockbit session.");
+            if reuse {
+                println!(
+                    "Already signed in to Stockbit; use `idx stockbit logout` to switch accounts."
+                );
+            } else {
+                println!("Stored and checked your Stockbit session.");
+            }
             print_status(&status);
         }
         StockbitSubcommand::Status => {
@@ -104,73 +108,74 @@ pub fn handle(cmd: &StockbitCmd, format: &OutputFormat) -> Result<(), IdxError> 
     Ok(())
 }
 
-/// Serves the local login page and waits for a session it can verify.
-///
-/// The page is only reachable from this machine. Over SSH the browser is
-/// usually somewhere else, so idx picks a stable port, skips opening a
-/// browser here, and prints the forward to run on the machine with the
-/// browser.
-fn login_in_browser(port: Option<u16>, open: bool) -> Result<(), IdxError> {
-    let ssh = std::env::var("SSH_CONNECTION").ok();
-    // A stable port makes the printed `ssh -L` match what the page serves.
-    let page = stockbit::loopback::LoginPage::bind(port.unwrap_or(if ssh.is_some() {
-        DEFAULT_SSH_PORT
-    } else {
-        0
-    }))?;
-    println!("Open this page to connect Stockbit: {}", page.url());
-    match &ssh {
-        Some(connection) => print_ssh_hint(connection, page.port()),
-        None if open => open_in_browser(&page.url()),
-        None => {}
-    }
-    page.wait(LOGIN_TIMEOUT, |pasted| {
-        stockbit::login(pasted)
-            .map(|_| ())
-            .map_err(|err| err.to_string())
-    })
-}
-
-/// Port the page uses over SSH, so `ssh -L 7878:…:7878` matches it.
-const DEFAULT_SSH_PORT: u16 = 7878;
-
-/// The forward to run where the browser is, from `SSH_CONNECTION`
-/// (`client_ip client_port server_ip server_port`).
-fn print_ssh_hint(connection: &str, port: u16) {
-    let fields: Vec<&str> = connection.split_whitespace().collect();
-    let target = match (std::env::var("USER").ok(), fields.get(2)) {
-        (Some(user), Some(server)) => format!("{user}@{server}"),
-        (None, Some(server)) => (*server).to_string(),
-        _ => "<this host>".to_string(),
+/// Runs idx-core's sign-in in the foreground, telling the user on stderr
+/// where to go. When neither the browser nor the page can start, the cookie
+/// can still be pasted.
+fn sign_in(
+    no_browser: bool,
+    port: Option<u16>,
+    format: &OutputFormat,
+) -> Result<SessionStatus, IdxError> {
+    let options = signin::Options {
+        method: if no_browser {
+            signin::Method::Page
+        } else {
+            signin::Method::Auto
+        },
+        port,
+        open_page: !no_browser,
     };
-    runtime::warn(
-        "this shell is over SSH: the page listens on the remote machine, so open it from the \
-         machine with your browser",
-    );
-    println!(
-        "\nFrom the machine you are sitting at, run (and keep it open):\n  \
-         ssh -L {port}:127.0.0.1:{port} {target}\n\
-         then open the URL above there.\n"
-    );
+    let sign_in = match signin::SignIn::start(&options) {
+        Ok(sign_in) => sign_in,
+        Err(err) => {
+            runtime::warn(format!("cannot start a sign-in ({err}); paste instead"));
+            return stockbit::login(&read_paste()?);
+        }
+    };
+    describe(sign_in.started(), format);
+    sign_in.wait()
 }
 
-/// Opens `url` with the desktop's default browser, best effort.
-fn open_in_browser(url: &str) {
-    #[cfg(target_os = "macos")]
-    let (program, args) = ("open", vec![url]);
-    #[cfg(target_os = "windows")]
-    let (program, args) = ("cmd", vec!["/C", "start", "", url]);
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let (program, args) = ("xdg-open", vec![url]);
-    let opened = std::process::Command::new(program)
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .is_ok();
-    if !opened {
-        runtime::warn(format!("could not open a browser; open {url} yourself"));
+/// Where to sign in. These lines are the instructions, so they print even
+/// with `--quiet`; on stderr, so stdout keeps only the result.
+fn describe(started: &signin::Started, format: &OutputFormat) {
+    let say = |message: String| {
+        if format.is_json() {
+            eprintln!(
+                "{}",
+                serde_json::json!({ "level": "info", "message": message })
+            );
+        } else {
+            eprintln!("{}", terminal_safe(&message));
+        }
+    };
+    match started {
+        signin::Started::Browser { browser } => say(format!(
+            "Opened {browser} on Stockbit's sign-in page. Sign in there; idx closes the window \
+             when you are done."
+        )),
+        signin::Started::Page {
+            url,
+            forward,
+            remote,
+            reason,
+            ..
+        } => {
+            if let Some(reason) = reason
+                && !remote
+            {
+                runtime::warn(format!("{reason}; using the local page"));
+            }
+            say(format!("Open this page to connect Stockbit: {url}"));
+            if *remote {
+                say(format!(
+                    "This shell is over SSH, so the page is on the remote machine. From the \
+                     machine with your browser, run (and keep it open):\n  {forward}\nthen open \
+                     the URL above there."
+                ));
+            }
+        }
+        signin::Started::Existing => {}
     }
 }
 
@@ -194,7 +199,9 @@ fn read_paste() -> Result<String, IdxError> {
     }
     if raw.trim().is_empty() {
         return Err(IdxError::InvalidInput(
-            "nothing pasted: pipe or paste the credentialStorage cookie value or a refresh token"
+            "nothing on stdin: run `idx stockbit login` in a terminal to sign in through a \
+             browser, pipe the credentialStorage cookie (`pbpaste | ssh <host> idx stockbit \
+             login`), or set IDX_STOCKBIT_REFRESH_TOKEN"
                 .to_string(),
         ));
     }

@@ -14,10 +14,18 @@ history lives in git.
 - Multi-period financial statements (today `financials` is single-period)
 - Order book depth without a login: no free source exists (IDX sells delayed
   depth to vendors); `stocks orderbook` needs the user's Stockbit login.
-- Stockbit login follow-ups: a browser capture for `idx stockbit login`
-  (Chrome DevTools, as fzn0x/idx does) instead of pasting the cookie,
-  intraday OHLCV from the session's `1d` chart, and observing the session
-  API's open-market state name (assumed `STATE_NAME_MARKET_OPEN`).
+- Stockbit login follow-ups: intraday OHLCV from the session's `1d` chart;
+  observing the session API's open-market state name (assumed
+  `STATE_NAME_MARKET_OPEN`; `STATE_NAME_MARKET_CLOSED` seen 2026-10-29); an
+  opt-in daily refresh so a session outlives the refresh token's week, once
+  it is known whether Stockbit caps a session's total life; and the sign-in
+  response (`/login/v6/*`, read over DevTools' `Fetch`) as a second signal
+  beside the `credentialStorage` cookie, should Stockbit rename or move it.
+- Google sign-in in idx's browser window: Google refused it on 2026-10-31,
+  most likely over `--remote-debugging-port`. First confirm by trying Google
+  in a plain window on a throwaway profile; if that works, sign in with no
+  debugging flag and reopen the profile with it, on a blank page, to read the
+  cookie.
 - Observe Stockbit's `market_hour.status` in the pre-open (08:45-09:00) and
   the closing auction (15:50-16:00) before `--watch` or alerts build on it;
   `open`, `break` and `close` are known, and the bid/offer gate hides the book

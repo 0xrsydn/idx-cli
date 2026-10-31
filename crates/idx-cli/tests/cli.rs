@@ -2197,6 +2197,24 @@ fn stockbit_login_stores_a_private_session_and_logout_removes_it() {
     assert!(!session.exists());
 }
 
+/// An agent on a headless box gets told how to log in, not "nothing pasted".
+#[test]
+fn stockbit_login_with_empty_stdin_says_how_to_log_in() {
+    let root = test_env_dir("stockbit-login-empty");
+    let output = bin_with_root(&root)
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["-o", "json", "stockbit", "login"])
+        .output()
+        .expect("run login");
+    assert!(!output.status.success());
+    let error: Value = serde_json::from_slice(&output.stderr).expect("JSON error");
+    assert_eq!(error["code"], "INVALIDINPUT");
+    let message = error["message"].as_str().unwrap();
+    for hint in ["idx stockbit login", "IDX_STOCKBIT_REFRESH_TOKEN"] {
+        assert!(message.contains(hint), "{message}");
+    }
+}
+
 #[test]
 fn invalid_quote_ttl_env_returns_non_zero() {
     test_bin("invalid-quote-ttl")

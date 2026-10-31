@@ -1550,12 +1550,12 @@ Options:
 ## `idx stockbit`
 
 ```text
-Your own Stockbit session, for `stocks orderbook`, live `--provider stockbit` quotes and Stockbit daily history. Opt-in and personal: idx uses your account's tokens, stored in the config directory with owner-only permissions, and never logs them. Stockbit rotates the refresh token on every refresh, so a browser sharing the session is logged out once idx refreshes: log in through a separate browser profile for idx. Stockbit's terms allow personal, non-commercial use.
+Your own Stockbit session, for `stocks orderbook`, live `--provider stockbit` quotes and Stockbit daily history. Opt-in and personal: idx uses your account's tokens, stored in the config directory with owner-only permissions, and never logs them. Stockbit rotates the refresh token on every refresh, so one session has one owner: `login` signs in through a browser profile only idx uses. Stockbit's terms allow personal, non-commercial use.
 
 Usage: idx stockbit [OPTIONS] <COMMAND>
 
 Commands:
-  login   Connect a session in your browser, or from stdin
+  login   Sign in through your browser, or from stdin
   status  Show whether a session is stored and when its tokens expire
   logout  Delete the stored session
   help    Print this message or the help of the given subcommand(s)
@@ -1590,8 +1590,9 @@ Options:
           Print help (see a summary with '-h')
 
 Examples:
-  idx stockbit login                 # paste the credentialStorage cookie
-  pbpaste | idx stockbit login
+  idx stockbit login                 # sign in through a browser
+  idx stockbit login --no-browser    # local page: bookmarklet or paste
+  pbpaste | idx stockbit login       # the credentialStorage cookie on stdin
   idx stockbit status
   idx stockbit logout
 ```
@@ -1599,13 +1600,13 @@ Examples:
 ### `idx stockbit login`
 
 ```text
-In a terminal, opens a local page on 127.0.0.1 with two one-click ways to hand idx your Stockbit session: a bookmarklet that reads stockbit.com's cookie in your own browser, or a read-the-clipboard button. Without a browser (or with --no-browser), the page URL is printed instead. With stdin piped, it reads the value of stockbit.com's `credentialStorage` cookie (DevTools, Application, Cookies) or a refresh token from stdin, as before. Either way idx checks the session with one request. Servers can set IDX_STOCKBIT_REFRESH_TOKEN instead.
+In a terminal, idx opens Chrome (or Chromium, Edge, Brave, Helium) on Stockbit's sign-in page with a profile only idx uses. Sign in there: idx reads the session cookie over the DevTools protocol, checks it with one request, takes it out of that profile, and closes the window. Your password, one-time codes and any reCAPTCHA stay in the browser. A stored session that still works means nothing to do: idx exits at once. Over SSH, without a display, without such a browser, or with --no-browser, idx serves a local page on 127.0.0.1 instead, with a bookmarklet that reads the cookie in your own browser and a clipboard button. With stdin piped, it reads the value of stockbit.com's `credentialStorage` cookie (DevTools, Application, Cookies) or a refresh token from stdin. Servers can set IDX_STOCKBIT_REFRESH_TOKEN instead; IDX_STOCKBIT_BROWSER picks the browser.
 
 Usage: idx stockbit login [OPTIONS]
 
 Options:
       --no-browser
-          Print the page URL instead of opening a browser
+          Use the local page instead of a browser sign-in
 
   -o, --output <OUTPUT>
           Output format [default: auto = table on a terminal, json when piped]
@@ -1616,7 +1617,7 @@ Options:
           Disable colored output
 
       --port <PORT>
-          Fixed port for the local page (for `ssh -L`); default: any free one
+          Port for the local page (for `ssh -L`); default 7878, or any free one
 
   -q, --quiet
           Suppress non-essential output
