@@ -77,6 +77,7 @@ idx stocks orderbook BBCA             # depth, queued orders, foreign flow
 idx stocks orderbook BBRI --depth 5
 idx stocks actions BBCA               # dividends, splits, meetings, ...
 idx stocks calendar --kind dividend   # cum dates in the next 30 days
+idx ownership movements BBCA          # insider and major holder buys and sells
 idx --provider stockbit stocks quote BBCA                    # live, not delayed
 idx --provider stockbit stocks history BBCA --period 1y      # Stockbit's daily candles
 idx stockbit logout
@@ -201,6 +202,7 @@ What the login adds:
 | `stocks history` under `--provider stockbit` | Yahoo | Stockbit's daily candles for `5d` to `1y`; Yahoo for other windows |
 | `stocks intraday` | public page | public page |
 | `stocks actions`, `stocks calendar` | `AUTHERROR` | corporate actions: one stock's history, or the market's calendar |
+| `ownership movements` | `AUTHERROR` | insider and major holder buys and sells, as reported to IDX and KSEI |
 
 The order book is what Stockbit's own app shows. Outside trading it is the
 book as the market left it, and the output says so. Foreign buy, sell and net
@@ -222,6 +224,6 @@ market or republishing prices. With your login, automated use is tied to your
 account: keep it human-paced.
 
 Over MCP, the same data comes from `get_intraday`, `get_orderbook`,
-`get_corporate_actions`, `get_corporate_calendar` and `stockbit_status`, and from `get_quotes` and `get_price_history` when the
+`get_corporate_actions`, `get_corporate_calendar`, `get_shareholder_movements` and `stockbit_status`, and from `get_quotes` and `get_price_history` when the
 server runs with `IDX_PROVIDER=stockbit`. The server never logs in; run
 `idx stockbit login` in a terminal.

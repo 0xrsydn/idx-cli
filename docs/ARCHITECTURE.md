@@ -296,6 +296,13 @@ WIB as the fallback.
   `get_corporate_calendar` filter by `CorporateAction::date` (the cum date
   for entitlements) and sort oldest first. Endpoint notes and the wider
   design: `docs/STOCKBIT.md`.
+- Shareholder movements (`movements`, `api/stockbit/movement.rs`) read
+  `/insider/company/majorholder`: IDX insider disclosures and KSEI 5% holder
+  changes, 50 rows a page, filtered by Stockbit (`symbol`, `date_start`,
+  `date_end`, `insider` (holder id), `action_type`, `source_type`). Each page
+  is cached an hour under `stockbit-movements`, keyed by every filter and the
+  page. `ownership movements` and `get_shareholder_movements` read up to 10
+  pages; the KSEI register in SQLite is not involved.
 
 ### Capability Gating
 ```
@@ -310,6 +317,7 @@ Factory functions:
   intraday_provider() → Box<dyn IntradayProvider>
   orderbook_provider() → Box<dyn OrderBookProvider>
   corporate_action_provider() → Box<dyn CorporateActionProvider>
+  shareholder_movement_provider() → Box<dyn ShareholderMovementProvider>
 ```
 
 `ProviderKind::Stockbit` serves quotes (and, with a session, daily history):

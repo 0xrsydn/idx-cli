@@ -16,6 +16,7 @@ pub mod flow;
 #[cfg(feature = "ownership")]
 pub mod investor;
 pub mod market;
+pub mod movements;
 #[cfg(feature = "ownership")]
 pub mod ownership;
 pub mod text;

@@ -150,6 +150,20 @@ Latest quotes (price, change, volume, 52-week range, market cap) for one or more
 | --- | --- | --- | --- |
 | `symbols` | array of string | yes | IDX tickers, e.g. ["BBCA", "BBRI"]; the `.JK` suffix is optional. At most 20. |
 
+## `get_shareholder_movements`
+
+Reported changes in insiders' and major holders' stakes in IDX stocks, from the user's own Stockbit session, newest first: IDX insider disclosures (directors, commissioners and other insiders, any size, with the trade price) and KSEI changes of holders at 5% and above (price estimated: `price_estimated`). One stock's, or the market's without `symbol`. Shares are exact and signed (`shares_change` < 0 is a sale); percentages are basis points as Stockbit rounds them, so a small insider can read 0. `more` is true when rows remain past `pages`. These are filings, not signals: many insiders buying at one price on one day is usually a share plan, and rows appear days after the change. AUTHERROR means there is no session: call stockbit_status, then stockbit_login.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `action` | `buy` / `sell` / `transfer` / `cross` / `corporate-action` | no | Only this kind of movement; "corporate-action" covers rights issues, private placements and the like. |
+| `from` | string | no | First day, YYYY-MM-DD. |
+| `holder_id` | string | no | One holder's movements: the `holder_id` of a row. |
+| `pages` | integer | no | Pages of 50 rows (default 1, at most 10); each page is one request to Stockbit. |
+| `source` | `idx` / `ksei` | no | "idx" (insider disclosures, any size) or "ksei" (holders at 5% and above). |
+| `symbol` | string | no | IDX ticker, e.g. "BBCA"; omit for the whole market. |
+| `to` | string | no | Last day, YYYY-MM-DD. |
+
 ## `get_shareholders`
 
 Shareholders above 1% of an IDX ticker from the latest KSEI release, with concentration metrics (top1, top3, HHI, free float).

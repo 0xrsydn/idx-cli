@@ -16,6 +16,7 @@ use idx_core::financial::{EarningsFilter, StatementFilter};
 use idx_core::flow::types::FlowRange;
 use idx_core::investor::{HolderSource, Investor};
 use idx_core::market::{ScreenFilter, ScreenQuery, ScreenRegion};
+use idx_core::movements::types::MovementQuery;
 use idx_core::ownership::types::ChangeRow;
 use idx_core::{CachePolicy, Fetched, Idx};
 use rmcp::handler::server::router::tool::ToolRouter;
@@ -29,8 +30,8 @@ use tokio::sync::Semaphore;
 use crate::params::{
     AnalysisKind, AnalyzeParams, BandarParams, BrokerParams, ChangesParams, CompanyParams,
     CompanySection, CorporateActionsParams, CorporateCalendarParams, EntityParams, FlowParams,
-    HistoryParams, IntradayParams, LoginMethod, LoginParams, OrderBookParams, ScreenParams,
-    SearchParams, ShareholdersParams, SymbolsParams, SyncParams, action_kinds,
+    HistoryParams, IntradayParams, LoginMethod, LoginParams, MovementsParams, OrderBookParams,
+    ScreenParams, SearchParams, ShareholdersParams, SymbolsParams, SyncParams, action_kinds,
 };
 
 const SYNC_TOOL: &str = "ownership_sync";
@@ -397,6 +398,42 @@ AUTHERROR means there is no session: call stockbit_status, then stockbit_login."
                 CalendarRange::from_args(from.as_deref(), to.as_deref(), corporate.today())?;
             let kinds = action_kinds(kinds, &ActionKind::ALL)?;
             corporate.calendar(range, &kinds, CachePolicy::Default)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Reported changes in insiders' and major holders' stakes in IDX stocks, \
+from the user's own Stockbit session, newest first: IDX insider disclosures (directors, \
+commissioners and other insiders, any size, with the trade price) and KSEI changes of holders \
+at 5% and above (price estimated: `price_estimated`). One stock's, or the market's without \
+`symbol`. Shares are exact and signed (`shares_change` < 0 is a sale); percentages are basis \
+points as Stockbit rounds them, so a small insider can read 0. `more` is true when rows remain \
+past `pages`. These are filings, not signals: many insiders buying at one price on one day is \
+usually a share plan, and rows appear days after the change. AUTHERROR means there is no \
+session: call stockbit_status, then stockbit_login."
+    )]
+    async fn get_shareholder_movements(&self, params: Parameters<MovementsParams>) -> ToolResult {
+        let MovementsParams {
+            symbol,
+            from,
+            to,
+            holder_id,
+            action,
+            source,
+            pages,
+        } = params.0;
+        self.live(move |idx| {
+            let mut query = MovementQuery::from_args(
+                symbol.as_deref(),
+                from.as_deref(),
+                to.as_deref(),
+                holder_id.as_deref(),
+                pages.unwrap_or(1),
+            )?;
+            query.action = action.as_deref().map(str::parse).transpose()?;
+            query.source = source.as_deref().map(str::parse).transpose()?;
+            idx.movements().list(&query, CachePolicy::Default)
         })
         .await
     }

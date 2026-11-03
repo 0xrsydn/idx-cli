@@ -18,6 +18,9 @@ use idx_core::broker::types::{BrokerBoard, BrokerFlow, BrokerInvestor, BrokerKin
 use idx_core::corporate::types::{ActionKind, CalendarRange, CorporateAction, DateRange};
 use idx_core::error::IdxError;
 use idx_core::flow::types::{FlowSource, ForeignFlow};
+use idx_core::movements::types::{
+    MovementAction, MovementList, MovementSource, ShareholderMovement,
+};
 
 pub fn format_idr(value: i64) -> String {
     let sign = if value.is_negative() { "-" } else { "" };
@@ -1850,6 +1853,113 @@ pub fn print_corporate_calendar(
         }
         println!("{table}");
         println!("{CORPORATE_DATE_NOTE}");
+    }
+    println!("{STOCKBIT_SESSION_NOTE}");
+    Ok(())
+}
+
+fn movement_action_label(action: MovementAction, no_color: bool) -> String {
+    let label = action.as_str().replace('_', " ");
+    match action {
+        _ if no_color => label,
+        MovementAction::Buy => label.green().to_string(),
+        MovementAction::Sell => label.red().to_string(),
+        _ => label,
+    }
+}
+
+/// Signed exact shares: `+147,933`, `-10,000,000`.
+fn format_signed_shares(value: i64) -> String {
+    let text = format_idr(value);
+    if value > 0 { format!("+{text}") } else { text }
+}
+
+/// The stake after the change and the change in percentage points:
+/// `40.65% (-0.16)`. A stake that rounds to 0 basis points reads `<0.01%`.
+fn movement_stake(movement: &ShareholderMovement) -> String {
+    let after = match movement.percentage_after_bps {
+        0 if movement.shares_after > 0 => "<0.01%".to_string(),
+        bps => format!("{:.2}%", bps as f64 / 100.0),
+    };
+    match movement.percentage_change_bps {
+        0 => after,
+        bps => format!("{after} ({:+.2})", bps as f64 / 100.0),
+    }
+}
+
+const MOVEMENT_NOTE: &str = "IDX rows are insider disclosures (directors, commissioners and \
+other insiders); KSEI rows are changes of holders at 5% and above. ~ marks Stockbit's estimated \
+price. Rows appear days after the change.";
+
+pub fn print_shareholder_movements(
+    symbol: Option<&str>,
+    list: &MovementList,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    let title = match symbol {
+        Some(symbol) => format!("Shareholder movements for {}", terminal_safe(symbol)),
+        None => "Shareholder movements across IDX".to_string(),
+    };
+    println!("{}", format!("{title} ({})", list.movements.len()).bold());
+    if list.movements.is_empty() {
+        println!("No movements reported for this query.");
+    } else {
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_header(vec![
+                "DATE",
+                "SYMBOL",
+                "HOLDER",
+                "ROLE",
+                "ACTION",
+                "SHARES",
+                "STAKE",
+                "PRICE",
+                "VALUE",
+                "SOURCE",
+                "HOLDER ID",
+            ]);
+        for movement in &list.movements {
+            let estimated = if movement.price_estimated { "~" } else { "" };
+            table.add_row(vec![
+                cell(movement.date),
+                cell(&movement.symbol),
+                cell(&movement.holder),
+                cell(if movement.roles.is_empty() {
+                    "-".to_string()
+                } else {
+                    movement.roles.join(", ")
+                }),
+                painted(movement_action_label(movement.action, no_color)),
+                cell(format_signed_shares(movement.shares_change)),
+                cell(movement_stake(movement)),
+                cell(
+                    movement
+                        .price
+                        .map(|p| format!("{estimated}{}", format_idr(p)))
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                cell(
+                    movement
+                        .value
+                        .map(|v| format!("{estimated}{}", format_compact(v)))
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                cell(match movement.source {
+                    Some(MovementSource::Idx) => "IDX",
+                    Some(MovementSource::Ksei) => "KSEI",
+                    None => "-",
+                }),
+                cell(&movement.holder_id),
+            ]);
+        }
+        println!("{table}");
+        println!("{MOVEMENT_NOTE}");
+    }
+    if list.more {
+        println!("More rows exist: raise --pages (up to 10) or narrow --from/--to.");
     }
     println!("{STOCKBIT_SESSION_NOTE}");
     Ok(())

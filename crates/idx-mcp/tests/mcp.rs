@@ -9,7 +9,7 @@ use idx_core::config::CoreConfig;
 use idx_core::investor::{ImportSource, Investor};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 20] = [
+const TOOLS: [&str; 21] = [
     "analyze_bandar",
     "analyze_stock",
     "compare_stocks",
@@ -24,6 +24,7 @@ const TOOLS: [&str; 20] = [
     "get_ownership_changes",
     "get_price_history",
     "get_quotes",
+    "get_shareholder_movements",
     "get_shareholders",
     "ownership_status",
     "screen_stocks",
@@ -549,6 +550,54 @@ fn corporate_actions_need_a_session_and_keep_kinds_apart() {
     );
     assert!(is_error, "{body}");
     assert_eq!(body["code"], "INVALIDINPUT");
+}
+
+#[test]
+fn shareholder_movements_page_and_filter() {
+    let mut client = Client::start(&[], false);
+    let (is_error, body) = client.call("get_shareholder_movements", json!({}));
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "AUTHERROR");
+
+    let mut client = Client::start_with_env(&[], false, &[TEST_SESSION]);
+    let market = client.ok("get_shareholder_movements", json!({"pages": 2}));
+    assert_fetched(&market);
+    assert_eq!(market["source"], "stockbit");
+    let rows = market["data"]["movements"].as_array().unwrap();
+    assert_eq!(rows.len(), 14, "8 rows on page 1, 6 on the last page");
+    assert_eq!(market["data"]["more"], false);
+    assert!(
+        rows.windows(2)
+            .all(|w| w[0]["date"].as_str() >= w[1]["date"].as_str()),
+        "newest first"
+    );
+
+    let sells = client.ok(
+        "get_shareholder_movements",
+        json!({"action": "sell", "source": "ksei", "holder_id": "1000004481", "pages": 3}),
+    );
+    let rows = sells["data"]["movements"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|r| r["symbol"] == "ATLA"
+        && r["action"] == "sell"
+        && r["shares_change"].as_i64() < Some(0)
+        && r["price_estimated"] == true));
+
+    let bbca = client.ok("get_shareholder_movements", json!({"symbol": "bbca"}));
+    assert_eq!(bbca["data"]["more"], true, "BBCA has a second page");
+    assert_eq!(bbca["data"]["movements"][0]["roles"], json!(["director"]));
+
+    for bad in [
+        json!({"action": "dividend"}),
+        json!({"source": "bing"}),
+        json!({"holder_id": "RUDI"}),
+        json!({"pages": 11}),
+        json!({"from": "2026-11-02", "to": "2026-11-01"}),
+    ] {
+        let (is_error, body) = client.call("get_shareholder_movements", bad.clone());
+        assert!(is_error, "{bad} -> {body}");
+        assert_eq!(body["code"], "INVALIDINPUT", "{bad} -> {body}");
+    }
 }
 
 #[test]

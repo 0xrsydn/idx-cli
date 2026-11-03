@@ -98,6 +98,10 @@ impl Idx {
         crate::corporate::Corporate { idx: self }
     }
 
+    pub fn movements(&self) -> crate::movements::Movements<'_> {
+        crate::movements::Movements { idx: self }
+    }
+
     pub fn financial(&self) -> crate::financial::Financial<'_> {
         crate::financial::Financial { idx: self }
     }

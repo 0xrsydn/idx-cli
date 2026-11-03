@@ -1,0 +1,15 @@
+exit: 0
+--- stdout
+Shareholder movements across IDX (3)
+┌────────────┬────────┬──────────────────┬──────┬────────┬─────────────┬────────────────┬───────┬─────────┬────────┬────────────┐
+│ DATE       ┆ SYMBOL ┆ HOLDER           ┆ ROLE ┆ ACTION ┆ SHARES      ┆ STAKE          ┆ PRICE ┆ VALUE   ┆ SOURCE ┆ HOLDER ID  │
+╞════════════╪════════╪══════════════════╪══════╪════════╪═════════════╪════════════════╪═══════╪═════════╪════════╪════════════╡
+│ 2026-10-30 ┆ ATLA   ┆ RUDI R. SUTANTRA ┆ -    ┆ sell   ┆ -10,000,000 ┆ 40.65% (-0.16) ┆ ~21   ┆ ~210.0M ┆ KSEI   ┆ 1000004481 │
+├╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 2026-10-15 ┆ FUJI   ┆ JEFRI NEDI       ┆ -    ┆ sell   ┆ -180,000    ┆ 8.40% (-0.01)  ┆ ~298  ┆ ~53.6M  ┆ KSEI   ┆ 1000006017 │
+├╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 2026-10-15 ┆ ATLA   ┆ RUDI R. SUTANTRA ┆ -    ┆ sell   ┆ -28,000,000 ┆ 42.10% (-0.45) ┆ ~29   ┆ ~812.0M ┆ KSEI   ┆ 1000004481 │
+└────────────┴────────┴──────────────────┴──────┴────────┴─────────────┴────────────────┴───────┴─────────┴────────┴────────────┘
+IDX rows are insider disclosures (directors, commissioners and other insiders); KSEI rows are changes of holders at 5% and above. ~ marks Stockbit's estimated price. Rows appear days after the change.
+Source: your Stockbit session; for personal, non-commercial use (Stockbit's terms).
+--- stderr

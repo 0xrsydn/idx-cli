@@ -25,12 +25,13 @@ use chrono::{Months, NaiveDate};
 use serde_json::Value;
 
 use super::auth::SessionStore;
-use super::corpaction;
 use super::parse::number;
 use super::{USER_AGENT, pace, stockbit_code};
+use super::{corpaction, movement};
 use crate::api::types::{BookLevel, Interval, Ohlc, OrderBook, Period, Quote};
 use crate::corporate::types::{ActionKind, CorporateAction};
 use crate::error::IdxError;
+use crate::movements::types::{MovementPage, MovementQuery};
 
 const BASE_URL: &str = "https://exodus.stockbit.com";
 const REFRESH_PATH: &str = "/login/refresh";
@@ -138,6 +139,25 @@ impl Exodus {
         };
         let body = self.get(&path, &subject)?;
         corpaction::parse_corporate_actions(kind, &body)
+    }
+
+    /// Page `page` of shareholder movements: one stock's (`query.symbol`,
+    /// resolved) or the market's.
+    pub(crate) fn shareholder_movements(
+        &self,
+        query: &MovementQuery,
+        page: u32,
+    ) -> Result<MovementPage, IdxError> {
+        let code = query.symbol.as_deref().map(stockbit_code).transpose()?;
+        let subject = query
+            .symbol
+            .clone()
+            .unwrap_or_else(|| "shareholder movements".to_string());
+        let body = self.get(
+            &movement::request_path(query, code.as_deref(), page),
+            &subject,
+        )?;
+        movement::parse_movements(&body)
     }
 
     /// The market's state, read at most every `MARKET_STATE_TTL` per process.

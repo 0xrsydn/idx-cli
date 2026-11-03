@@ -156,6 +156,9 @@ _idx() {
             idx__help__ownership,import)
                 cmd="idx__help__ownership__import"
                 ;;
+            idx__help__ownership,movements)
+                cmd="idx__help__ownership__movements"
+                ;;
             idx__help__ownership,releases)
                 cmd="idx__help__ownership__releases"
                 ;;
@@ -282,6 +285,9 @@ _idx() {
             idx__ownership,import)
                 cmd="idx__ownership__import"
                 ;;
+            idx__ownership,movements)
+                cmd="idx__ownership__movements"
+                ;;
             idx__ownership,releases)
                 cmd="idx__ownership__releases"
                 ;;
@@ -323,6 +329,9 @@ _idx() {
                 ;;
             idx__ownership__help,import)
                 cmd="idx__ownership__help__import"
+                ;;
+            idx__ownership__help,movements)
+                cmd="idx__ownership__help__movements"
                 ;;
             idx__ownership__help,releases)
                 cmd="idx__ownership__help__releases"
@@ -1095,7 +1104,7 @@ _idx() {
             return 0
             ;;
         idx__help__ownership)
-            opts="discover import sync ticker entity search cross-holders concentration flow changes graph resolve releases"
+            opts="discover import sync ticker entity search cross-holders concentration flow changes movements graph resolve releases"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1207,6 +1216,20 @@ _idx() {
             return 0
             ;;
         idx__help__ownership__import)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        idx__help__ownership__movements)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -1725,7 +1748,7 @@ _idx() {
             return 0
             ;;
         idx__ownership)
-            opts="-o -q -v -h --output --no-color --quiet --verbose --provider --offline --no-cache --help discover import sync ticker entity search cross-holders concentration flow changes graph resolve releases help"
+            opts="-o -q -v -h --output --no-color --quiet --verbose --provider --offline --no-cache --help discover import sync ticker entity search cross-holders concentration flow changes movements graph resolve releases help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1973,7 +1996,7 @@ _idx() {
             return 0
             ;;
         idx__ownership__help)
-            opts="discover import sync ticker entity search cross-holders concentration flow changes graph resolve releases help"
+            opts="discover import sync ticker entity search cross-holders concentration flow changes movements graph resolve releases help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2099,6 +2122,20 @@ _idx() {
             return 0
             ;;
         idx__ownership__help__import)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        idx__ownership__help__movements)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -2240,6 +2277,56 @@ _idx() {
                     return 0
                     ;;
                 --fetch-bing)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --output)
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
+                    return 0
+                    ;;
+                -o)
+                    COMPREPLY=($(compgen -W "auto table json jsonl" -- "${cur}"))
+                    return 0
+                    ;;
+                --provider)
+                    COMPREPLY=($(compgen -W "yahoo msn stockbit" -- "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        idx__ownership__movements)
+            opts="-o -q -v -h --from --to --holder --action --source --pages --output --no-color --quiet --verbose --provider --offline --no-cache --help [SYMBOL]"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --from)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --to)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --holder)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --action)
+                    COMPREPLY=($(compgen -W "buy sell transfer cross corporate-action" -- "${cur}"))
+                    return 0
+                    ;;
+                --source)
+                    COMPREPLY=($(compgen -W "idx ksei" -- "${cur}"))
+                    return 0
+                    ;;
+                --pages)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

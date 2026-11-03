@@ -20,6 +20,7 @@ Commands:
   concentration  Rank tickers by ownership concentration
   flow           Show Bing institutional flow for a ticker
   changes        Diff two KSEI releases
+  movements      Insider and major holder buys and sells, as reported (Stockbit login)
   graph          Ownership network graph
   resolve        Manual entity resolution workflow
   releases       List imported KSEI releases
