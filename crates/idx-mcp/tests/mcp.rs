@@ -9,12 +9,14 @@ use idx_core::config::CoreConfig;
 use idx_core::investor::{ImportSource, Investor};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 18] = [
+const TOOLS: [&str; 20] = [
     "analyze_bandar",
     "analyze_stock",
     "compare_stocks",
     "get_broker_summary",
     "get_company",
+    "get_corporate_actions",
+    "get_corporate_calendar",
     "get_foreign_flow",
     "get_intraday",
     "get_investor_holdings",
@@ -500,6 +502,53 @@ fn the_order_book_needs_a_session_and_status_never_shows_tokens() {
         assert!(is_error, "{body}");
         assert_eq!(body["code"], "INVALIDINPUT");
     }
+}
+
+#[test]
+fn corporate_actions_need_a_session_and_keep_kinds_apart() {
+    let mut client = Client::start(&[], false);
+    let (is_error, body) = client.call("get_corporate_actions", json!({"symbol": "BBCA"}));
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "AUTHERROR");
+
+    let mut client = Client::start_with_env(
+        &[],
+        false,
+        &[TEST_SESSION, ("IDX_MOCK_TODAY", "2026-11-03")],
+    );
+    let actions = client.ok(
+        "get_corporate_actions",
+        json!({"symbol": "BBCA", "kinds": ["dividend", "split"]}),
+    );
+    assert_fetched(&actions);
+    assert_eq!(actions["source"], "stockbit");
+    let rows = actions["data"].as_array().unwrap();
+    assert_eq!(rows.len(), 40, "37 dividends and 3 splits");
+    assert_eq!(rows[0]["kind"], "dividend");
+    assert_eq!(rows[0]["date"], "2026-08-28");
+    assert_eq!(rows[0]["cash_per_share"], 25.0);
+    assert!(rows[0].get("ratio").is_none(), "absent fields are omitted");
+    let split = rows.iter().find(|r| r["kind"] == "split").unwrap();
+    assert_eq!(split["ratio"], json!({"old": 1, "new": 5}));
+
+    let calendar = client.ok(
+        "get_corporate_calendar",
+        json!({"to": "2026-11-12", "kinds": ["rights", "dividend"]}),
+    );
+    let rows = calendar["data"].as_array().unwrap();
+    assert_eq!(rows[0]["symbol"], "MGLV.JK");
+    assert_eq!(rows[0]["price"], 8880);
+    assert!(
+        rows.windows(2)
+            .all(|w| w[0]["date"].as_str() <= w[1]["date"].as_str())
+    );
+
+    let (is_error, body) = client.call(
+        "get_corporate_actions",
+        json!({"symbol": "BBCA", "kinds": ["rups"]}),
+    );
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "INVALIDINPUT");
 }
 
 #[test]

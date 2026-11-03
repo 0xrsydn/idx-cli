@@ -44,7 +44,7 @@ All on `https://exodus.stockbit.com`, bearer access token, HTTP 200 on
 | `/company-price-feed/market-time/session` | market state | shipped (#74) |
 | `/charts/{SYM}/daily?timeframe=1m\|3m\|1y` | daily candles | shipped (#74) |
 | `/charts/{SYM}/daily?timeframe=1w` | hourly candles, 5 sessions | P2 |
-| `/corpaction/{type}[?symbol=SYM]` | corporate actions and calendar | **P1** |
+| `/corpaction/{type}[?symbol=SYM]` | corporate actions and calendar | shipped: `stocks actions`, `stocks calendar` |
 | `/insider/company/majorholder` | insider / major-holder movements | **P1** |
 | `/insider/shareholding/composition/companies/{SYM}` | holder composition by period | P2 |
 | `/marketdetectors/{SYM}` | broker summary, Stockbit's bandar detector | P2 |
@@ -95,9 +95,12 @@ Hourly history needs a datetime bar (`Ohlc.date` is a `NaiveDate`) and an
 hourly `Interval`, across Yahoo, MSN, output, goldens and the MCP schema; that
 is its own change.
 
-## P1: corporate actions
+## P1: corporate actions (shipped)
 
-idx has none today (only the `high-dividend` screen and Yahoo's dividend
+Shipped as `idx stocks actions`, `idx stocks calendar` (not a top-level
+`calendar`: it sits beside `stocks screen`) and the MCP tools
+`get_corporate_actions`, `get_corporate_calendar`; the notes below are the
+endpoint as recorded. Before, idx had none (only the `high-dividend` screen and Yahoo's dividend
 yield). They explain price gaps in history (splits, bonuses, rights) and give
 a calendar of cum dates.
 
@@ -151,10 +154,10 @@ lists are not errors. A row whose dates are all placeholders is dropped.
 
 ### Surface
 
-- `idx stocks actions SYM [--kind dividend,rights,...] [--since DATE]`: one
-  stock's history, newest first.
-- `idx calendar [--kind ...] [--from DATE] [--to DATE]`: market-wide, default
-  today to +30 days, sorted by the next relevant date.
+- `idx stocks actions SYM [--kind dividend,rights,...]`: one stock's
+  history, newest first; every kind but `ipo` by default.
+- `idx stocks calendar [--kind ...] [--from DATE] [--to DATE]`: market-wide,
+  default today to +30 days, oldest first by `date`.
 - MCP: `get_corporate_actions {symbol, kinds?, since?}`,
   `get_corporate_calendar {kinds?, from?, to?}`.
 - Later: `stocks history` notes ex-dates of splits, bonuses and rights in the
@@ -231,7 +234,8 @@ Yahoo prices, forward 5/20/60-session returns against IHSG).
 
 1. Close #74: the open-state name in trading hours, fixtures for the observed
    states (done 2026-11-03).
-2. Corporate actions (parsers, `stocks actions`, `calendar`, MCP, goldens).
+2. Corporate actions (parsers, `stocks actions`, `stocks calendar`, MCP,
+   goldens) (done).
 3. Shareholder movements, rows first, then `--summary`.
 4. Event study for the movement score; P2 by demand.
 

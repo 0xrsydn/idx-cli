@@ -10,6 +10,7 @@ use idx_core::analysis::fundamental::FundamentalReport;
 use idx_core::api::stockbit::{self, signin};
 use idx_core::broker::types::BrokerRange;
 use idx_core::config::CoreConfig;
+use idx_core::corporate::types::{ActionKind, CalendarRange};
 use idx_core::error::IdxError;
 use idx_core::financial::{EarningsFilter, StatementFilter};
 use idx_core::flow::types::FlowRange;
@@ -27,9 +28,9 @@ use tokio::sync::Semaphore;
 
 use crate::params::{
     AnalysisKind, AnalyzeParams, BandarParams, BrokerParams, ChangesParams, CompanyParams,
-    CompanySection, EntityParams, FlowParams, HistoryParams, IntradayParams, LoginMethod,
-    LoginParams, OrderBookParams, ScreenParams, SearchParams, ShareholdersParams, SymbolsParams,
-    SyncParams,
+    CompanySection, CorporateActionsParams, CorporateCalendarParams, EntityParams, FlowParams,
+    HistoryParams, IntradayParams, LoginMethod, LoginParams, OrderBookParams, ScreenParams,
+    SearchParams, ShareholdersParams, SymbolsParams, SyncParams, action_kinds,
 };
 
 const SYNC_TOOL: &str = "ownership_sync";
@@ -348,6 +349,54 @@ average price, the close, `change_bps` and `non_regular_bps`."
             let range = FlowRange::from_args(days, from.as_deref(), to.as_deref(), flow.today())?;
             let source = source.as_deref().unwrap_or("ipot").parse()?;
             flow.foreign(&symbol, range, source, CachePolicy::Default)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Corporate actions of one IDX stock from the user's own Stockbit \
+session, newest first: `kind` (dividend, stock-dividend, bonus, rights, warrant, split, \
+reverse-split, meeting, expose, ipo, tender), `date` (the cum date for dividends, bonuses, \
+rights and splits, i.e. the last day to buy and be entitled; else the event's first day), \
+`ex_date`, `record_date`, `pay_date`, and per kind `cash_per_share` (IDR, may have decimals), \
+`ratio` {old, new} (1:5 split = 1 share becomes 5; 655:104 rights = 104 rights per 655 held), \
+`factor` (price adjustment), `price` (rights, warrant exercise, tender or IPO price, IDR), \
+`period` and `exercise` {start, end}, `shares`, `percentage_bps`, `time`, `venue`. Absent \
+fields are omitted. One Stockbit request per kind (about 1 s each on a cold cache, then cached \
+6 hours). AUTHERROR means there is no session: call stockbit_status, then stockbit_login."
+    )]
+    async fn get_corporate_actions(
+        &self,
+        params: Parameters<CorporateActionsParams>,
+    ) -> ToolResult {
+        let CorporateActionsParams { symbol, kinds } = params.0;
+        self.live(move |idx| {
+            let kinds = action_kinds(kinds, &ActionKind::STOCK_DEFAULT)?;
+            idx.corporate()
+                .actions(&symbol, &kinds, CachePolicy::Default)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Corporate actions across IDX from the user's own Stockbit session, \
+oldest first, dated from `from` to `to` (default today and the next 30 days): upcoming cum \
+dates, meetings, exposes, rights, warrants, IPOs and tender offers, and the past year. Each \
+item has the same fields as get_corporate_actions, with `symbol`. One Stockbit request per \
+kind (about 1 s each on a cold cache, then cached 6 hours); pass `kinds` to ask for less. \
+AUTHERROR means there is no session: call stockbit_status, then stockbit_login."
+    )]
+    async fn get_corporate_calendar(
+        &self,
+        params: Parameters<CorporateCalendarParams>,
+    ) -> ToolResult {
+        let CorporateCalendarParams { from, to, kinds } = params.0;
+        self.live(move |idx| {
+            let corporate = idx.corporate();
+            let range =
+                CalendarRange::from_args(from.as_deref(), to.as_deref(), corporate.today())?;
+            let kinds = action_kinds(kinds, &ActionKind::ALL)?;
+            corporate.calendar(range, &kinds, CachePolicy::Default)
         })
         .await
     }

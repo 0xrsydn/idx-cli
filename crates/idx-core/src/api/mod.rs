@@ -78,6 +78,17 @@ pub trait OrderBookProvider {
     fn orderbook(&self, symbol: &str) -> Result<OrderBook, IdxError>;
 }
 
+/// Corporate actions of one kind: needs the user's Stockbit session.
+pub trait CorporateActionProvider {
+    /// One stock's history (`symbol` resolved, e.g. `BBCA.JK`), or the
+    /// market's announced and recent actions with `None`.
+    fn corporate_actions(
+        &self,
+        kind: crate::corporate::types::ActionKind,
+        symbol: Option<&str>,
+    ) -> Result<Vec<crate::corporate::types::CorporateAction>, IdxError>;
+}
+
 pub trait FundamentalsProvider {
     fn fundamentals(&self, symbol: &str) -> Result<Fundamentals, IdxError>;
 }
@@ -338,6 +349,14 @@ pub fn intraday_provider() -> Box<dyn IntradayProvider> {
 }
 
 pub fn orderbook_provider() -> Box<dyn OrderBookProvider> {
+    #[cfg(feature = "testing")]
+    if mock::enabled() {
+        return Box::new(mock::MockStockbitProvider);
+    }
+    Box::new(stockbit::StockbitProvider::new())
+}
+
+pub fn corporate_action_provider() -> Box<dyn CorporateActionProvider> {
     #[cfg(feature = "testing")]
     if mock::enabled() {
         return Box::new(mock::MockStockbitProvider);

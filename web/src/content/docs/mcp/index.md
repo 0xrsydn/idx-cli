@@ -5,9 +5,9 @@ description: idx-mcp serves idx's stock and ownership data to AI agents over MCP
 
 `idx-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
 server over stdio. It gives an agent the same data as the `idx` CLI, as
-[17 tools](/mcp/tools/) (plus an opt-in `ownership_sync`): quotes, today's
-session by the minute, the order book (with a Stockbit login), price
-history, screening, company data, analysis, comparison, broker summaries,
+[20 tools](/mcp/tools/) (plus an opt-in `ownership_sync`): quotes, today's
+session by the minute, the order book and corporate actions (with a Stockbit
+login), price history, screening, company data, analysis, comparison, broker summaries,
 bandarmology, foreign flow, and the KSEI ownership queries.
 
 It shares idx's [config, cache and ownership database](/start/config/#files-idx-keeps),

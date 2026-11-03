@@ -283,6 +283,19 @@ WIB as the fallback.
   provider uses Stockbit's daily windows (`5d` to `1y`, trimmed from `1m`,
   `3m` or `1y`), Yahoo otherwise. Without one, quotes use the public page and
   the order book is `AUTHERROR`.
+- Corporate actions (`corporate/`, `api/stockbit/corpaction.rs`):
+  `/corpaction/{type}` per kind (`dividend`, `stock_dividend`, `bonus`,
+  `rightissue`, `warrant`, `stocksplit`, `reversesplit`, `rups`, `pubex`,
+  `ipo`, `tenderoffer`), with `?symbol=` for one stock's history or without
+  for the market (about a year back and what is announced ahead). Each type
+  has its own field prefix and the list key is not always the path's, so
+  entitlements are read by field suffix (`_cumdate`, `_exdate`, ...). One
+  request per kind, cached 6 hours under `stockbit-corpaction`
+  (`<kind>:<SYMBOL.JK>` or `<kind>:market`); `stocks actions` /
+  `get_corporate_actions` sort newest first, `stocks calendar` /
+  `get_corporate_calendar` filter by `CorporateAction::date` (the cum date
+  for entitlements) and sort oldest first. Endpoint notes and the wider
+  design: `docs/STOCKBIT.md`.
 
 ### Capability Gating
 ```
@@ -296,6 +309,7 @@ Factory functions:
   trading_summary_provider() → Box<dyn TradingSummaryProvider>
   intraday_provider() → Box<dyn IntradayProvider>
   orderbook_provider() → Box<dyn OrderBookProvider>
+  corporate_action_provider() → Box<dyn CorporateActionProvider>
 ```
 
 `ProviderKind::Stockbit` serves quotes (and, with a session, daily history):

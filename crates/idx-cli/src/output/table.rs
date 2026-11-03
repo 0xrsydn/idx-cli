@@ -15,6 +15,7 @@ use idx_core::api::types::{
     Intraday, NewsItem, Ohlc, OrderBook, Quote, SentimentData,
 };
 use idx_core::broker::types::{BrokerBoard, BrokerFlow, BrokerInvestor, BrokerKind, BrokerSummary};
+use idx_core::corporate::types::{ActionKind, CalendarRange, CorporateAction, DateRange};
 use idx_core::error::IdxError;
 use idx_core::flow::types::{FlowSource, ForeignFlow};
 
@@ -1668,6 +1669,190 @@ fn print_idx_flow(flow: &ForeignFlow) {
 is estimated at each session's average price; NON-REG is the share of all value traded \
 outside the regular board (negotiated and cash)."
     );
+}
+
+fn action_kind_label(kind: ActionKind) -> &'static str {
+    match kind {
+        ActionKind::Dividend => "dividend",
+        ActionKind::StockDividend => "stock dividend",
+        ActionKind::Bonus => "bonus",
+        ActionKind::Rights => "rights",
+        ActionKind::Warrant => "warrant",
+        ActionKind::Split => "split",
+        ActionKind::ReverseSplit => "reverse split",
+        ActionKind::Meeting => "meeting",
+        ActionKind::PublicExpose => "public expose",
+        ActionKind::Ipo => "IPO",
+        ActionKind::TenderOffer => "tender offer",
+    }
+}
+
+/// IDR with thousands separators and up to two decimals: `1,191.09`, `3.8`.
+fn format_rupiah(value: f64) -> String {
+    let cents = (value * 100.0).round() as i64;
+    let (whole, frac) = (cents / 100, (cents % 100).abs());
+    match frac {
+        0 => format_idr(whole),
+        f if f % 10 == 0 => format!("{}.{}", format_idr(whole), f / 10),
+        f => format!("{}.{f:02}", format_idr(whole)),
+    }
+}
+
+/// What an action gives or asks, in one line.
+fn action_detail(action: &CorporateAction) -> String {
+    let span = |range: Option<DateRange>| range.map(|r| format!("{} to {}", r.start, r.end));
+    let price = action.price.map(|p| format!("Rp {}", format_idr(p)));
+    let mut parts: Vec<String> = Vec::new();
+    match action.kind {
+        ActionKind::Dividend => {
+            parts.extend(
+                action
+                    .cash_per_share
+                    .map(|c| format!("Rp {} per share", format_rupiah(c))),
+            );
+        }
+        ActionKind::StockDividend | ActionKind::Bonus => {
+            parts.extend(
+                action
+                    .ratio
+                    .map(|r| format!("{} new per {} held", format_u64(r.new), format_u64(r.old))),
+            );
+        }
+        ActionKind::Split | ActionKind::ReverseSplit => {
+            parts.extend(
+                action
+                    .ratio
+                    .map(|r| format!("{} becomes {}", format_u64(r.old), format_u64(r.new))),
+            );
+        }
+        ActionKind::Rights => {
+            parts.extend(action.ratio.map(|r| {
+                format!(
+                    "{} rights per {} held",
+                    format_u64(r.new),
+                    format_u64(r.old)
+                )
+            }));
+            parts.extend(price.map(|p| format!("at {p}")));
+            parts.extend(span(action.period).map(|s| format!("trading {s}")));
+        }
+        ActionKind::Warrant => {
+            parts.extend(price.map(|p| format!("exercise at {p}")));
+            parts.extend(span(action.exercise).map(|s| format!("exercisable {s}")));
+            parts.extend(action.period.map(|r| format!("trades until {}", r.end)));
+        }
+        ActionKind::Meeting | ActionKind::PublicExpose => {
+            parts.extend(
+                action
+                    .time
+                    .as_deref()
+                    .map(|t| format!("{} WIB", terminal_safe(t))),
+            );
+            parts.extend(
+                action
+                    .venue
+                    .as_deref()
+                    .map(|v| truncate_chars(&terminal_safe(v), 60)),
+            );
+        }
+        ActionKind::Ipo => {
+            parts.extend(price);
+            parts.extend(action.shares.map(|s| format!("{} shares", format_u64(s))));
+            parts.extend(span(action.period).map(|s| format!("offered {s}")));
+        }
+        ActionKind::TenderOffer => {
+            parts.extend(price);
+            parts.extend(action.shares.map(|s| {
+                let share = action
+                    .percentage_bps
+                    .map(|bps| format!(" ({}.{:02}%)", bps / 100, bps % 100))
+                    .unwrap_or_default();
+                format!("for {} shares{share}", format_u64(s))
+            }));
+            parts.extend(span(action.period).map(|s| format!("open {s}")));
+        }
+    }
+    if parts.is_empty() {
+        "-".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
+const CORPORATE_DATE_NOTE: &str = "DATE is the cum date for dividends, bonuses, rights and \
+splits (buy by that day to be entitled); for other actions, the event's first day.";
+
+fn opt_date(date: Option<chrono::NaiveDate>) -> String {
+    date.map(|d| d.to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+pub fn print_corporate_actions(symbol: &str, actions: &[CorporateAction]) -> Result<(), IdxError> {
+    println!(
+        "{}",
+        format!("Corporate actions for {}", terminal_safe(symbol)).bold()
+    );
+    if actions.is_empty() {
+        println!("None of these kinds on record.");
+    } else {
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_header(vec!["DATE", "KIND", "EX", "RECORD", "PAY", "DETAIL"]);
+        for action in actions {
+            table.add_row(vec![
+                cell(action.date),
+                cell(action_kind_label(action.kind)),
+                cell(opt_date(action.ex_date)),
+                cell(opt_date(action.record_date)),
+                cell(opt_date(action.pay_date)),
+                cell(action_detail(action)),
+            ]);
+        }
+        println!("{table}");
+        println!("{CORPORATE_DATE_NOTE}");
+    }
+    println!("{STOCKBIT_SESSION_NOTE}");
+    Ok(())
+}
+
+pub fn print_corporate_calendar(
+    range: &CalendarRange,
+    actions: &[CorporateAction],
+) -> Result<(), IdxError> {
+    println!(
+        "{}",
+        format!(
+            "Corporate actions from {} to {} ({})",
+            range.from,
+            range.to,
+            actions.len()
+        )
+        .bold()
+    );
+    if actions.is_empty() {
+        println!("None of these kinds in that range.");
+    } else {
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_header(vec!["DATE", "SYMBOL", "KIND", "EX", "DETAIL"]);
+        for action in actions {
+            table.add_row(vec![
+                cell(action.date),
+                cell(action.symbol.trim_end_matches(".JK")),
+                cell(action_kind_label(action.kind)),
+                cell(opt_date(action.ex_date)),
+                cell(action_detail(action)),
+            ]);
+        }
+        println!("{table}");
+        println!("{CORPORATE_DATE_NOTE}");
+    }
+    println!("{STOCKBIT_SESSION_NOTE}");
+    Ok(())
 }
 
 #[cfg(test)]

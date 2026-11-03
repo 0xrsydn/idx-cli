@@ -68,6 +68,8 @@ Commands:
   quote        Get real-time stock quotes
   intraday     Today's session price by the minute (Stockbit)
   orderbook    Order book depth and foreign flow (Stockbit login)
+  actions      Dividends, rights, splits and other corporate actions of a stock (Stockbit login)
+  calendar     Upcoming and recent corporate actions across the market (Stockbit login)
   history      Get historical OHLC data
   technical    Run technical analysis on a stock
   growth       Run growth analysis on a stock
@@ -221,6 +223,132 @@ Examples:
   idx stocks orderbook BBCA
   idx stocks orderbook BBRI --depth 5
   idx -o json stocks orderbook TLKM | jq '.offers[0]'
+```
+
+### `idx stocks actions`
+
+```text
+One IDX stock's corporate actions from your own Stockbit session (`idx stockbit login`), newest first: cash and stock dividends, bonus shares, rights issues, warrants, splits and reverse splits, shareholders' meetings, public exposes and tender offers (`--kind ipo` adds its IPO). Stockbit serves one kind per request, 1 s apart, so the first call takes about a second per kind; answers are cached for 6 hours.
+
+Usage: idx stocks actions [OPTIONS] <SYMBOL>
+
+Arguments:
+  <SYMBOL>
+          Single ticker symbol (e.g. BBCA)
+
+Options:
+      --kind <KINDS>...
+          Kinds to list (default: all but ipo)
+
+          Possible values:
+          - dividend:       Cash dividend
+          - stock-dividend
+          - bonus:          Bonus shares
+          - rights:         Rights issue (HMETD)
+          - warrant
+          - split:          Stock split
+          - reverse-split
+          - meeting:        Shareholders' meeting (RUPS)
+          - expose:         Public expose
+          - ipo
+          - tender
+
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --no-color
+          Disable colored output
+
+  -q, --quiet
+          Suppress non-essential output
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx stocks actions BBCA
+  idx stocks actions TLKM --kind dividend
+  idx -o json stocks actions BBRI --kind dividend,split | jq '.[0]'
+```
+
+### `idx stocks calendar`
+
+```text
+Corporate actions across IDX from your own Stockbit session (`idx stockbit login`), oldest first, dated within --from and --to (default: today and the next 30 days). An action's date is its cum date for dividends, bonuses, rights and splits, else the event's first day. Stockbit lists about a year back and what is announced ahead. One request per kind, 1 s apart; answers are cached for 6 hours.
+
+Usage: idx stocks calendar [OPTIONS]
+
+Options:
+      --from <FROM>
+          First day, YYYY-MM-DD. Default: today
+
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --no-color
+          Disable colored output
+
+      --to <TO>
+          Last day, YYYY-MM-DD. Default: 30 days after --from (at most 366)
+
+      --kind <KINDS>...
+          Kinds to list (default: all)
+
+          Possible values:
+          - dividend:       Cash dividend
+          - stock-dividend
+          - bonus:          Bonus shares
+          - rights:         Rights issue (HMETD)
+          - warrant
+          - split:          Stock split
+          - reverse-split
+          - meeting:        Shareholders' meeting (RUPS)
+          - expose:         Public expose
+          - ipo
+          - tender
+
+  -q, --quiet
+          Suppress non-essential output
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
+      --offline
+          Run without network requests
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx stocks calendar
+  idx stocks calendar --kind dividend,rights
+  idx stocks calendar --from 2026-12-01 --to 2026-12-31 --kind meeting
 ```
 
 ### `idx stocks history`

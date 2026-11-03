@@ -285,6 +285,30 @@ env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0OD
 name = "stockbit-status-logged-out"
 args = ["stockbit", "status"]
 
+# Corporate actions: BBCA's recorded dividends, splits, meetings and exposes
+# (no fixture for a kind means none, as Stockbit answers); the calendar reads
+# the market-wide recordings of 2026-11-03.
+
+[[case]]
+name = "stockbit-actions"
+args = ["stocks", "actions", "BBCA", "--kind", "split,meeting,expose"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "stockbit-actions-dividends"
+args = ["stocks", "actions", "BBCA", "--kind", "dividend"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "stockbit-calendar"
+args = ["stocks", "calendar", "--to", "2026-11-12", "--kind", "dividend,bonus,rights,warrant,split,ipo,tender"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln", IDX_MOCK_TODAY = "2026-11-03" }
+
+[[case]]
+name = "stockbit-calendar-meetings"
+args = ["stocks", "calendar", "--from", "2026-11-05", "--to", "2026-11-06", "--kind", "meeting,expose"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln", IDX_MOCK_TODAY = "2026-11-03" }
+
 # --- stocks: broker summaries (IPOT) and foreign flow (IDX) --------------------
 
 [[case]]
@@ -391,6 +415,15 @@ args = ["--provider", "stockbit", "stocks", "fundamental", "BBCA"]
 [[case]]
 name = "error-orderbook-no-session"
 args = ["stocks", "orderbook", "BBCA"]
+
+[[case]]
+name = "error-actions-no-session"
+args = ["stocks", "actions", "BBCA"]
+
+[[case]]
+name = "error-calendar-range"
+args = ["stocks", "calendar", "--from", "2026-11-10", "--to", "2026-11-01"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln", IDX_MOCK_TODAY = "2026-11-03" }
 
 [[case]]
 name = "error-stockbit-history-window"

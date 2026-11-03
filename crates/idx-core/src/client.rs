@@ -94,6 +94,10 @@ impl Idx {
         crate::flow::Flow { idx: self }
     }
 
+    pub fn corporate(&self) -> crate::corporate::Corporate<'_> {
+        crate::corporate::Corporate { idx: self }
+    }
+
     pub fn financial(&self) -> crate::financial::Financial<'_> {
         crate::financial::Financial { idx: self }
     }

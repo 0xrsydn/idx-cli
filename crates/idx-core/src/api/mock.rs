@@ -1,14 +1,16 @@
 //! Fixture-backed provider for tests, enabled by the `testing` feature and
 //! `IDX_USE_MOCK_PROVIDER`. Release builds do not contain it.
 
-use super::stockbit::exodus;
+use super::stockbit::{corpaction, exodus};
 use super::types::{Bar, Fundamentals, Interval, Intraday, OrderBook, Period, Quote};
 use super::{
-    BrokerSummaryProvider, FundamentalsProvider, HistoryProvider, IntradayProvider,
-    OrderBookProvider, QuoteProvider, TradingSummaryProvider, idx, ipot, msn, stockbit, yahoo,
+    BrokerSummaryProvider, CorporateActionProvider, FundamentalsProvider, HistoryProvider,
+    IntradayProvider, OrderBookProvider, QuoteProvider, TradingSummaryProvider, idx, ipot, msn,
+    stockbit, yahoo,
 };
 use crate::broker::types::{BrokerBoard, BrokerInvestor, BrokerQuery};
 use crate::config::ProviderKind;
+use crate::corporate::types::{ActionKind, CorporateAction};
 use crate::error::IdxError;
 
 pub(crate) fn enabled() -> bool {
@@ -221,6 +223,34 @@ impl IntradayProvider for MockStockbitProvider {
 impl OrderBookProvider for MockStockbitProvider {
     fn orderbook(&self, symbol: &str) -> Result<OrderBook, IdxError> {
         self.book(symbol)
+    }
+}
+
+/// `stockbit_exodus_corpaction_<type>.json` for the market,
+/// `..._<type>_<code>.json` for one stock; a stock without a fixture has none
+/// of that kind, as Stockbit answers.
+impl CorporateActionProvider for MockStockbitProvider {
+    fn corporate_actions(
+        &self,
+        kind: ActionKind,
+        symbol: Option<&str>,
+    ) -> Result<Vec<CorporateAction>, IdxError> {
+        let subject = symbol.unwrap_or("corporate actions");
+        let name = match symbol {
+            Some(symbol) => format!(
+                "corpaction_{}_{}.json",
+                corpaction::path_type(kind),
+                stockbit::stockbit_code(symbol)?.to_ascii_lowercase()
+            ),
+            None => format!("corpaction_{}.json", corpaction::path_type(kind)),
+        };
+        let body = match self.exodus(subject, &name) {
+            Err(IdxError::SymbolNotFound(_)) if symbol.is_some() => {
+                r#"{"data":{"none":[]}}"#.to_string()
+            }
+            other => other?,
+        };
+        corpaction::parse_corporate_actions(kind, &body)
     }
 }
 

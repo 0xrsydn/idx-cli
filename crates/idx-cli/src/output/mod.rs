@@ -19,6 +19,7 @@ use idx_core::api::types::{
 };
 use idx_core::broker::types::BrokerSummary;
 use idx_core::config::ProviderKind;
+use idx_core::corporate::types::{CalendarRange, CorporateAction};
 use idx_core::error::IdxError;
 use idx_core::flow::types::ForeignFlow;
 
@@ -100,6 +101,28 @@ pub fn render_orderbook(
     match format {
         OutputFormat::Table => table::print_orderbook(book, no_color),
         OutputFormat::Json | OutputFormat::Jsonl => json::print_json(book),
+    }
+}
+
+pub fn render_corporate_actions(
+    symbol: &str,
+    actions: &[CorporateAction],
+    format: &OutputFormat,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_corporate_actions(symbol, actions),
+        OutputFormat::Json | OutputFormat::Jsonl => json::print_json(actions),
+    }
+}
+
+pub fn render_corporate_calendar(
+    range: &CalendarRange,
+    actions: &[CorporateAction],
+    format: &OutputFormat,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_corporate_calendar(range, actions),
+        OutputFormat::Json | OutputFormat::Jsonl => json::print_json(actions),
     }
 }
 

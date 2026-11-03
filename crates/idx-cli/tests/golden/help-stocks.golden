@@ -8,6 +8,8 @@ Commands:
   quote        Get real-time stock quotes
   intraday     Today's session price by the minute (Stockbit)
   orderbook    Order book depth and foreign flow (Stockbit login)
+  actions      Dividends, rights, splits and other corporate actions of a stock (Stockbit login)
+  calendar     Upcoming and recent corporate actions across the market (Stockbit login)
   history      Get historical OHLC data
   technical    Run technical analysis on a stock
   growth       Run growth analysis on a stock

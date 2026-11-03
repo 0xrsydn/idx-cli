@@ -17,6 +17,7 @@
 
 pub mod auth;
 pub mod browser;
+pub mod corpaction;
 pub mod exodus;
 pub mod loopback;
 mod parse;
@@ -31,8 +32,10 @@ pub use parse::{parse_symbol_page, status_error, stockbit_code};
 
 use super::types::{Bar, Fundamentals, Interval, Intraday, OrderBook, Period, Quote};
 use super::{
-    FundamentalsProvider, HistoryProvider, IntradayProvider, OrderBookProvider, QuoteProvider,
+    CorporateActionProvider, FundamentalsProvider, HistoryProvider, IntradayProvider,
+    OrderBookProvider, QuoteProvider,
 };
+use crate::corporate::types::{ActionKind, CorporateAction};
 use crate::error::IdxError;
 use auth::SessionStore;
 use exodus::Exodus;
@@ -200,6 +203,16 @@ impl IntradayProvider for StockbitProvider {
 impl OrderBookProvider for StockbitProvider {
     fn orderbook(&self, symbol: &str) -> Result<OrderBook, IdxError> {
         self.require_session()?.orderbook(symbol)
+    }
+}
+
+impl CorporateActionProvider for StockbitProvider {
+    fn corporate_actions(
+        &self,
+        kind: ActionKind,
+        symbol: Option<&str>,
+    ) -> Result<Vec<CorporateAction>, IdxError> {
+        self.require_session()?.corporate_actions(kind, symbol)
     }
 }
 

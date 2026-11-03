@@ -1,0 +1,4 @@
+exit: 2
+--- stdout
+--- stderr
+{"code":"INVALIDINPUT","error":true,"message":"invalid input: to (2026-11-01) is before from (2026-11-10)"}

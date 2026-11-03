@@ -25,9 +25,11 @@ use chrono::{Months, NaiveDate};
 use serde_json::Value;
 
 use super::auth::SessionStore;
+use super::corpaction;
 use super::parse::number;
 use super::{USER_AGENT, pace, stockbit_code};
 use crate::api::types::{BookLevel, Interval, Ohlc, OrderBook, Period, Quote};
+use crate::corporate::types::{ActionKind, CorporateAction};
 use crate::error::IdxError;
 
 const BASE_URL: &str = "https://exodus.stockbit.com";
@@ -118,6 +120,24 @@ impl Exodus {
             resolved,
         )?;
         daily_for_period(&body, period)
+    }
+
+    /// Corporate actions of `kind`: one stock's (`resolved`) or the market's.
+    pub(crate) fn corporate_actions(
+        &self,
+        kind: ActionKind,
+        resolved: Option<&str>,
+    ) -> Result<Vec<CorporateAction>, IdxError> {
+        let path = format!("/corpaction/{}", corpaction::path_type(kind));
+        let (path, subject) = match resolved {
+            Some(resolved) => (
+                format!("{path}?symbol={}", stockbit_code(resolved)?),
+                resolved.to_string(),
+            ),
+            None => (path, "corporate actions".to_string()),
+        };
+        let body = self.get(&path, &subject)?;
+        corpaction::parse_corporate_actions(kind, &body)
     }
 
     /// The market's state, read at most every `MARKET_STATE_TTL` per process.
