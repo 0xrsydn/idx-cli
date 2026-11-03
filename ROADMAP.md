@@ -22,6 +22,12 @@ history lives in git.
   RSS per ticker, and IDX disclosures and exchange news through a
   maintainer-published feed
 
+## Ownership
+- Store the register's `CONTROLLER_OR_AFFILIATE` flag (from the 30 Oct 2026
+  report; about 1,200 controller and 950 affiliate rows) and show it in
+  `ticker`, `entity` and `changes`, so a controller's moves stand apart.
+  Needs a DB column, the snapshot format, and blank for older reports.
+
 ## Workflow
 - `watchlist`: named symbol sets usable by other commands
 - `alerts`: price alerts with a daemon

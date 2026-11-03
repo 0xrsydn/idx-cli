@@ -197,7 +197,8 @@ payload, `%PDF`, or `PK` zip magic). `IDX_CURL_IMPERSONATE_BIN` pins a single pr
 
 ### Parser Pipeline
 ```
-KSEI XLSX → zip + quick-xml (sharedStrings + sheet1) → exact 12-column header check
+KSEI XLSX → zip + quick-xml (sharedStrings + sheet1) → header check by name (12 columns;
+  October 2026 added CONTROLLER_OR_AFFILIATE, accepted but not stored yet)
   → KseiHoldingDraft (Excel serial dates, numeric shares, percent → bps)
   → SQLite INSERT (within transaction)
 
