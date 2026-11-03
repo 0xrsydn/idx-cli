@@ -2,10 +2,13 @@
 //! user's session (see `auth`). Opt-in: used only when a session is stored.
 //!
 //! - `GET /company-price-feed/v2/orderbook/companies/{CODE}`: last price,
-//!   OHLC, volume (shares), value, frequency, foreign buy/sell/net (IDR) and
-//!   the depth ladder `bid[]`/`offer[]` of `{price, que_num, volume}` (shares).
+//!   OHLC, volume (shares), value, frequency, foreign buy/sell/net (IDR, used
+//!   only when `has_foreign_bs` is true) and the depth ladder
+//!   `bid[]`/`offer[]` of `{price, que_num, volume}` (shares).
 //! - `GET /company-price-feed/market-time/session`: the market's state,
-//!   `data.detail.regular.state_name` (e.g. `STATE_NAME_MARKET_CLOSED`).
+//!   `data.detail.regular.state_name`: `STATE_NAME_SESSION_2` while trading,
+//!   `STATE_NAME_BREAK`, `STATE_NAME_MARKET_CLOSED` (recorded). The `fca`
+//!   (full call auction) board beside it keeps its own state and is not read.
 //! - `GET /charts/{CODE}/daily?timeframe=1m|3m|1y&chart_type=PRICE_CHART_TYPE_CANDLE`:
 //!   daily candles, `formatted_date` `YYYY-MM-DD`, string OHLC, `value` the
 //!   close and `volume` in lots.
@@ -29,10 +32,19 @@ use crate::error::IdxError;
 
 const BASE_URL: &str = "https://exodus.stockbit.com";
 const REFRESH_PATH: &str = "/login/refresh";
-/// The state in which the book is live. Assumed from Stockbit's naming
-/// (only `STATE_NAME_MARKET_CLOSED` has been recorded); any other state hides
-/// bid/offer in quotes, as on the public page.
-pub const MARKET_OPEN: &str = "STATE_NAME_MARKET_OPEN";
+/// The prefix of the states in which the regular market trades:
+/// `STATE_NAME_SESSION_2` was recorded on 2026-11-03 from 13:30; session 1 is
+/// assumed to follow the same naming. Every other state (`STATE_NAME_BREAK`,
+/// `STATE_NAME_MARKET_CLOSED`, auctions) hides bid/offer in quotes, as on the
+/// public page.
+const TRADING_PREFIX: &str = "STATE_NAME_SESSION_";
+
+/// Whether Stockbit's market state is a trading session.
+pub fn is_trading(state: &str) -> bool {
+    state
+        .strip_prefix(TRADING_PREFIX)
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
 /// The market's state changes a few times a day; one read serves this long.
 const MARKET_STATE_TTL: Duration = Duration::from_secs(30);
 
@@ -293,6 +305,12 @@ pub fn parse_orderbook(
     } else {
         None
     };
+    // Stockbit flags whether `fbuy`/`fsell`/`fnet` are current. While the
+    // flag was off (2026-11-03, in session) they were the previous session's
+    // figures (equal to IPOT's for 2026-11-02 for BBCA, BBRI and TLKM), so
+    // they are dropped rather than shown beside today's prices.
+    let foreign_current = d.get("has_foreign_bs").and_then(Value::as_bool) == Some(true);
+    let foreign = |key: &str| foreign_current.then(|| whole(d.get(key))).flatten();
     Ok(OrderBook {
         symbol: resolved.to_string(),
         name: d.get("name").and_then(Value::as_str).map(str::to_string),
@@ -306,9 +324,9 @@ pub fn parse_orderbook(
         volume,
         value: count(d.get("value")),
         frequency: count(d.get("frequency")),
-        foreign_buy: whole(d.get("fbuy")),
-        foreign_sell: whole(d.get("fsell")),
-        foreign_net: whole(d.get("fnet")),
+        foreign_buy: foreign("fbuy"),
+        foreign_sell: foreign("fsell"),
+        foreign_net: foreign("fnet"),
         bids: levels("bid"),
         offers: levels("offer"),
         market_status,
@@ -318,7 +336,7 @@ pub fn parse_orderbook(
 
 /// A quote from the order book; bid/offer only while the market is open.
 pub fn quote_from_book(book: &OrderBook) -> Quote {
-    let open = book.market_status.as_deref() == Some(MARKET_OPEN);
+    let open = book.market_status.as_deref().is_some_and(is_trading);
     let best = |levels: &[BookLevel]| open.then(|| levels.first().map(|l| l.price)).flatten();
     Quote {
         symbol: book.symbol.clone(),
@@ -473,21 +491,59 @@ mod tests {
 
     #[test]
     fn quote_shows_the_best_levels_only_while_the_market_is_open() {
-        let mut book = parse_orderbook("BBCA.JK", &fixture("orderbook_bbca.json"), None).unwrap();
-        let closed = quote_from_book(&book);
-        assert_eq!((closed.bid, closed.offer), (None, None));
-        book.market_status = Some(MARKET_OPEN.to_string());
-        let open = quote_from_book(&book);
-        assert_eq!((open.bid, open.offer), (None, Some(5175)));
-        assert_eq!(open.price, 5175);
+        let trading = parse_market_status(&fixture("market_session_trading.json"));
+        let book = |state: Option<String>| {
+            parse_orderbook("BBCA.JK", &fixture("orderbook_bbca_in_session.json"), state).unwrap()
+        };
+        let open = quote_from_book(&book(trading));
+        assert_eq!((open.bid, open.offer), (Some(4850), Some(4860)));
+        assert_eq!(open.price, 4860);
+        for state in ["market_session_break.json", "market_session.json"] {
+            let shut = quote_from_book(&book(parse_market_status(&fixture(state))));
+            assert_eq!((shut.bid, shut.offer), (None, None), "{state}");
+        }
+        assert_eq!(quote_from_book(&book(None)).bid, None);
     }
 
     #[test]
     fn market_status_is_read_verbatim() {
+        for (name, state) in [
+            ("market_session.json", "STATE_NAME_MARKET_CLOSED"),
+            ("market_session_break.json", "STATE_NAME_BREAK"),
+            ("market_session_trading.json", "STATE_NAME_SESSION_2"),
+        ] {
+            assert_eq!(parse_market_status(&fixture(name)).as_deref(), Some(state));
+        }
+    }
+
+    #[test]
+    fn only_numbered_sessions_are_trading() {
+        assert!(is_trading("STATE_NAME_SESSION_1"));
+        assert!(is_trading("STATE_NAME_SESSION_2"));
+        for state in [
+            "STATE_NAME_BREAK",
+            "STATE_NAME_MARKET_CLOSED",
+            "STATE_NAME_MARKET_OPEN",
+            "STATE_NAME_SESSION_",
+            "STATE_NAME_SESSION_PRE_OPENING",
+            "",
+        ] {
+            assert!(!is_trading(state), "{state}");
+        }
+    }
+
+    #[test]
+    fn foreign_flow_only_when_stockbit_marks_it_current() {
+        // In session (has_foreign_bs false) the figures were 2026-11-02's.
+        let live =
+            parse_orderbook("BBCA.JK", &fixture("orderbook_bbca_in_session.json"), None).unwrap();
         assert_eq!(
-            parse_market_status(&fixture("market_session.json")).as_deref(),
-            Some("STATE_NAME_MARKET_CLOSED")
+            (live.foreign_buy, live.foreign_sell, live.foreign_net),
+            (None, None, None)
         );
+        assert_eq!(live.volume, Some(134_744_100));
+        let done = parse_orderbook("BBCA.JK", &fixture("orderbook_bbca.json"), None).unwrap();
+        assert_eq!(done.foreign_buy, Some(1_616_461_977_500));
     }
 
     #[test]

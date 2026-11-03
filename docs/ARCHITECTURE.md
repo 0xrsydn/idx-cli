@@ -269,13 +269,17 @@ WIB as the fallback.
   its recordings are `tests/fixtures/stockbit_exodus_*`):
   `/company-price-feed/v2/orderbook/companies/{CODE}` gives the depth ladder
   (`volume` in shares, `que_num` orders), OHLC, value, frequency and foreign
-  buy/sell/net; `/company-price-feed/market-time/session` the market state
-  (`STATE_NAME_MARKET_CLOSED`, cached 30 s per process); `/charts/{CODE}/daily`
+  buy/sell/net (kept only when `has_foreign_bs` is true: on 2026-11-03 in
+  session it was false and the figures were the previous session's);
+  `/company-price-feed/market-time/session` the market state of the `regular`
+  board (`STATE_NAME_SESSION_2` while trading, `STATE_NAME_BREAK`,
+  `STATE_NAME_MARKET_CLOSED`; cached 30 s per process; the `fca` board's own
+  state is not read); `/charts/{CODE}/daily`
   daily candles for `1m`/`3m`/`1y` windows (volume in lots, returned in
   shares). Requests share the public page's cross-process pacing.
 - With a session, `--provider stockbit` quotes come from the order book (bid
-  and offer only in `STATE_NAME_MARKET_OPEN`, a name assumed until observed
-  in session), `stocks orderbook` works, and `auto` history under the stockbit
+  and offer only in a `STATE_NAME_SESSION_<n>` state; session 2 was observed
+  on 2026-11-03, session 1 is assumed to match), `stocks orderbook` works, and `auto` history under the stockbit
   provider uses Stockbit's daily windows (`5d` to `1y`, trimmed from `1m`,
   `3m` or `1y`), Yahoo otherwise. Without one, quotes use the public page and
   the order book is `AUTHERROR`.

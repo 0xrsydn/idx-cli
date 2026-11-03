@@ -42,7 +42,8 @@ idx stocks orderbook BBRI --depth 5
 
 With your own Stockbit session (`idx stockbit login`), `orderbook` shows
 every bid and offer level with lots and queued orders, the session's OHLC,
-value and trades, and foreign buy, sell and net. Without one it answers
+value and trades, and foreign buy, sell and net once Stockbit marks them
+current (not during trading, when they lag a day). Without one it answers
 `AUTHERROR`. See [Stockbit](/cli/stockbit/#with-your-stockbit-login).
 
 ## Company data

@@ -272,10 +272,11 @@ pub fn print_intraday(day: &Intraday, no_color: bool) -> Result<(), IdxError> {
 }
 
 /// Stockbit's market state for people: `STATE_NAME_MARKET_CLOSED` reads
-/// `closed`.
+/// `closed`, `STATE_NAME_BREAK` `break`, `STATE_NAME_SESSION_2` `session 2`.
 fn market_words(state: &str) -> String {
     state
         .strip_prefix("STATE_NAME_MARKET_")
+        .or_else(|| state.strip_prefix("STATE_NAME_"))
         .unwrap_or(state)
         .replace('_', " ")
         .to_lowercase()
@@ -326,7 +327,9 @@ pub fn print_orderbook(book: &OrderBook, no_color: bool) -> Result<(), IdxError>
         );
     }
     match book.market_status.as_deref() {
-        Some(idx_core::api::stockbit::exodus::MARKET_OPEN) => println!("market open"),
+        Some(state) if idx_core::api::stockbit::exodus::is_trading(state) => {
+            println!("market open ({})", terminal_safe(&market_words(state)))
+        }
         Some(state) => println!(
             "market {}: the book as the market left it",
             terminal_safe(&market_words(state))

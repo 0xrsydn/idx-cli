@@ -126,7 +126,8 @@ pub struct OrderBook {
     pub value: Option<u64>,
     /// Trades in the session.
     pub frequency: Option<u64>,
-    /// Foreign buy, sell and net value over the session, IDR.
+    /// Foreign buy, sell and net value over the session, IDR; `None` while
+    /// Stockbit marks them not current (in session they lag a day).
     pub foreign_buy: Option<i64>,
     pub foreign_sell: Option<i64>,
     pub foreign_net: Option<i64>,
@@ -134,7 +135,8 @@ pub struct OrderBook {
     pub bids: Vec<BookLevel>,
     /// Best price first.
     pub offers: Vec<BookLevel>,
-    /// Stockbit's session state, verbatim (e.g. `STATE_NAME_MARKET_CLOSED`).
+    /// Stockbit's session state, verbatim (e.g. `STATE_NAME_SESSION_2`,
+    /// `STATE_NAME_BREAK`, `STATE_NAME_MARKET_CLOSED`).
     pub market_status: Option<String>,
     /// Stockbit's listing status when it is not active (e.g. suspended).
     pub session_note: Option<String>,

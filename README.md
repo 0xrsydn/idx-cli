@@ -96,7 +96,7 @@ idx ownership changes --from 2026-07-31 --to 2026-08-31
 - Stockbit, opt-in: without a login, `stocks intraday` (today's price by the
   minute) and `--provider stockbit` quotes with the best bid/offer while the
   market is open, delayed at least 10 minutes. With your own account
-  (`idx stockbit login`): `stocks orderbook` depth and foreign flow, live
+  (`idx stockbit login`): `stocks orderbook` depth, live
   quotes and Stockbit daily history. Personal use under Stockbit's terms; see
   the [Stockbit page](https://idx.rasyidanaf.com/cli/stockbit/)
 - Local file cache with TTL, and `--offline` mode with stale-cache fallback

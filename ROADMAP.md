@@ -15,8 +15,9 @@ history lives in git.
 - Order book depth without a login: no free source exists (IDX sells delayed
   depth to vendors); `stocks orderbook` needs the user's Stockbit login.
 - Stockbit login follow-ups: intraday OHLCV from the session's `1d` chart;
-  observing the session API's open-market state name (assumed
-  `STATE_NAME_MARKET_OPEN`; `STATE_NAME_MARKET_CLOSED` seen 2026-10-29); an
+  confirming session 1 is `STATE_NAME_SESSION_1` (session 2, `BREAK` and
+  `MARKET_CLOSED` were recorded on 2026-11-03), and when `has_foreign_bs`
+  turns on with the day's foreign figures; an
   opt-in daily refresh so a session outlives the refresh token's week, once
   it is known whether Stockbit caps a session's total life; and the sign-in
   response (`/login/v6/*`, read over DevTools' `Fetch`) as a second signal

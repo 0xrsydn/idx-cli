@@ -165,9 +165,10 @@ per-minute volume. Empty `points` means the stock did not trade this session (se
     #[tool(
         description = "Order book of one IDX stock from the user's own Stockbit session: \
 `bids` and `offers` (best price first) of {price, shares, orders}, the session's OHLC, \
-volume (shares), value and frequency, and foreign buy/sell/net in IDR. `market_status` is \
-Stockbit's state, verbatim; outside STATE_NAME_MARKET_OPEN the book is as the market left \
-it. AUTHERROR means there is no session: call stockbit_status, then stockbit_login for a URL \
+volume (shares), value and frequency, and foreign buy/sell/net in IDR (null while Stockbit \
+marks them not current, as during trading; get_foreign_flow has them per session). \
+`market_status` is Stockbit's state, verbatim: STATE_NAME_SESSION_1 or _2 is trading; in any \
+other state the book is as the market left it. AUTHERROR means there is no session: call stockbit_status, then stockbit_login for a URL \
 the user can open."
     )]
     async fn get_orderbook(&self, params: Parameters<OrderBookParams>) -> ToolResult {

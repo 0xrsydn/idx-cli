@@ -195,12 +195,15 @@ What the login adds:
 | --- | --- | --- |
 | `--provider stockbit` quotes | public page, delayed | Stockbit's API, live |
 | Bid and offer in quotes | best price, while open | best price, while open |
-| `stocks orderbook` | `AUTHERROR` | every level with lots and queued orders, OHLC, value, trades, foreign buy/sell/net |
+| `stocks orderbook` | `AUTHERROR` | every level with lots and queued orders, OHLC, value, trades; foreign buy/sell/net once Stockbit marks them current |
 | `stocks history` under `--provider stockbit` | Yahoo | Stockbit's daily candles for `5d` to `1y`; Yahoo for other windows |
 | `stocks intraday` | public page | public page |
 
 The order book is what Stockbit's own app shows. Outside trading it is the
-book as the market left it, and the output says so. Sizes are lots in the
+book as the market left it, and the output says so. Foreign buy, sell and net
+appear only when Stockbit marks them current: during trading its figures are
+the previous session's, so idx leaves them out (`stocks flow` has foreign
+flow session by session). Sizes are lots in the
 table and shares in JSON. `--history-provider stockbit` asks for Stockbit's
 candles explicitly; windows it charts only weekly or hourly (`2y`, `5y`,
 `1wk`) answer `UNSUPPORTED`.
