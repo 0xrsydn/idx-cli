@@ -1704,6 +1704,20 @@ fn format_rupiah(value: f64) -> String {
     }
 }
 
+/// Another currency's amount with up to six decimals, since a dollar
+/// dividend can be a fraction of a cent: `0.0012`, `1,250.5`.
+fn format_foreign_amount(value: f64) -> String {
+    let micros = (value.abs() * 1_000_000.0).round() as u64;
+    let (whole, frac) = (micros / 1_000_000, micros % 1_000_000);
+    let sign = if value < 0.0 && micros > 0 { "-" } else { "" };
+    let whole = format_u64(whole);
+    if frac == 0 {
+        return format!("{sign}{whole}");
+    }
+    let frac = format!("{frac:06}");
+    format!("{sign}{whole}.{}", frac.trim_end_matches('0'))
+}
+
 /// What an action gives or asks, in one line.
 fn action_detail(action: &CorporateAction) -> String {
     let span = |range: Option<DateRange>| range.map(|r| format!("{} to {}", r.start, r.end));
@@ -1711,14 +1725,14 @@ fn action_detail(action: &CorporateAction) -> String {
     let mut parts: Vec<String> = Vec::new();
     match action.kind {
         ActionKind::Dividend => {
-            let unit = action
-                .currency
-                .as_deref()
-                .map_or_else(|| "Rp".to_string(), terminal_safe);
+            let (unit, amount): (String, fn(f64) -> String) = match action.currency.as_deref() {
+                Some(currency) => (terminal_safe(currency), format_foreign_amount),
+                None => ("Rp".to_string(), format_rupiah),
+            };
             parts.extend(
                 action
                     .cash_per_share
-                    .map(|c| format!("{unit} {} per share", format_rupiah(c))),
+                    .map(|c| format!("{unit} {} per share", amount(c))),
             );
         }
         ActionKind::StockDividend | ActionKind::Bonus => {
@@ -2015,11 +2029,21 @@ pub fn print_shareholder_movements(
 #[cfg(test)]
 mod tests {
     use super::{
-        format_earnings_period, format_idr, format_signal, format_table_date, format_u64,
-        humanize_metric_key, stale_quote_notes,
+        format_earnings_period, format_foreign_amount, format_idr, format_rupiah, format_signal,
+        format_table_date, format_u64, humanize_metric_key, stale_quote_notes,
     };
     use idx_core::analysis::signals::Signal;
     use idx_core::api::types::Quote;
+
+    /// Rupiah to the sen; another currency keeps a fraction of a cent.
+    #[test]
+    fn dividend_amounts_keep_their_decimals() {
+        assert_eq!(format_rupiah(1191.09), "1,191.09");
+        assert_eq!(format_rupiah(3.8), "3.8");
+        assert_eq!(format_foreign_amount(0.0012), "0.0012");
+        assert_eq!(format_foreign_amount(1250.5), "1,250.5");
+        assert_eq!(format_foreign_amount(2.0), "2");
+    }
 
     fn quote_as_of(symbol: &str, as_of: &str) -> Quote {
         Quote {

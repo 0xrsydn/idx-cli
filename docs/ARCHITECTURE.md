@@ -296,16 +296,20 @@ WIB as the fallback.
   request per kind, cached 6 hours under `stockbit-corpaction`
   (`<kind>:<SYMBOL.JK>` or `<kind>:market`); `stocks actions` /
   `get_corporate_actions` sort newest first, `stocks calendar` /
-  `get_corporate_calendar` filter by `CorporateAction::date` (the cum date
-  for entitlements) and sort oldest first. Endpoint notes and the wider
+  `get_corporate_calendar` keep what `CalendarRange::includes`: a
+  `CorporateAction::date` (the cum date for entitlements) in the range, or a
+  rights, tender or IPO `period` that overlaps it (not a warrant's, which
+  runs for years), sorted oldest first. Endpoint notes and the wider
   design: `docs/STOCKBIT.md`.
 - Shareholder movements (`movements`, `api/stockbit/movement.rs`) read
   `/insider/company/majorholder`: IDX insider disclosures and KSEI 5% holder
   changes, 50 rows a page, filtered by Stockbit (`symbol`, `date_start`,
-  `date_end`, `insider` (holder id), `action_type`, `source_type`). Each page
-  is cached an hour under `stockbit-movements`, keyed by every filter and the
-  page. `ownership movements` and `get_shareholder_movements` read up to 10
-  pages; the KSEI register in SQLite is not involved.
+  `date_end`, `insider` (holder id), `action_type`, `source_type`).
+  `ownership movements` and `get_shareholder_movements` read up to 10 pages
+  as one answer, cached an hour under `stockbit-movements`, keyed by every
+  filter and the page count. If a page after the first fails, the rows read
+  before it come back with `incomplete` set and nothing is cached. The KSEI
+  register in SQLite is not involved.
 
 ### Capability Gating
 ```

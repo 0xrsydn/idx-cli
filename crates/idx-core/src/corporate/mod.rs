@@ -43,7 +43,8 @@ impl Corporate<'_> {
     }
 
     /// The market's corporate actions of `kinds` dated within `range` (see
-    /// `CorporateAction::date`), oldest first.
+    /// `CorporateAction::date`), plus offers still open in it (see
+    /// `CalendarRange::includes`), oldest first.
     pub fn calendar(
         &self,
         range: CalendarRange,
@@ -52,7 +53,7 @@ impl Corporate<'_> {
     ) -> Result<Fetched<Vec<CorporateAction>>, IdxError> {
         let fetched = self.fetch(kinds, None, policy)?;
         Ok(fetched.map(|mut actions| {
-            actions.retain(|a| range.contains(a.date));
+            actions.retain(|a| range.includes(a));
             actions.sort_by(|a, b| (a.date, &a.symbol, a.kind).cmp(&(b.date, &b.symbol, b.kind)));
             actions
         }))

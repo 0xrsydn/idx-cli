@@ -389,8 +389,10 @@ fields are omitted. One Stockbit request per kind (about 1 s each on a cold cach
 
     #[tool(
         description = "Corporate actions across IDX from the user's own Stockbit session, \
-oldest first, dated from `from` to `to` (default today and the next 30 days): upcoming cum \
-dates, meetings, exposes, rights, warrants, IPOs and tender offers, and the past year. Each \
+oldest first, dated from `from` to `to` (default today and the next 30 days), plus rights \
+trading, tender offers and IPO offers still open in that range (their `period` overlaps it, \
+though `date` may be earlier): upcoming cum dates, meetings, exposes, rights, warrants, IPOs \
+and tender offers, and the past year. Each \
 item has the same fields as get_corporate_actions, with `symbol`. One Stockbit request per \
 kind (about 1 s each on a cold cache, then cached 6 hours); pass `kinds` to ask for less. \
 AUTHERROR means there is no session: call stockbit_status, then stockbit_login."

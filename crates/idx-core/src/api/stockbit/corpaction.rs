@@ -98,10 +98,12 @@ fn entitlement(
     action.factor = number(suffixed(row, "factor"));
     match kind {
         ActionKind::Dividend => {
-            action.cash_per_share = number(suffixed(row, "value")).map(|v| round_to(v, 2));
             action.currency = text(suffixed(row, "currency"))
                 .map(|c| c.trim_start_matches("CURRENCY_").to_ascii_uppercase())
                 .filter(|c| c != "IDR");
+            // Rupiah to the sen; a dollar dividend can be a fraction of a cent.
+            let places = if action.currency.is_some() { 6 } else { 2 };
+            action.cash_per_share = number(suffixed(row, "value")).map(|v| round_to(v, places));
         }
         ActionKind::Rights => {
             action.price = whole(suffixed(row, "price"));
@@ -413,7 +415,9 @@ mod tests {
              "dividend_currency":"CURRENCY_IDR"}]}}"#;
         let rows = parse_corporate_actions(ActionKind::Dividend, body).unwrap();
         assert_eq!(rows[0].currency.as_deref(), Some("USD"));
+        assert_eq!(rows[0].cash_per_share, Some(0.0012), "not rounded to cents");
         assert_eq!(rows[1].currency, None);
+        assert_eq!(rows[1].cash_per_share, Some(5.0));
         assert_eq!((rows[1].date, rows[1].cum_date), (day("2026-11-12"), None));
     }
 

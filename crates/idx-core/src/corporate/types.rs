@@ -12,7 +12,10 @@ use crate::error::IdxError;
 pub enum ActionKind {
     /// Cash dividend.
     Dividend,
-    #[cfg_attr(feature = "clap", value(name = "stock-dividend"))]
+    #[cfg_attr(
+        feature = "clap",
+        value(name = "stock-dividend", alias = "stock_dividend")
+    )]
     #[serde(alias = "stock_dividend")]
     StockDividend,
     /// Bonus shares.
@@ -22,7 +25,10 @@ pub enum ActionKind {
     Warrant,
     /// Stock split.
     Split,
-    #[cfg_attr(feature = "clap", value(name = "reverse-split"))]
+    #[cfg_attr(
+        feature = "clap",
+        value(name = "reverse-split", alias = "reverse_split")
+    )]
     #[serde(alias = "reverse_split")]
     ReverseSplit,
     /// Shareholders' meeting (RUPS).
@@ -167,8 +173,8 @@ pub struct CorporateAction {
     pub record_date: Option<NaiveDate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pay_date: Option<NaiveDate>,
-    /// Cash dividend per share, IDR as Stockbit gives it (up to 2 decimals,
-    /// e.g. 3.8).
+    /// Cash dividend per share as Stockbit gives it: IDR to the sen (e.g.
+    /// 3.8), another `currency` to 6 decimals (e.g. USD 0.0012).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cash_per_share: Option<f64>,
     /// The dividend's currency (ISO code, e.g. `USD`) when it is not IDR;
@@ -282,6 +288,20 @@ impl CalendarRange {
     pub fn contains(&self, date: NaiveDate) -> bool {
         (self.from..=self.to).contains(&date)
     }
+
+    /// Whether `action` belongs on this calendar: dated in it, or an offer
+    /// still open in it (rights trading, a tender offer, an IPO offer), so a
+    /// calendar shows what can still be acted on. A warrant's windows run
+    /// for years, so a warrant counts by its date alone.
+    pub fn includes(&self, action: &CorporateAction) -> bool {
+        let open_offer = matches!(
+            action.kind,
+            ActionKind::Rights | ActionKind::TenderOffer | ActionKind::Ipo
+        ) && action
+            .period
+            .is_some_and(|period| period.start <= self.to && period.end >= self.from);
+        self.contains(action.date) || open_offer
+    }
 }
 
 #[cfg(test)]
@@ -290,6 +310,49 @@ mod tests {
 
     fn day(s: &str) -> NaiveDate {
         NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
+    /// A calendar shows what is dated in it and the offers still open in it;
+    /// a warrant's years-long windows do not put it on every calendar.
+    #[test]
+    fn test_calendar_includes_offers_still_open() {
+        let range = CalendarRange {
+            from: day("2026-11-03"),
+            to: day("2026-11-12"),
+        };
+        let with_period = |kind, date: &str, start: &str, end: &str| {
+            let mut action = CorporateAction::new("AUTO.JK".into(), kind, day(date));
+            action.period = Some(DateRange {
+                start: day(start),
+                end: day(end),
+            });
+            action
+        };
+        let tender = with_period(
+            ActionKind::TenderOffer,
+            "2026-10-13",
+            "2026-10-13",
+            "2026-11-11",
+        );
+        assert!(range.includes(&tender), "open until 11-11");
+        let rights = with_period(ActionKind::Rights, "2026-10-20", "2026-10-28", "2026-11-03");
+        assert!(range.includes(&rights), "trades on the first day");
+        let closed = with_period(
+            ActionKind::TenderOffer,
+            "2026-09-01",
+            "2026-09-01",
+            "2026-11-02",
+        );
+        assert!(!range.includes(&closed), "closed the day before");
+        let warrant = with_period(
+            ActionKind::Warrant,
+            "2025-01-10",
+            "2025-01-10",
+            "2028-01-10",
+        );
+        assert!(!range.includes(&warrant), "a warrant counts by its date");
+        let dated = CorporateAction::new("BBCA.JK".into(), ActionKind::Dividend, day("2026-11-12"));
+        assert!(range.includes(&dated));
     }
 
     #[test]
