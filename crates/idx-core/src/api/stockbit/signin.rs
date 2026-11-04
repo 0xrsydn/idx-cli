@@ -242,6 +242,10 @@ pub struct Progress {
     /// Why it failed: the error's code and message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<ProgressError>,
+    /// The latest warning while it waits, such as Stockbit refusing the
+    /// session signed in so far; gone once it signs in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -257,6 +261,7 @@ struct Slot {
     timeout: Duration,
     state: State,
     error: Option<ProgressError>,
+    warning: Option<String>,
     cancel: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -273,6 +278,7 @@ impl Slot {
             expires_in_secs,
             already_open,
             error: self.error.clone(),
+            warning: self.warning.clone(),
         }
     }
 
@@ -303,6 +309,7 @@ pub fn start_background(options: &Options) -> Result<Progress, IdxError> {
             expires_in_secs: 0,
             already_open: false,
             error: None,
+            warning: None,
         });
     }
     let sign_in = SignIn::start(options)?;
@@ -315,16 +322,29 @@ pub fn start_background(options: &Options) -> Result<Progress, IdxError> {
         timeout: sign_in.timeout(),
         state: State::Waiting,
         error: None,
+        warning: None,
         cancel: cancel.clone(),
         thread: None,
     };
     let progress = open.progress(false);
     open.thread = Some(std::thread::spawn(move || {
+        // Nobody reads a polling frontend's stderr, so what the wait warns
+        // about (a refused session) goes into the progress it polls.
+        let sink = crate::runtime::on_warning(move |message| {
+            let mut slot = SLOT.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(open) = slot.as_mut().filter(|open| open.id == id) {
+                open.warning = Some(message.to_string());
+            }
+        });
         let result = sign_in.wait_until(&cancel);
+        drop(sink);
         let mut slot = SLOT.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(open) = slot.as_mut().filter(|open| open.id == id) {
             match result {
-                Ok(_) => open.state = State::SignedIn,
+                Ok(_) => {
+                    open.state = State::SignedIn;
+                    open.warning = None;
+                }
                 Err(err) => {
                     open.state = State::Failed;
                     open.error = Some(ProgressError {
@@ -398,12 +418,17 @@ mod tests {
             expires_in_secs: 300,
             already_open: false,
             error: None,
+            warning: None,
         };
         let value = serde_json::to_value(&page).unwrap();
         assert_eq!(value["state"], "waiting");
         assert_eq!(value["method"], "page");
         assert_eq!(value["port"], 7878);
-        assert!(value.get("reason").is_none() && value.get("error").is_none());
+        assert!(
+            ["reason", "error", "warning"]
+                .iter()
+                .all(|key| value.get(key).is_none())
+        );
 
         let failed = Progress {
             state: State::Failed,
@@ -416,10 +441,12 @@ mod tests {
                 code: "IO".to_string(),
                 message: "the window was closed".to_string(),
             }),
+            warning: Some("Stockbit refused the session".to_string()),
         };
         let value = serde_json::to_value(&failed).unwrap();
         assert_eq!(value["method"], "browser");
         assert_eq!(value["browser"], "Helium");
         assert_eq!(value["error"]["code"], "IO");
+        assert_eq!(value["warning"], "Stockbit refused the session");
     }
 }
