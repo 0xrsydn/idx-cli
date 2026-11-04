@@ -1708,10 +1708,14 @@ fn action_detail(action: &CorporateAction) -> String {
     let mut parts: Vec<String> = Vec::new();
     match action.kind {
         ActionKind::Dividend => {
+            let unit = action
+                .currency
+                .as_deref()
+                .map_or_else(|| "Rp".to_string(), terminal_safe);
             parts.extend(
                 action
                     .cash_per_share
-                    .map(|c| format!("Rp {} per share", format_rupiah(c))),
+                    .map(|c| format!("{unit} {} per share", format_rupiah(c))),
             );
         }
         ActionKind::StockDividend | ActionKind::Bonus => {
@@ -1784,6 +1788,28 @@ fn action_detail(action: &CorporateAction) -> String {
 
 const CORPORATE_DATE_NOTE: &str = "DATE is the cum date for dividends, bonuses, rights and \
 splits (buy by that day to be entitled); for other actions, the event's first day.";
+const CORPORATE_EX_NOTE: &str = "A DATE marked (ex) is the ex date: Stockbit gives no cum \
+date for it, and buying that day is too late to be entitled.";
+
+/// An entitlement Stockbit gave no cum date for sits on its ex date.
+fn on_ex_date(action: &CorporateAction) -> bool {
+    action.kind.is_entitlement() && action.cum_date.is_none()
+}
+
+fn action_date_cell(action: &CorporateAction) -> Cell {
+    if on_ex_date(action) {
+        cell(format!("{} (ex)", action.date))
+    } else {
+        cell(action.date)
+    }
+}
+
+fn print_corporate_notes(actions: &[CorporateAction]) {
+    println!("{CORPORATE_DATE_NOTE}");
+    if actions.iter().any(on_ex_date) {
+        println!("{CORPORATE_EX_NOTE}");
+    }
+}
 
 fn opt_date(date: Option<chrono::NaiveDate>) -> String {
     date.map(|d| d.to_string())
@@ -1805,7 +1831,7 @@ pub fn print_corporate_actions(symbol: &str, actions: &[CorporateAction]) -> Res
             .set_header(vec!["DATE", "KIND", "EX", "RECORD", "PAY", "DETAIL"]);
         for action in actions {
             table.add_row(vec![
-                cell(action.date),
+                action_date_cell(action),
                 cell(action_kind_label(action.kind)),
                 cell(opt_date(action.ex_date)),
                 cell(opt_date(action.record_date)),
@@ -1814,7 +1840,7 @@ pub fn print_corporate_actions(symbol: &str, actions: &[CorporateAction]) -> Res
             ]);
         }
         println!("{table}");
-        println!("{CORPORATE_DATE_NOTE}");
+        print_corporate_notes(actions);
     }
     println!("{STOCKBIT_SESSION_NOTE}");
     Ok(())
@@ -1844,7 +1870,7 @@ pub fn print_corporate_calendar(
             .set_header(vec!["DATE", "SYMBOL", "KIND", "EX", "DETAIL"]);
         for action in actions {
             table.add_row(vec![
-                cell(action.date),
+                action_date_cell(action),
                 cell(action.symbol.trim_end_matches(".JK")),
                 cell(action_kind_label(action.kind)),
                 cell(opt_date(action.ex_date)),
@@ -1852,7 +1878,7 @@ pub fn print_corporate_calendar(
             ]);
         }
         println!("{table}");
-        println!("{CORPORATE_DATE_NOTE}");
+        print_corporate_notes(actions);
     }
     println!("{STOCKBIT_SESSION_NOTE}");
     Ok(())

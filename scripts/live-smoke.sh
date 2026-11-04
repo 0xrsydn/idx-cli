@@ -134,8 +134,12 @@ contract() {
             echo 'type == "array" and all(.[]; (.title | type == "string") and (.url | type == "string"))' ;;
         "stocks orderbook "*)
             echo '(.symbol | type == "string") and (.price | type == "number") and (.market_status | type == "string") and (.bids | type == "array") and (.offers | type == "array")' ;;
-        "stocks actions "*|"stocks calendar"*)
+        # The smoke symbol always has dividends on record; a quiet month can
+        # leave the calendar empty.
+        "stocks actions "*)
             echo 'type == "array" and length > 0 and all(.[]; (.symbol | type == "string") and (.kind | type == "string") and (.date | type == "string"))' ;;
+        "stocks calendar"*)
+            echo 'type == "array" and all(.[]; (.symbol | type == "string") and (.kind | type == "string") and (.date | type == "string"))' ;;
         "stocks broker "*)
             echo '(.symbol | type == "string") and (.buyers | length > 0) and (.sellers | length > 0) and all(.buyers[]; (.code | type == "string") and (.value | type == "number")) and (.total_value | type == "number")' ;;
         "stocks bandar "*)

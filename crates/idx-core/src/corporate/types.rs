@@ -3,14 +3,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::IdxError;
 
-/// The kinds of corporate action Stockbit lists, one request each.
+/// The kinds of corporate action Stockbit lists, one request each. JSON
+/// names them as `--kind` does (`as_str`), so an output kind can be passed
+/// back in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "kebab-case")]
 pub enum ActionKind {
     /// Cash dividend.
     Dividend,
     #[cfg_attr(feature = "clap", value(name = "stock-dividend"))]
+    #[serde(alias = "stock_dividend")]
     StockDividend,
     /// Bonus shares.
     Bonus,
@@ -20,14 +23,17 @@ pub enum ActionKind {
     /// Stock split.
     Split,
     #[cfg_attr(feature = "clap", value(name = "reverse-split"))]
+    #[serde(alias = "reverse_split")]
     ReverseSplit,
     /// Shareholders' meeting (RUPS).
     Meeting,
     /// Public expose.
     #[cfg_attr(feature = "clap", value(name = "expose"))]
+    #[serde(rename = "expose", alias = "public_expose")]
     PublicExpose,
     Ipo,
     #[cfg_attr(feature = "clap", value(name = "tender"))]
+    #[serde(rename = "tender", alias = "tender_offer")]
     TenderOffer,
 }
 
@@ -96,9 +102,10 @@ impl std::str::FromStr for ActionKind {
     type Err = IdxError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let wanted = value.trim().to_ascii_lowercase().replace('_', "-");
         Self::ALL
             .into_iter()
-            .find(|kind| kind.as_str() == value)
+            .find(|kind| kind.as_str() == wanted)
             .ok_or_else(|| {
                 let names: Vec<_> = Self::ALL.iter().map(|k| k.as_str()).collect();
                 IdxError::InvalidInput(format!(
@@ -135,7 +142,8 @@ pub struct CorporateAction {
     /// Where the action sits on a calendar: the cum date for entitlements
     /// (the last day to buy and be entitled), else the meeting or expose
     /// day, the listing day, a warrant's first trading day, or a tender
-    /// offer's first day.
+    /// offer's first day. An entitlement Stockbit gives no cum date for is
+    /// placed on its ex date, and `cum_date` is then absent.
     pub date: NaiveDate,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cum_date: Option<NaiveDate>,
@@ -150,6 +158,10 @@ pub struct CorporateAction {
     /// e.g. 3.8).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cash_per_share: Option<f64>,
+    /// The dividend's currency (ISO code, e.g. `USD`) when it is not IDR;
+    /// absent for IDR, which every recorded dividend was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub currency: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ratio: Option<Ratio>,
     /// Stockbit's price adjustment factor: 5 for a 1:5 split, 1.6667 for a
@@ -194,6 +206,7 @@ impl CorporateAction {
             record_date: None,
             pay_date: None,
             cash_per_share: None,
+            currency: None,
             ratio: None,
             factor: None,
             price: None,
@@ -221,7 +234,8 @@ pub struct CalendarRange {
 }
 
 impl CalendarRange {
-    /// `from` defaults to today, `to` to 30 days after `from`.
+    /// `from` defaults to today, `to` to 30 days after `from`; at most
+    /// `CALENDAR_MAX_DAYS` days, counting both ends.
     pub fn from_args(
         from: Option<&str>,
         to: Option<&str>,
@@ -233,16 +247,18 @@ impl CalendarRange {
             })
         };
         let from = from.map(|v| parse("from", v)).transpose()?.unwrap_or(today);
-        let to = to
-            .map(|v| parse("to", v))
-            .transpose()?
-            .unwrap_or(from + Duration::days(CALENDAR_DEFAULT_DAYS));
+        let to = match to {
+            Some(v) => parse("to", v)?,
+            None => from
+                .checked_add_signed(Duration::days(CALENDAR_DEFAULT_DAYS))
+                .ok_or_else(|| IdxError::InvalidInput(format!("from ({from}) is out of range")))?,
+        };
         if to < from {
             return Err(IdxError::InvalidInput(format!(
                 "to ({to}) is before from ({from})"
             )));
         }
-        if (to - from).num_days() > CALENDAR_MAX_DAYS {
+        if (to - from).num_days() >= CALENDAR_MAX_DAYS {
             return Err(IdxError::InvalidInput(format!(
                 "a calendar covers at most {CALENDAR_MAX_DAYS} days"
             )));
@@ -270,9 +286,13 @@ mod tests {
         assert_eq!((range.from, range.to), (today, day("2026-12-03")));
         let range = CalendarRange::from_args(Some("2026-11-10"), None, today).unwrap();
         assert_eq!(range.to, day("2026-12-10"));
+        // 366 days counting both ends is the most.
+        let range = CalendarRange::from_args(Some("2028-01-01"), Some("2028-12-31"), today);
+        assert!(range.is_ok());
         for (from, to) in [
             (Some("2026-11-10"), Some("2026-11-09")),
             (Some("2026-01-01"), Some("2027-06-01")),
+            (Some("2028-01-01"), Some("2029-01-01")),
             (Some("11/10/2026"), None),
         ] {
             assert!(matches!(
@@ -282,11 +302,36 @@ mod tests {
         }
     }
 
+    /// The last date there is: 30 days on is an error, not a panic.
+    #[test]
+    fn test_calendar_range_at_the_end_of_time() {
+        let last = NaiveDate::MAX.format("%Y-%m-%d").to_string();
+        let err = CalendarRange::from_args(Some(&last), None, day("2026-11-03")).unwrap_err();
+        assert!(err.to_string().contains("out of range"), "{err}");
+    }
+
     #[test]
     fn test_action_kind_names_round_trip() {
         for kind in ActionKind::ALL {
             assert_eq!(kind.as_str().parse::<ActionKind>().unwrap(), kind);
         }
         assert!("rups".parse::<ActionKind>().is_err());
+        assert_eq!(
+            "stock_dividend".parse::<ActionKind>().unwrap(),
+            ActionKind::StockDividend
+        );
+    }
+
+    /// JSON's `kind` is the name `--kind` and MCP take.
+    #[test]
+    fn test_action_kind_json_is_the_input_name() {
+        for kind in ActionKind::ALL {
+            let json = serde_json::to_value(kind).unwrap();
+            assert_eq!(json, kind.as_str(), "{kind:?}");
+            assert_eq!(serde_json::from_value::<ActionKind>(json).unwrap(), kind);
+        }
+        // Entries cached before the names changed still read.
+        let old: ActionKind = serde_json::from_str("\"public_expose\"").unwrap();
+        assert_eq!(old, ActionKind::PublicExpose);
     }
 }

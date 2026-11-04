@@ -358,8 +358,9 @@ average price, the close, `change_bps` and `non_regular_bps`."
         description = "Corporate actions of one IDX stock from the user's own Stockbit \
 session, newest first: `kind` (dividend, stock-dividend, bonus, rights, warrant, split, \
 reverse-split, meeting, expose, ipo, tender), `date` (the cum date for dividends, bonuses, \
-rights and splits, i.e. the last day to buy and be entitled; else the event's first day), \
-`ex_date`, `record_date`, `pay_date`, and per kind `cash_per_share` (IDR, may have decimals), \
+rights and splits, i.e. the last day to buy and be entitled, or the ex date when `cum_date` \
+is absent; else the event's first day), `ex_date`, `record_date`, `pay_date`, and per kind \
+`cash_per_share` (IDR, may have decimals; in `currency`, an ISO code, when that is present), \
 `ratio` {old, new} (1:5 split = 1 share becomes 5; 655:104 rights = 104 rights per 655 held), \
 `factor` (price adjustment), `price` (rights, warrant exercise, tender or IPO price, IDR), \
 `period` and `exercise` {start, end}, `shares`, `percentage_bps`, `time`, `venue`. Absent \

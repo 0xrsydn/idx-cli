@@ -47,7 +47,9 @@ pub fn parse_corporate_actions(
     let rows = match root.get("data") {
         Some(Value::Object(data)) => match data.values().find_map(Value::as_array) {
             Some(rows) => rows.as_slice(),
-            None if data.values().all(Value::is_null) => &[],
+            // No rows reads `{"dividend": null, "today": "..."}`: a null list
+            // beside scalars. An object in their place is a new layout.
+            None if !data.values().any(Value::is_object) => &[],
             None => return Err(bad("no list in data".to_string())),
         },
         Some(Value::Array(rows)) => rows.as_slice(),
@@ -97,6 +99,9 @@ fn entitlement(
     match kind {
         ActionKind::Dividend => {
             action.cash_per_share = number(suffixed(row, "value")).map(|v| round_to(v, 2));
+            action.currency = text(suffixed(row, "currency"))
+                .map(|c| c.trim_start_matches("CURRENCY_").to_ascii_uppercase())
+                .filter(|c| c != "IDR");
         }
         ActionKind::Rights => {
             action.price = whole(suffixed(row, "price"));
@@ -376,10 +381,16 @@ mod tests {
             ),
             (ActionKind::ReverseSplit, r#"{"data":{"stock_reverse":[]}}"#),
             (ActionKind::Dividend, r#"{"data":null}"#),
+            (
+                ActionKind::Dividend,
+                r#"{"data":{"dividend":null,"today":"2026-11-04"}}"#,
+            ),
         ] {
             assert!(parse_corporate_actions(kind, body).unwrap().is_empty());
         }
         assert!(parse_corporate_actions(ActionKind::Dividend, r#"{"message":"x"}"#).is_err());
+        let moved = r#"{"data":{"dividend":{"rows":[]},"today":"2026-11-04"}}"#;
+        assert!(parse_corporate_actions(ActionKind::Dividend, moved).is_err());
         // A reverse split named like a split, read by suffix.
         let body = r#"{"data":{"stock_reverse":[{"company_symbol":"ABCD",
             "reverse_cumdate":"2026-12-01","reverse_exdate":"2026-12-02",
@@ -387,6 +398,23 @@ mod tests {
         let rows = parse_corporate_actions(ActionKind::ReverseSplit, body).unwrap();
         assert_eq!(rows[0].ratio, Some(Ratio { old: 10, new: 1 }));
         assert_eq!(rows[0].factor, Some(0.1));
+    }
+
+    /// A dividend not in IDR names its currency; one in IDR leaves it out.
+    /// Without a cum date, the action sits on its ex date.
+    #[test]
+    fn test_parse_dividend_currency_and_missing_cum_date() {
+        let body = r#"{"data":{"dividend":[
+            {"company_symbol":"ABCD","dividend_cumdate":"2026-11-11",
+             "dividend_exdate":"2026-11-12","dividend_value":"0.0012",
+             "dividend_currency":"CURRENCY_USD"},
+            {"company_symbol":"EFGH","dividend_cumdate":"0001-01-01 00:00:00",
+             "dividend_exdate":"2026-11-12","dividend_value":"5",
+             "dividend_currency":"CURRENCY_IDR"}]}}"#;
+        let rows = parse_corporate_actions(ActionKind::Dividend, body).unwrap();
+        assert_eq!(rows[0].currency.as_deref(), Some("USD"));
+        assert_eq!(rows[1].currency, None);
+        assert_eq!((rows[1].date, rows[1].cum_date), (day("2026-11-12"), None));
     }
 
     #[test]
