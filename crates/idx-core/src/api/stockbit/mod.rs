@@ -252,6 +252,11 @@ pub(crate) fn fundamentals_unsupported(symbol: &str) -> IdxError {
 /// Stores a pasted session (stockbit.com's `credentialStorage` cookie or a
 /// refresh token) and checks it with one request, which refreshes it when the
 /// access token is missing or stale. A session Stockbit refuses is removed.
+///
+/// A check that fails another way (network, rate limit) puts the previous
+/// session back too, unless Stockbit already rotated the pasted one: the
+/// refresh spent the pasted token, so the stored pair is then the only
+/// working copy, and a refresh Stockbit answered is proof enough.
 pub fn login(pasted: &str) -> Result<auth::SessionStatus, IdxError> {
     let session = auth::session_from_paste(pasted).ok_or_else(|| {
         IdxError::InvalidInput(
@@ -264,15 +269,38 @@ pub fn login(pasted: &str) -> Result<auth::SessionStatus, IdxError> {
     // A refused paste must not lose a session that already worked.
     let previous = std::fs::read(store.path()).ok();
     store.save(&session)?;
+    let saved = std::fs::read(store.path()).ok();
     #[cfg(feature = "testing")]
     let check = !crate::api::mock::enabled();
     #[cfg(not(feature = "testing"))]
     let check = true;
     if check && let Err(err) = Exodus::new(store.clone()).verify() {
-        restore(&store, previous);
-        return Err(err);
+        let rotated = std::fs::read(store.path()).ok() != saved;
+        if !keep_after_failed_check(&err, rotated) {
+            restore(&store, previous);
+            return Err(err);
+        }
+        crate::runtime::warn(format!(
+            "Stockbit accepted the session and rotated it, but the check after that failed \
+             ({err}); the new session is stored"
+        ));
     }
     Ok(store.status(chrono::Utc::now().timestamp()))
+}
+
+/// Whether `login` keeps the stored session after its check failed with
+/// `err`: only when the check rotated it and Stockbit did not then refuse it.
+fn keep_after_failed_check(err: &IdxError, rotated: bool) -> bool {
+    rotated && !matches!(err, IdxError::AuthError(_))
+}
+
+/// Whether a session check failed for a reason that says nothing about the
+/// session itself, so the same session may be checked again later.
+pub(crate) fn check_is_transient(err: &IdxError) -> bool {
+    matches!(
+        err,
+        IdxError::Http(_) | IdxError::RateLimited | IdxError::UpstreamBlocked(_)
+    )
 }
 
 fn restore(store: &SessionStore, previous: Option<Vec<u8>>) {
@@ -301,7 +329,24 @@ pub fn logout() -> Result<(bool, auth::SessionStatus), IdxError> {
 
 #[cfg(test)]
 mod tests {
-    use super::USER_AGENT;
+    use super::{USER_AGENT, check_is_transient, keep_after_failed_check};
+    use crate::error::IdxError;
+
+    #[test]
+    fn login_keeps_a_rotated_session_only_when_stockbit_did_not_refuse_it() {
+        let network = IdxError::Http("timeout".to_string());
+        let refused = IdxError::AuthError("expired".to_string());
+        assert!(keep_after_failed_check(&network, true));
+        assert!(!keep_after_failed_check(&network, false));
+        assert!(!keep_after_failed_check(&refused, true));
+        assert!(!keep_after_failed_check(&refused, false));
+        assert!(check_is_transient(&IdxError::RateLimited));
+        assert!(check_is_transient(&network));
+        assert!(!check_is_transient(&refused));
+        assert!(!check_is_transient(&IdxError::InvalidInput(
+            "x".to_string()
+        )));
+    }
 
     /// CloudFront answers HTTP 403 to agents containing these (probed
     /// 2026-10-22); the honest agent must never match one.
