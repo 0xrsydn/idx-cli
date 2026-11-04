@@ -132,6 +132,13 @@ cmd_check() {
   printf 'changelog: ok (%s unreleased entries)\n' "$(entries | wc -l | tr -d ' ')"
 }
 
+# A version as a string that sorts like the version: 0.10.0 after 0.9.9.
+version_key() {
+  local major minor patch
+  IFS=. read -r major minor patch <<<"$1"
+  printf '%06d%06d%06d' "$((10#$major))" "$((10#$minor))" "$((10#$patch))"
+}
+
 # The newest version in CHANGELOG.md, if any.
 latest_version() {
   awk '/^## \[[0-9]/ { print substr($2, 2, length($2) - 2); exit }' "$changelog"
@@ -182,6 +189,13 @@ cmd_release() {
   if grep -q "^## \[${version//./\\.}\] " "$changelog"; then
     die "${version} is already in CHANGELOG.md"
   fi
+  # The new section goes on top, so it must be the newest version; checked
+  # before anything is written or an entry deleted.
+  local previous
+  previous="$(latest_version)"
+  if [[ -n "$previous" ]] && [[ "$(version_key "$version")" < "$(version_key "$previous")" ]]; then
+    die "${version} is older than ${previous}, the newest version in CHANGELOG.md"
+  fi
 
   local files=()
   local file
@@ -190,8 +204,7 @@ cmd_release() {
   done < <(entries)
   ((${#files[@]} > 0)) || die "no entries in changes/unreleased/ to release"
 
-  local previous section body
-  previous="$(latest_version)"
+  local section body
   local out
   out="$(mktemp "${TMPDIR:-/tmp}/changelog.XXXXXX")"
   {

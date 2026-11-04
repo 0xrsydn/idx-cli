@@ -188,6 +188,13 @@ EOF
 if changelog release 0.5.0 2026-11-06 >/dev/null 2>&1; then
   fail "release accepted a version already released"
 fi
+if err="$(changelog release 0.4.9 2026-11-06 2>&1)"; then
+  fail "release accepted a version older than the newest"
+elif ! grep -q "older than 0.5.0" <<<"$err"; then
+  fail "release of an older version said: ${err}"
+fi
+[[ -f "$work/changes/unreleased/again.md" ]] || fail "a refused release deleted the entries"
+diff -q "$expected" "$work/CHANGELOG.md" >/dev/null || fail "a refused release changed CHANGELOG.md"
 rm "$work/changes/unreleased/again.md"
 if changelog release 0.5.1 >/dev/null 2>&1; then
   fail "release accepted no entries"
