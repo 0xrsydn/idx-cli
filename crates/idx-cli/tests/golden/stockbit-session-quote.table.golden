@@ -3,7 +3,7 @@ exit: 0
 ┌─────────┬───────┬──────┬─────────┬───────────────┬─────┬───────┬────────┬───────┐
 │ SYMBOL  ┆ PRICE ┆ CHG  ┆ CHG%    ┆ VOLUME        ┆ BID ┆ OFFER ┆ MARKET ┆ AS OF │
 ╞═════════╪═══════╪══════╪═════════╪═══════════════╪═════╪═══════╪════════╪═══════╡
-│ BBCA.JK ┆ 5,175 ┆ -900 ┆ -14.81% ┆ 1,241,098,200 ┆ -   ┆ -     ┆ closed ┆ -     │
+│ BBCA.JK ┆ 5,175 ┆ -900 ┆ -14.81% ┆ 1,241,098,200 ┆ -   ┆ -     ┆ close  ┆ -     │
 └─────────┴───────┴──────┴─────────┴───────────────┴─────┴───────┴────────┴───────┘
 Source: Stockbit, your session when logged in (`idx stockbit status`), else its public page, delayed at least 10 minutes (Stockbit's terms); bid/offer only while the market is open.
 --- stderr

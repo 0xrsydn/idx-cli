@@ -65,7 +65,7 @@ Company data for one IDX ticker: profile, financial statements, earnings, analys
 
 ## `get_corporate_actions`
 
-Corporate actions of one IDX stock from the user's own Stockbit session, newest first: `kind` (dividend, stock-dividend, bonus, rights, warrant, split, reverse-split, meeting, expose, ipo, tender), `date` (the cum date for dividends, bonuses, rights and splits, i.e. the last day to buy and be entitled; else the event's first day), `ex_date`, `record_date`, `pay_date`, and per kind `cash_per_share` (IDR, may have decimals), `ratio` {old, new} (1:5 split = 1 share becomes 5; 655:104 rights = 104 rights per 655 held), `factor` (price adjustment), `price` (rights, warrant exercise, tender or IPO price, IDR), `period` and `exercise` {start, end}, `shares`, `percentage_bps`, `time`, `venue`. Absent fields are omitted. One Stockbit request per kind (about 1 s each on a cold cache, then cached 6 hours). AUTHERROR means there is no session: call stockbit_status, then stockbit_login.
+Corporate actions of one IDX stock from the user's own Stockbit session, newest first: `kind` (dividend, stock-dividend, bonus, rights, warrant, split, reverse-split, meeting, expose, ipo, tender), `date` (the cum date for dividends, bonuses, rights and splits, i.e. the last day to buy and be entitled, or the ex date when `cum_date` is absent; else the event's first day), `ex_date`, `record_date`, `pay_date`, and per kind `cash_per_share` (IDR, may have decimals; in `currency`, an ISO code, when that is present), `ratio` {old, new} (1:5 split = 1 share becomes 5; 655:104 rights = 104 rights per 655 held), `factor` (price adjustment), `price` (rights, warrant exercise, tender or IPO price, IDR), `period` and `exercise` {start, end}, `shares`, `percentage_bps`, `time`, `venue`. Absent fields are omitted. One Stockbit request per kind (about 1 s each on a cold cache, then cached 6 hours). AUTHERROR means there is no session: call stockbit_status, then stockbit_login.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -96,7 +96,7 @@ Foreign investors' buying and selling of one IDX ticker, session by session (old
 
 ## `get_intraday`
 
-Today's session of one IDX stock or index from Stockbit's public page (no login), whichever provider the server uses: `quote` (price, change, volume, `market_status`, `bid`/`offer` only while the market is open, `session_note`) and `points`, the price per minute in WIB, oldest first. Delayed at least 10 minutes; no per-minute volume. Empty `points` means the stock did not trade this session (see `session_note`), not an error. UPSTREAMBLOCKED means stockbit.com refused this machine (HTTP 403): do not retry at once.
+Today's session of one IDX stock or index from Stockbit's public page (no login), whichever provider the server uses: `quote` (price, change, volume, `market_status`, `bid`/`offer` only while the market is open, `session_note`) and `points`, the price per minute in WIB, oldest first. Delayed at least 10 minutes; no per-minute volume. Empty `points` means the stock did not trade this session (see `session_note`), not an error. `quote.behind_session` is true when the chart is from before the latest IDX session (a holiday, or Stockbit lagging), as in get_quotes. UPSTREAMBLOCKED means stockbit.com refused this machine (HTTP 403): do not retry at once.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -144,7 +144,7 @@ OHLCV price history for one IDX ticker.
 
 ## `get_quotes`
 
-Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close: the provider lags, the stock did not trade, or the day was an exchange holiday. When the server runs with the stockbit provider, quotes also carry `market_status` (Stockbit's, e.g. "open", "close"), `bid`/`offer` (best price, only while the market is open) and `session_note` (suspended, delisted, no trades); Stockbit data is delayed at least 10 minutes.
+Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close: the provider lags, the stock did not trade, or the day was an exchange holiday. When the server runs with the stockbit provider, quotes also carry `market_status` ("open" while the regular market trades, else "close", with or without a login), `bid`/`offer` (best price, only while the market is open) and `session_note` (suspended, delisted, no trades); Stockbit data is delayed at least 10 minutes.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |

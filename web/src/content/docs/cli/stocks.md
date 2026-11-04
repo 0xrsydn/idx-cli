@@ -30,7 +30,8 @@ idx -o json stocks intraday BBCA | jq '.points[-1]'
 `intraday` shows today's session from Stockbit's public page, without a
 login: the quote, the best bid and offer while the market is open, a
 sparkline and the last five minutes. JSON gives every minute in `points`. It
-is delayed at least 10 minutes. See [Stockbit](/cli/stockbit/) for what it
+is delayed at least 10 minutes. A chart from before the latest session is
+noted under the header and sets `quote.behind_session`, as with quotes. See [Stockbit](/cli/stockbit/) for what it
 covers and the terms it comes with.
 
 ## Order book (Stockbit login)
@@ -61,7 +62,10 @@ exposes and tender offers (`--kind ipo` adds its IPO). `calendar` lists them
 across the market between `--from` and `--to` (at most 366 days), including
 what is announced ahead. An action's date is its cum date for dividends,
 bonuses, rights and splits: buy by then to be entitled. For the others it is
-the event's first day. Dividends per share keep their decimals (`Rp 3.8`).
+the event's first day. When Stockbit gives no cum date, the action sits on
+its ex date, marked `(ex)` in the table, and JSON leaves `cum_date` out.
+Dividends per share keep their decimals (`Rp 3.8`); one not paid in Rupiah
+carries `currency` (e.g. `USD`). JSON's `kind` is the name `--kind` takes.
 
 Both need your Stockbit session and answer `AUTHERROR` without one. Stockbit
 serves one kind per request, 1 s apart, so a first call with every kind takes

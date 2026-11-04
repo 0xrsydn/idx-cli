@@ -72,13 +72,24 @@ impl LoginPage {
     ///
     /// Each connection gets its own thread: browsers open idle preconnects,
     /// and answering them one at a time used to hold the page back for the
-    /// read timeout on every one.
+    /// read timeout on every one. Pastes are checked one at a time, and none
+    /// after one is accepted: two at once (a double click, the bookmarklet
+    /// and the clipboard button) would each store a session, and the later
+    /// could overwrite the one Stockbit had just rotated.
     pub fn wait<F>(&self, timeout: Duration, verify: F) -> Result<(), IdxError>
     where
         F: Fn(&str) -> Result<(), IdxError> + Send + Sync + 'static,
     {
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-        let verify = std::sync::Arc::new(verify);
+        let accepted = std::sync::Mutex::new(false);
+        let verify = std::sync::Arc::new(move |paste: &str| {
+            let mut accepted = accepted.lock().unwrap_or_else(|e| e.into_inner());
+            if !*accepted {
+                verify(paste)?;
+                *accepted = true;
+            }
+            Ok(())
+        });
         let page = std::sync::Arc::new(self.page());
         let path = std::sync::Arc::new(format!("/login/{}", self.secret));
         let busy = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -573,6 +584,37 @@ mod tests {
             .expect("status");
         let body = raw.split("\r\n\r\n").nth(1).unwrap_or_default().to_string();
         (status, body)
+    }
+
+    /// Two pastes at once are checked one at a time, and the second is not
+    /// checked at all once the first is accepted.
+    #[test]
+    fn concurrent_pastes_are_checked_once() {
+        let page = LoginPage::bind(0).unwrap();
+        let url = page.url();
+        let checks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = checks.clone();
+        let handle = std::thread::spawn(move || {
+            page.wait(Duration::from_secs(10), move |_| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(300));
+                Ok(())
+            })
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        let clients: Vec<_> = (0..2)
+            .map(|_| {
+                let url = url.clone();
+                std::thread::spawn(move || request(&url, "POST", "good"))
+            })
+            .collect();
+        for client in clients {
+            let (status, body) = client.join().unwrap();
+            assert_eq!(status, 200);
+            assert!(body.contains("\"ok\":true"), "{body}");
+        }
+        handle.join().unwrap().unwrap();
+        assert_eq!(checks.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]

@@ -198,6 +198,7 @@ What the login adds:
 | --- | --- | --- |
 | `--provider stockbit` quotes | public page, delayed | Stockbit's API, live |
 | Bid and offer in quotes | best price, while open | best price, while open |
+| `market_status` in quotes | `open` or `close` | `open` or `close` |
 | `stocks orderbook` | `AUTHERROR` | every level with lots and queued orders, OHLC, value, trades; foreign buy/sell/net once Stockbit marks them current |
 | `stocks history` under `--provider stockbit` | Yahoo | Stockbit's daily candles for `5d` to `1y`; Yahoo for other windows |
 | `stocks intraday` | public page | public page |
@@ -211,7 +212,14 @@ the previous session's, so idx leaves them out (`stocks flow` has foreign
 flow session by session). Sizes are lots in the
 table and shares in JSON. `--history-provider stockbit` asks for Stockbit's
 candles explicitly; windows it charts only weekly or hourly (`2y`, `5y`,
-`1wk`) answer `UNSUPPORTED`.
+`1wk`) answer `UNSUPPORTED`. If Stockbit refuses a stored session, `auto`
+history falls back to Yahoo with a warning; an explicit
+`--history-provider stockbit` fails with `AUTHERROR`.
+
+`market_status` in quotes is `open` while the regular market trades and
+`close` otherwise, including the lunch break and auctions, with or without a
+login. `stocks orderbook` keeps Stockbit's state verbatim
+(`STATE_NAME_SESSION_2`, `STATE_NAME_BREAK`, ...).
 
 ## Terms
 
