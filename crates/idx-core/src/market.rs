@@ -77,7 +77,7 @@ impl Market<'_> {
         let idx = self.idx;
         let resolved = idx.resolve(symbol)?;
         let provider = intraday_provider();
-        cached_fetch(
+        let mut day = cached_fetch(
             &idx.cache,
             CacheSpec {
                 bucket: "stockbit-intraday",
@@ -89,7 +89,11 @@ impl Market<'_> {
             policy,
             || provider.intraday(&resolved),
             Ok,
-        )
+        )?;
+        // Stockbit's page keeps the last session's chart up after the close,
+        // so a cached or lagging day reads as current unless it is marked.
+        mark_behind_session(&mut day.data.quote, latest_session(Utc::now()));
+        Ok(day)
     }
 
     /// Resolves the history source for an optional `--history-provider`
