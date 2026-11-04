@@ -335,6 +335,9 @@ pub fn parse_orderbook(
 }
 
 /// A quote from the order book; bid/offer only while the market is open.
+/// Its `market_status` is the public page's vocabulary, `open` or `close`,
+/// so a quote reads the same with or without a login; the order book keeps
+/// Stockbit's state verbatim.
 pub fn quote_from_book(book: &OrderBook) -> Quote {
     let open = book.market_status.as_deref().is_some_and(is_trading);
     let best = |levels: &[BookLevel]| open.then(|| levels.first().map(|l| l.price)).flatten();
@@ -355,7 +358,10 @@ pub fn quote_from_book(book: &OrderBook) -> Quote {
         behind_session: false,
         bid: best(&book.bids),
         offer: best(&book.offers),
-        market_status: book.market_status.clone(),
+        market_status: book
+            .market_status
+            .as_ref()
+            .map(|_| if open { "open" } else { "close" }.to_string()),
         session_note: book.session_note.clone(),
     }
 }
@@ -498,11 +504,14 @@ mod tests {
         let open = quote_from_book(&book(trading));
         assert_eq!((open.bid, open.offer), (Some(4850), Some(4860)));
         assert_eq!(open.price, 4860);
+        assert_eq!(open.market_status.as_deref(), Some("open"));
         for state in ["market_session_break.json", "market_session.json"] {
             let shut = quote_from_book(&book(parse_market_status(&fixture(state))));
             assert_eq!((shut.bid, shut.offer), (None, None), "{state}");
+            assert_eq!(shut.market_status.as_deref(), Some("close"), "{state}");
         }
-        assert_eq!(quote_from_book(&book(None)).bid, None);
+        let unknown = quote_from_book(&book(None));
+        assert_eq!((unknown.bid, unknown.market_status), (None, None));
     }
 
     #[test]

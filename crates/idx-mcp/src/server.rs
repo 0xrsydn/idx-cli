@@ -124,8 +124,8 @@ impl IdxServer {
 for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true \
 when that is before the latest IDX session, so the price is not that session's close: the \
 provider lags, the stock did not trade, or the day was an exchange holiday. When the server \
-runs with the stockbit provider, quotes also carry `market_status` (Stockbit's, e.g. \
-\"open\", \"close\"), `bid`/`offer` (best price, only while the market is open) and \
+runs with the stockbit provider, quotes also carry `market_status` (\"open\" while the \
+regular market trades, else \"close\", with or without a login), `bid`/`offer` (best price, only while the market is open) and \
 `session_note` (suspended, delisted, no trades); Stockbit data is delayed at least 10 \
 minutes."
     )]
