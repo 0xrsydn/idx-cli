@@ -257,11 +257,7 @@ fn classify(reply: Reply, subject: &str) -> Result<String, IdxError> {
             Err(IdxError::SymbolNotFound(subject.to_string()))
         }
         429 => Err(IdxError::RateLimited),
-        403 => Err(IdxError::UpstreamBlocked(
-            "exodus.stockbit.com refused this client (HTTP 403 from its CDN); idx does not \
-             retry a block. Try again later or from another network"
-                .to_string(),
-        )),
+        403 => Err(blocked()),
         status => Err(IdxError::Http(format!(
             "stockbit api: HTTP {status}{}",
             message(&reply.body)
@@ -495,6 +491,16 @@ fn trim_to_period(mut bars: Vec<Ohlc>, period: &Period) -> Vec<Ohlc> {
         Some(start) => bars.into_iter().filter(|b| b.date > start).collect(),
         None => bars,
     }
+}
+
+/// A 403 from the CDN in front of the session API: a block, not a refused
+/// session, so nothing is retried.
+pub(crate) fn blocked() -> IdxError {
+    IdxError::UpstreamBlocked(
+        "exodus.stockbit.com refused this client (HTTP 403 from its CDN); idx does not \
+         retry a block. Try again later or from another network"
+            .to_string(),
+    )
 }
 
 #[cfg(test)]
