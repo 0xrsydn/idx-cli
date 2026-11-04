@@ -129,16 +129,25 @@ pub fn render_corporate_calendar(
 
 /// JSON is `{movements, more}` (`more`: rows remain past the pages read);
 /// JSONL is one movement per line.
+/// `pages` is how many pages the query asked for, for the hint when more
+/// rows exist. JSONL streams the rows only, so the hint goes to stderr.
 pub fn render_shareholder_movements(
     symbol: Option<&str>,
     list: &MovementList,
+    pages: u32,
     format: &OutputFormat,
     no_color: bool,
 ) -> Result<(), IdxError> {
     match format {
-        OutputFormat::Table => table::print_shareholder_movements(symbol, list, no_color),
+        OutputFormat::Table => table::print_shareholder_movements(symbol, list, pages, no_color),
         OutputFormat::Json => json::print_json(list),
-        OutputFormat::Jsonl => json::print_json(&list.movements),
+        OutputFormat::Jsonl => {
+            json::print_json(&list.movements)?;
+            if list.more {
+                idx_core::runtime::info(table::more_movements_hint(pages));
+            }
+            Ok(())
+        }
     }
 }
 

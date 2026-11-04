@@ -288,6 +288,11 @@ pub struct MovementList {
     /// More rows exist past the pages read (raise `--pages`, or narrow the
     /// dates).
     pub more: bool,
+    /// Why reading stopped before the pages asked for: a later page failed,
+    /// and `movements` holds the rows read before it. Absent when every page
+    /// asked for was read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub incomplete: Option<String>,
 }
 
 #[cfg(test)]

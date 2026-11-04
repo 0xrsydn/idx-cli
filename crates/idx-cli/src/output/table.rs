@@ -1920,9 +1920,22 @@ const MOVEMENT_NOTE: &str = "IDX rows are insider disclosures (directors, commis
 other insiders); KSEI rows are changes of holders at 5% and above. ~ marks Stockbit's estimated \
 price. Rows appear days after the change.";
 
+/// What to do when rows remain past the pages read.
+pub fn more_movements_hint(pages: u32) -> String {
+    if pages >= idx_core::movements::types::MAX_PAGES {
+        "More rows exist: narrow --from/--to (10 pages is the most one query reads).".to_string()
+    } else {
+        format!(
+            "More rows exist: raise --pages (up to {}) or narrow --from/--to.",
+            idx_core::movements::types::MAX_PAGES
+        )
+    }
+}
+
 pub fn print_shareholder_movements(
     symbol: Option<&str>,
     list: &MovementList,
+    pages: u32,
     no_color: bool,
 ) -> Result<(), IdxError> {
     let title = match symbol {
@@ -1987,8 +2000,13 @@ pub fn print_shareholder_movements(
         println!("{table}");
         println!("{MOVEMENT_NOTE}");
     }
-    if list.more {
-        println!("More rows exist: raise --pages (up to 10) or narrow --from/--to.");
+    if let Some(reason) = &list.incomplete {
+        println!(
+            "Reading stopped early ({}); these are the rows read before it.",
+            terminal_safe(reason)
+        );
+    } else if list.more {
+        println!("{}", more_movements_hint(pages));
     }
     println!("{STOCKBIT_SESSION_NOTE}");
     Ok(())

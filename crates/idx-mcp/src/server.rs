@@ -411,7 +411,8 @@ commissioners and other insiders, any size, with the trade price) and KSEI chang
 at 5% and above (price estimated: `price_estimated`). One stock's, or the market's without \
 `symbol`. Shares are exact and signed (`shares_change` < 0 is a sale); percentages are basis \
 points as Stockbit rounds them, so a small insider can read 0. `more` is true when rows remain \
-past `pages`. These are filings, not signals: many insiders buying at one price on one day is \
+past `pages`; `incomplete`, when present, says a later page failed and the rows are those read \
+before it (retry later for the rest). These are filings, not signals: many insiders buying at one price on one day is \
 usually a share plan, and rows appear days after the change. AUTHERROR means there is no \
 session: call stockbit_status, then stockbit_login."
     )]

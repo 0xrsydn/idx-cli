@@ -60,7 +60,9 @@ small holding reads `<0.01%`.
 These are filings, not signals. Many insiders buying at one price on one day
 is usually a share plan, transfers are not trades, and a row appears days
 after the change. Each page is 50 rows and one request to Stockbit (`--pages`
-up to 10); answers are cached for an hour.
+up to 10); a query's pages are read and cached together, for an hour. JSON's
+`more` says rows remain past them. If a later page fails, you get the rows
+read before it, with `incomplete` saying why, and nothing is cached.
 
 ## Import reports yourself
 

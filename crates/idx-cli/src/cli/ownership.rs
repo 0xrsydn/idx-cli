@@ -252,9 +252,6 @@ pub fn handle(
     offline: bool,
     no_cache: bool,
 ) -> Result<(), IdxError> {
-    if let OwnershipCommand::Movements(args) = cmd {
-        return handle_movements(args, config, CachePolicy::from_flags(offline, no_cache)?);
-    }
     let investor = Investor::new(&config.core);
     let inv = &investor;
     match cmd {
@@ -752,6 +749,7 @@ fn handle_movements(
     crate::output::render_shareholder_movements(
         symbol.as_deref(),
         &list.data,
+        query.pages,
         &config.output,
         config.no_color,
     )

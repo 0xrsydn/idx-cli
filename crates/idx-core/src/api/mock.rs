@@ -271,6 +271,10 @@ impl ShareholderMovementProvider for MockStockbitProvider {
         page: u32,
     ) -> Result<MovementPage, IdxError> {
         let subject = query.symbol.as_deref().unwrap_or("shareholder movements");
+        // `IDX_MOCK_MOVEMENTS_FAIL_PAGE=N` rate-limits page N alone.
+        if std::env::var("IDX_MOCK_MOVEMENTS_FAIL_PAGE").ok() == Some(page.to_string()) {
+            return Err(IdxError::RateLimited);
+        }
         let mut name = "majorholder".to_string();
         if let Some(symbol) = &query.symbol {
             name.push('_');
