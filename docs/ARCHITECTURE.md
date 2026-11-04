@@ -304,10 +304,12 @@ WIB as the fallback.
 - Shareholder movements (`movements`, `api/stockbit/movement.rs`) read
   `/insider/company/majorholder`: IDX insider disclosures and KSEI 5% holder
   changes, 50 rows a page, filtered by Stockbit (`symbol`, `date_start`,
-  `date_end`, `insider` (holder id), `action_type`, `source_type`). Each page
-  is cached an hour under `stockbit-movements`, keyed by every filter and the
-  page. `ownership movements` and `get_shareholder_movements` read up to 10
-  pages; the KSEI register in SQLite is not involved.
+  `date_end`, `insider` (holder id), `action_type`, `source_type`).
+  `ownership movements` and `get_shareholder_movements` read up to 10 pages
+  as one answer, cached an hour under `stockbit-movements`, keyed by every
+  filter and the page count. If a page after the first fails, the rows read
+  before it come back with `incomplete` set and nothing is cached. The KSEI
+  register in SQLite is not involved.
 
 ### Capability Gating
 ```

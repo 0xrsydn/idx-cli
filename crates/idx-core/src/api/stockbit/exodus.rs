@@ -39,7 +39,12 @@ const REFRESH_PATH: &str = "/login/refresh";
 /// withdraws cash and changes the PIN; a path outside these fails before any
 /// request (or token refresh) leaves the process. A feature that reads a new
 /// endpoint adds its prefix here.
-const READ_PATHS: &[&str] = &["/company-price-feed/", "/charts/", "/corpaction/"];
+const READ_PATHS: &[&str] = &[
+    "/company-price-feed/",
+    "/charts/",
+    "/corpaction/",
+    "/insider/company/majorholder?",
+];
 /// The prefix of the states in which the regular market trades:
 /// `STATE_NAME_SESSION_2` was recorded on 2026-11-03 from 13:30; session 1 is
 /// assumed to follow the same naming. Every other state (`STATE_NAME_BREAK`,
@@ -525,6 +530,7 @@ mod tests {
             "/company-price-feed/v2/orderbook/companies/BBCA",
             "/charts/BBCA/daily?timeframe=1y&chart_type=PRICE_CHART_TYPE_CANDLE",
             "/corpaction/dividend?symbol=BBCA",
+            "/insider/company/majorholder?page=1&symbol=BBCA",
         ] {
             assert!(is_read_path(path), "{path}");
         }
@@ -532,6 +538,7 @@ mod tests {
             "/order/buy",
             "/login/refresh",
             "/corpaction/../order/buy",
+            "/insider/company/majorholder/../../order",
             "/charts",
             "",
         ] {
