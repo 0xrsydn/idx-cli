@@ -296,8 +296,10 @@ WIB as the fallback.
   request per kind, cached 6 hours under `stockbit-corpaction`
   (`<kind>:<SYMBOL.JK>` or `<kind>:market`); `stocks actions` /
   `get_corporate_actions` sort newest first, `stocks calendar` /
-  `get_corporate_calendar` filter by `CorporateAction::date` (the cum date
-  for entitlements) and sort oldest first. Endpoint notes and the wider
+  `get_corporate_calendar` keep what `CalendarRange::includes`: a
+  `CorporateAction::date` (the cum date for entitlements) in the range, or a
+  rights, tender or IPO `period` that overlaps it (not a warrant's, which
+  runs for years), sorted oldest first. Endpoint notes and the wider
   design: `docs/STOCKBIT.md`.
 
 ### Capability Gating

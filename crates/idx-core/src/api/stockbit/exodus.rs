@@ -34,6 +34,11 @@ use crate::error::IdxError;
 
 const BASE_URL: &str = "https://exodus.stockbit.com";
 const REFRESH_PATH: &str = "/login/refresh";
+/// The only paths idx GETs from the session API. The same API places orders,
+/// withdraws cash and changes the PIN; a path outside these fails before any
+/// request (or token refresh) leaves the process. A feature that reads a new
+/// endpoint adds its prefix here.
+const READ_PATHS: &[&str] = &["/company-price-feed/", "/charts/", "/corpaction/"];
 /// The prefix of the states in which the regular market trades:
 /// `STATE_NAME_SESSION_2` was recorded on 2026-11-03 from 13:30; session 1 is
 /// assumed to follow the same naming. Every other state (`STATE_NAME_BREAK`,
@@ -159,6 +164,11 @@ impl Exodus {
     }
 
     fn get(&self, path: &str, subject: &str) -> Result<String, IdxError> {
+        if !is_read_path(path) {
+            return Err(IdxError::Unsupported(format!(
+                "idx does not call {path} on Stockbit's session API"
+            )));
+        }
         let refresher = |refresh: &str| self.refresh(refresh);
         let token = self.store.access(&refresher, unix_now())?;
         let mut reply = self.send(path, &token)?;
@@ -477,9 +487,37 @@ fn trim_to_period(mut bars: Vec<Ohlc>, period: &Period) -> Vec<Ohlc> {
     }
 }
 
+/// Whether `path` is one idx reads; `..` never climbs out of a prefix.
+fn is_read_path(path: &str) -> bool {
+    READ_PATHS.iter().any(|prefix| path.starts_with(prefix)) && !path.contains("..")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only the endpoints idx reads pass; trading and account paths, and a
+    /// path that climbs out of a prefix, never leave the process.
+    #[test]
+    fn only_read_paths_are_called() {
+        for path in [
+            "/company-price-feed/market-time/session",
+            "/company-price-feed/v2/orderbook/companies/BBCA",
+            "/charts/BBCA/daily?timeframe=1y&chart_type=PRICE_CHART_TYPE_CANDLE",
+            "/corpaction/dividend?symbol=BBCA",
+        ] {
+            assert!(is_read_path(path), "{path}");
+        }
+        for path in [
+            "/order/buy",
+            "/login/refresh",
+            "/corpaction/../order/buy",
+            "/charts",
+            "",
+        ] {
+            assert!(!is_read_path(path), "{path}");
+        }
+    }
 
     fn fixture(name: &str) -> String {
         std::fs::read_to_string(format!(

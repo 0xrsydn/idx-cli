@@ -10,7 +10,8 @@ one GET at a time at least 1 s apart. Nothing here ships yet unless marked.
 ## Rules for every session feature
 
 1. **Read-only by construction.** The session client (`api/stockbit/exodus.rs`)
-   issues GET on an allowlist of path prefixes, plus `POST /login/refresh`.
+   issues GET only on an allowlist of path prefixes (`READ_PATHS`), plus
+   `POST /login/refresh`.
    The bundle also holds trading (orders, day trade, PIN, cash withdrawal,
    portfolio), chat, posting and account endpoints; idx never calls them, and
    the allowlist makes a stray call fail before it leaves the process.
@@ -134,18 +135,32 @@ Examples from 2026-11-03: PPGL bonus 6:4 ex 2026-11-03; PRDA split 1:5 cum
 
 ### Types
 
+As shipped (`corporate/types.rs`), one flat record with a calendar `date` and
+optional per-kind fields; JSON leaves absent ones out:
+
 ```rust
 pub struct CorporateAction {
-    pub symbol: String,          // BBCA.JK
-    pub kind: ActionKind,        // Dividend, StockDividend, Bonus, Rights, Warrant,
-                                 // Split, ReverseSplit, Meeting, PublicExpose, Ipo, TenderOffer
+    pub symbol: String,               // BBCA.JK
+    pub kind: ActionKind,             // JSON: dividend, stock-dividend, bonus, rights, warrant,
+                                      // split, reverse-split, meeting, expose, ipo, tender
+    pub date: NaiveDate,              // cum date for entitlements (ex date without one),
+                                      // else the event's first day
     pub cum_date: Option<NaiveDate>,
     pub ex_date: Option<NaiveDate>,
     pub record_date: Option<NaiveDate>,
     pub pay_date: Option<NaiveDate>,
-    pub event_date: Option<NaiveDate>, // meeting, expose, listing, tender end
-    pub detail: ActionDetail,    // kind-specific: amount + currency; old:new ratio
-                                 // and factor; price; trading/exercise windows; venue
+    pub cash_per_share: Option<f64>,  // dividends; IDR to the sen, else up to 6 decimals
+    pub currency: Option<String>,     // dividends not paid in IDR
+    pub ratio: Option<Ratio>,         // old : new
+    pub factor: Option<f64>,          // Stockbit's price adjustment
+    pub price: Option<i64>,           // rights, warrant, tender or IPO price (IDR)
+    pub period: Option<DateRange>,    // rights or warrant trading, tender, IPO offer
+    pub exercise: Option<DateRange>,  // warrant exercise
+    pub shares: Option<u64>,          // offered (IPO) or sought (tender)
+    pub percentage_bps: Option<i64>,  // tender
+    pub time: Option<String>,         // meeting or expose
+    pub venue: Option<String>,
+    pub name: Option<String>,         // IPO or tender issuer
 }
 ```
 
@@ -157,8 +172,9 @@ lists are not errors. A row whose dates are all placeholders is dropped.
 - `idx stocks actions SYM [--kind dividend,rights,...]`: one stock's
   history, newest first; every kind but `ipo` by default.
 - `idx stocks calendar [--kind ...] [--from DATE] [--to DATE]`: market-wide,
-  default today to +30 days, oldest first by `date`.
-- MCP: `get_corporate_actions {symbol, kinds?, since?}`,
+  default today to +30 days, oldest first by `date`; rights trading, tender
+  offers and IPO offers still open in the range are included too.
+- MCP: `get_corporate_actions {symbol, kinds?}`,
   `get_corporate_calendar {kinds?, from?, to?}`.
 - Later: `stocks history` notes ex-dates of splits, bonuses and rights in the
   window, so a gap is not read as a crash.

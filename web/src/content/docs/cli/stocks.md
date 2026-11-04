@@ -60,7 +60,9 @@ idx stocks calendar --kind dividend,rights --to 2026-12-31
 issues, warrants, splits and reverse splits, shareholders' meetings, public
 exposes and tender offers (`--kind ipo` adds its IPO). `calendar` lists them
 across the market between `--from` and `--to` (at most 366 days), including
-what is announced ahead. An action's date is its cum date for dividends,
+what is announced ahead, plus rights trading, tender offers and IPO offers
+still open in that range, so an offer that began earlier still shows while
+you can act on it. An action's date is its cum date for dividends,
 bonuses, rights and splits: buy by then to be entitled. For the others it is
 the event's first day. When Stockbit gives no cum date, the action sits on
 its ex date, marked `(ex)` in the table, and JSON leaves `cum_date` out.
