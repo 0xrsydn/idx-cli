@@ -30,7 +30,8 @@ idx -o json stocks intraday BBCA | jq '.points[-1]'
 `intraday` shows today's session from Stockbit's public page, without a
 login: the quote, the best bid and offer while the market is open, a
 sparkline and the last five minutes. JSON gives every minute in `points`. It
-is delayed at least 10 minutes. See [Stockbit](/cli/stockbit/) for what it
+is delayed at least 10 minutes. A chart from before the latest session is
+noted under the header and sets `quote.behind_session`, as with quotes. See [Stockbit](/cli/stockbit/) for what it
 covers and the terms it comes with.
 
 ## Company data

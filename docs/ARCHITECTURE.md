@@ -82,7 +82,7 @@ WIB as the fallback.
   `behind_session` when `as_of` is before the latest weekday whose session has
   ended (16:15 WIB). It is computed on return, not cached; MSN can lag the close
   by hours, and on an exchange holiday every quote reads as behind. Only `.JK`
-  quotes and `--region id` screens are marked; other exchanges keep other hours.
+  quotes, `--region id` screens and `stocks intraday` are marked; other exchanges keep other hours.
   Table output notes behind quotes, and calls those over seven days old not
   current.
 - `change`, `change_pct`, and `volume` are nullable when the provider omits them;

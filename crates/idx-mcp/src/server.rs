@@ -143,8 +143,9 @@ minutes."
 `market_status`, `bid`/`offer` only while the market is open, `session_note`) and \
 `points`, the price per minute in WIB, oldest first. Delayed at least 10 minutes; no \
 per-minute volume. Empty `points` means the stock did not trade this session (see \
-`session_note`), not an error. UPSTREAMBLOCKED means stockbit.com refused this machine \
-(HTTP 403): do not retry at once."
+`session_note`), not an error. `quote.behind_session` is true when the chart is from \
+before the latest IDX session (a holiday, or Stockbit lagging), as in get_quotes. \
+UPSTREAMBLOCKED means stockbit.com refused this machine (HTTP 403): do not retry at once."
     )]
     async fn get_intraday(&self, params: Parameters<IntradayParams>) -> ToolResult {
         let IntradayParams { symbol, tail } = params.0;
