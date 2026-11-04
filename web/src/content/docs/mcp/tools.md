@@ -8,7 +8,9 @@ description: Every idx-mcp tool and its inputs, generated from the server's tool
 idx-mcp serves these tools. `ownership_sync` is listed only when the server
 starts with `--allow-sync`. Results that come from a live provider are wrapped
 as `{data, source, fetched_at, stale}`; failures return `{error, code,
-message}` with `isError` set.
+message}` with `isError` set. Either may carry `warnings`, what idx worked
+around (such as a history fallback or a stale cache entry), when there was
+any.
 
 ## `analyze_bandar`
 
