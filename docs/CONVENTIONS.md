@@ -129,3 +129,6 @@ let conn = Connection::open(path)
 - Push via `nix develop --command git push` (for prek hooks)
 - Branch naming: `feat/<name>`, `fix/<name>`, `docs/<name>`
 - Commit messages: conventional commits (`feat:`, `fix:`, `refactor:`, `docs:`)
+- Changelog: a PR that changes what users or agents see adds one entry file,
+  `changes/unreleased/<branch-name>.md`, rather than editing `CHANGELOG.md`, so
+  stacked PRs never conflict. See [changes/README.md](../changes/README.md).

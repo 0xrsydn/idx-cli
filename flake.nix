@@ -152,6 +152,15 @@
           INSTALL_SH_SHELL=${shell} bash scripts/install-sh-test.sh
           touch "$out"
         '';
+        changelogSrc = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./CHANGELOG.md
+            ./changes
+            ./scripts/changelog.sh
+            ./scripts/changelog-test.sh
+          ];
+        };
         publisherTestSrc = lib.fileset.toSource {
           root = ./.;
           fileset = lib.fileset.unions [
@@ -303,6 +312,17 @@
               diff -u ${./web/src/content/docs/mcp/tools.md} tools.md
               touch "$out"
             '';
+          # CHANGELOG.md and changes/unreleased/ entries are well formed, and
+          # scripts/changelog.sh folds and extracts them as releases expect.
+          changelog = pkgs.runCommand "idx-changelog" {
+            nativeBuildInputs = with pkgs; [ bash coreutils diffutils findutils gawk gnugrep ];
+          } ''
+            cp -r ${changelogSrc}/. .
+            chmod -R u+w .
+            export HOME="$TMPDIR"
+            bash scripts/changelog-test.sh
+            touch "$out"
+          '';
           install-script-sh = installerCheck "sh";
           install-script-dash = installerCheck "dash";
           shellcheck = pkgs.runCommand "idx-shellcheck" {
@@ -311,6 +331,7 @@
             shellcheck -s sh ${installerSrc}/install.sh
             shellcheck ${installerSrc}/scripts/install-sh-test.sh
             shellcheck ${./scripts/live-smoke.sh}
+            shellcheck ${changelogSrc}/scripts/changelog.sh ${changelogSrc}/scripts/changelog-test.sh
             shellcheck ${./tests/agents/agent-smoke.sh}
             shellcheck ${./web/scripts/gen-cli-reference.sh} ${./web/scripts/gen-mcp-tools.sh}
             touch "$out"

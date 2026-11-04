@@ -13,6 +13,7 @@ offline with pinned tools:
 | `packaged-cli` | the wrapped Nix release binary emits JSON, generates completions, and returns a JSON `CACHEMISS` error with exit 3 offline |
 | `ownership-publisher`, `publisher-test` | packaged publisher entry point and its regression scenarios |
 | `install-script-sh`, `install-script-dash`, `shellcheck` | installer regressions and shell lint |
+| `changelog` | `CHANGELOG.md` and `changes/unreleased/` entries are well formed; `scripts/changelog.sh` folds and extracts them (`scripts/changelog-test.sh`) |
 
 `tests/cli.rs` is the behavioral suite: it runs the real `idx` binary against
 fixture-backed mock providers (`IDX_USE_MOCK_PROVIDER=1`) and covers output
