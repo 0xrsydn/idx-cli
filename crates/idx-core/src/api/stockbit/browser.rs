@@ -234,6 +234,9 @@ fn wait_for_session(
 ) -> Result<(), IdxError> {
     let deadline = Instant::now() + timeout;
     let mut rejected: Option<String> = None;
+    // Why Stockbit refused that cookie, so the error that ends the wait says
+    // so: a polling frontend never saw the warning.
+    let mut refusal: Option<String> = None;
     // After a check fails for a passing reason, the next is held back.
     let mut retry_at: Option<Instant> = None;
     let mut last_error: Option<String> = None;
@@ -273,6 +276,7 @@ fn wait_for_session(
                             "Stockbit refused the session in idx's browser ({err}); sign in \
                              again in that window"
                         ));
+                        refusal = Some(err.to_string());
                         rejected = Some(cookie.value);
                         retry_at = None;
                     }
@@ -283,12 +287,18 @@ fn wait_for_session(
             Ok(_) => last_error = None,
             Err(err) => last_error = Some(err.to_string()),
         }
+        let refused = || {
+            refusal
+                .as_ref()
+                .map(|err| format!("; Stockbit refused the session signed in there ({err})"))
+                .unwrap_or_default()
+        };
         if !alive() {
             devtools.close();
-            return Err(IdxError::Io(
-                "the browser exited before idx got a session; run `idx stockbit login` again"
-                    .to_string(),
-            ));
+            return Err(IdxError::Io(format!(
+                "the browser exited before idx got a session{}; run `idx stockbit login` again",
+                refused()
+            )));
         }
         match devtools.has_page() {
             Ok(true) => {
@@ -299,11 +309,11 @@ fn wait_for_session(
                 misses += 1;
                 if saw_window && misses >= 2 {
                     devtools.close();
-                    return Err(IdxError::Io(
-                        "the Stockbit sign-in window was closed before the session arrived; \
-                         run `idx stockbit login` again"
-                            .to_string(),
-                    ));
+                    return Err(IdxError::Io(format!(
+                        "the Stockbit sign-in window was closed before the session arrived{}; \
+                         run `idx stockbit login` again",
+                        refused()
+                    )));
                 }
             }
             Err(err) => last_error = Some(err.to_string()),
@@ -311,9 +321,10 @@ fn wait_for_session(
         if Instant::now() >= deadline {
             devtools.close();
             let mut message = format!(
-                "the Stockbit sign-in timed out after {}s and idx closed its browser window; \
+                "the Stockbit sign-in timed out after {}s and idx closed its browser window{}; \
                  re-run `idx stockbit login`, or add --no-browser for the local page",
-                timeout.as_secs()
+                timeout.as_secs(),
+                refused()
             );
             if let Some(err) = last_error {
                 message.push_str(&format!(" (last DevTools error: {err})"));
@@ -993,6 +1004,11 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("timed out"), "{err}");
+        assert!(
+            err.to_string()
+                .contains("Stockbit refused the session signed in there (auth error: expired)"),
+            "{err}"
+        );
         assert_eq!(checks.get(), 1, "one refusal per distinct cookie");
         browser.finish();
         let _ = std::fs::remove_dir_all(&profile);

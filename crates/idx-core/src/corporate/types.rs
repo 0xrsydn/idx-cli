@@ -28,11 +28,17 @@ pub enum ActionKind {
     /// Shareholders' meeting (RUPS).
     Meeting,
     /// Public expose.
-    #[cfg_attr(feature = "clap", value(name = "expose"))]
+    #[cfg_attr(
+        feature = "clap",
+        value(name = "expose", alias = "public-expose", alias = "public_expose")
+    )]
     #[serde(rename = "expose", alias = "public_expose")]
     PublicExpose,
     Ipo,
-    #[cfg_attr(feature = "clap", value(name = "tender"))]
+    #[cfg_attr(
+        feature = "clap",
+        value(name = "tender", alias = "tender-offer", alias = "tender_offer")
+    )]
     #[serde(rename = "tender", alias = "tender_offer")]
     TenderOffer,
 }
@@ -103,6 +109,13 @@ impl std::str::FromStr for ActionKind {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let wanted = value.trim().to_ascii_lowercase().replace('_', "-");
+        // The names JSON carried before they matched `--kind`, which an
+        // agent may pass back from an earlier answer.
+        let wanted = match wanted.as_str() {
+            "public-expose" => "expose",
+            "tender-offer" => "tender",
+            other => other,
+        };
         Self::ALL
             .into_iter()
             .find(|kind| kind.as_str() == wanted)
@@ -333,5 +346,11 @@ mod tests {
         // Entries cached before the names changed still read.
         let old: ActionKind = serde_json::from_str("\"public_expose\"").unwrap();
         assert_eq!(old, ActionKind::PublicExpose);
+        // And as input, so a kind copied from an older answer works.
+        assert_eq!("public_expose".parse::<ActionKind>().unwrap(), old);
+        assert_eq!(
+            "tender_offer".parse::<ActionKind>().unwrap(),
+            ActionKind::TenderOffer
+        );
     }
 }

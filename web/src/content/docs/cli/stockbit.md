@@ -176,7 +176,9 @@ a browser window opens on Stockbit's sign-in page (`"method": "browser"`) and
 you sign in there. Over SSH or without a display, the answer carries the page
 URL and its `ssh -L` forward (`"method": "page"`) for the agent to hand you.
 The agent then polls `stockbit_status` until `sign_in.state` is `signed_in`
-or `failed`. A session that already works answers `signed_in` without opening
+or `failed`. While it waits, `sign_in.warning` carries the latest problem, such
+as Stockbit refusing the session you signed in with, so the agent can tell you
+to sign in again. A session that already works answers `signed_in` without opening
 anything, a second call while one is waiting returns it again, and
 `{"method": "page"}` or `{"method": "browser"}` picks the way. If the server
 stops while the window waits, the window closes with it.
