@@ -540,6 +540,15 @@ mod tests {
         ] {
             assert!(is_read_path(path), "{path}");
         }
+        // Paths another module builds come from its own builder, so the
+        // allowlist cannot drift from them.
+        let query = MovementQuery::default();
+        for path in [
+            movement::request_path(&query, None, 1),
+            movement::request_path(&query, Some("BBCA"), 3),
+        ] {
+            assert!(is_read_path(&path), "{path}");
+        }
         for path in [
             "/order/buy",
             "/login/refresh",
