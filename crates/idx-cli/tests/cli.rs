@@ -1539,6 +1539,55 @@ fn ownership_import_file_xlsx_supports_ticker_and_releases() {
     assert_eq!(releases[0]["row_count"].as_u64(), Some(17));
 }
 
+/// IDX added a CONTROLLER_OR_AFFILIATE column to the register from October
+/// 2026; it imports alongside an earlier 12-column month.
+#[test]
+fn ownership_import_file_xlsx_with_controller_column() {
+    let root = test_env_dir("ownership-import-xlsx-controller");
+    let db_path = root.join("ownership.db");
+    bin_with_root(&root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            db_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    for (name, bytes) in [
+        (
+            "peng-2026-08-00017-satu-persen.xlsx",
+            &include_bytes!("../../idx-core/tests/fixtures/ksei_above1_20260831_excerpt.xlsx")[..],
+        ),
+        (
+            "peng-2026-10-00029-satu-persen.xlsx",
+            &include_bytes!("../../idx-core/tests/fixtures/ksei_above1_20261030_excerpt.xlsx")[..],
+        ),
+    ] {
+        let path = root.join(name);
+        fs::write(&path, bytes).expect("write xlsx fixture");
+        run_success_json(bin_with_root(&root).args([
+            "-o",
+            "json",
+            "ownership",
+            "import",
+            "--file",
+            path.to_str().unwrap(),
+        ]));
+    }
+
+    let ticker =
+        run_success_json(bin_with_root(&root).args(["-o", "json", "ownership", "ticker", "ZYRX"]));
+    assert_eq!(ticker["ksei_as_of"], "2026-10-30");
+    assert_eq!(ticker["holders"].as_array().unwrap().len(), 7);
+    let releases =
+        run_success_json(bin_with_root(&root).args(["-o", "json", "ownership", "releases"]));
+    assert_eq!(releases.as_array().unwrap().len(), 2);
+    assert_eq!(releases[0]["as_of_date"], "2026-10-30");
+    assert_eq!(releases[0]["row_count"].as_u64(), Some(11));
+}
+
 #[test]
 fn ownership_import_file_rejects_above5_xlsx() {
     let root = test_env_dir("ownership-import-xlsx-above5");
