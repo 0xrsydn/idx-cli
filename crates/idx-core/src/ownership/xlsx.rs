@@ -3,9 +3,10 @@
 //! Since June 2026 IDX publishes the monthly above-1% holder register as an
 //! XLSX file on the "Data Kepemilikan Saham" page instead of a PDF
 //! announcement. The workbook has one sheet: a disclaimer block, a `[PUBLIC]`
-//! marker, then a fixed 12-column table. Only that exact header is accepted,
-//! so the daily above-5% workbook and the investor-type / classification
-//! workbooks published on the same page are rejected instead of mis-imported.
+//! marker, then a 12-column table (13 since October 2026, see
+//! `IGNORED_HEADER`). Only those columns are accepted, so the daily above-5%
+//! workbook and the investor-type / classification workbooks published on the
+//! same page are rejected instead of mis-imported.
 
 use std::collections::HashMap;
 use std::fs;
@@ -34,6 +35,12 @@ const EXPECTED_HEADER: [&str; 12] = [
     "TOTAL_HOLDING_SHARES",
     "PERCENTAGE",
 ];
+
+/// Columns IDX has added to the register that the import does not store yet.
+/// The October 2026 register (as of 30 Oct) inserted CONTROLLER_OR_AFFILIATE
+/// (`CONTROLLER`, `AFFILIATE OF THE CONTROLLER`, or blank) after
+/// INVESTOR_CLASSIFICATION. Any other unknown column still fails the header.
+const IGNORED_HEADER: [&str; 1] = ["CONTROLLER_OR_AFFILIATE"];
 
 /// Rows above this line are disclaimer text; the header must appear before it.
 const MAX_HEADER_SEARCH_ROWS: usize = 50;
@@ -400,6 +407,9 @@ fn header_columns(row: &SheetRow) -> Option<HashMap<&'static str, String>> {
         if label == "INVESTOR_TYPE" {
             label = "INVESTOR_CLASSIFICATION".to_string();
         }
+        if IGNORED_HEADER.contains(&label.as_str()) {
+            continue;
+        }
         let expected = EXPECTED_HEADER.iter().find(|name| **name == label)?;
         found.insert(expected, column.clone());
     }
@@ -503,6 +513,43 @@ mod tests {
             dwimuria.total_shares,
             dwimuria.holdings_scripless + dwimuria.holdings_scrip
         );
+    }
+
+    #[test]
+    fn parses_october_2026_register_with_controller_column() {
+        let drafts = parse_above1_xlsx_bytes(include_bytes!(
+            "../../tests/fixtures/ksei_above1_20261030_excerpt.xlsx"
+        ))
+        .expect("October 2026 register with CONTROLLER_OR_AFFILIATE parses");
+        assert_eq!(drafts.len(), 11);
+        assert!(
+            drafts
+                .iter()
+                .all(|d| d.report_date == NaiveDate::from_ymd_opt(2026, 10, 30).unwrap())
+        );
+
+        // The new column sits at F, so every later column moved one to the
+        // right; fields are still read by name.
+        let timothy = drafts
+            .iter()
+            .find(|d| d.ticker_code == "ZYRX" && d.raw_investor_name == "TIMOTHY SIDDIK SHU")
+            .expect("ZYRX controller present");
+        assert_eq!(timothy.total_shares, 752_076_700);
+        assert_eq!(timothy.percentage_bps, 5641);
+        assert_eq!(timothy.nationality.as_deref(), Some("INDONESIAN"));
+        assert!(timothy.locality.is_some());
+    }
+
+    #[test]
+    fn controller_column_is_optional_but_other_extras_are_not() {
+        let mut labels = EXPECTED_HEADER.to_vec();
+        labels.insert(5, "CONTROLLER_OR_AFFILIATE");
+        let columns = header_columns(&header_row(&labels)).expect("13-column header accepted");
+        assert_eq!(columns["LOCAL_FOREIGN"], "G");
+        assert_eq!(columns["PERCENTAGE"], "M");
+
+        labels[5] = "PENGENDALI";
+        assert!(header_columns(&header_row(&labels)).is_none());
     }
 
     fn header_row(labels: &[&str]) -> SheetRow {
