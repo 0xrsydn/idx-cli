@@ -2197,6 +2197,51 @@ fn stockbit_login_stores_a_private_session_and_logout_removes_it() {
     assert!(!session.exists());
 }
 
+/// A session file Stockbit no longer accepts does not break `auto` history:
+/// it falls back to Yahoo with a warning. An explicit Stockbit choice fails.
+#[test]
+fn auto_history_falls_back_to_yahoo_when_the_session_is_refused() {
+    for args in [
+        &["stocks", "history", "BBCA", "--period", "1mo"][..],
+        &["stocks", "technical", "BBCA"][..],
+    ] {
+        let root = test_env_dir(&format!("stockbit-refused-{}", args[1]));
+        let output = mock_bin_with_root(&root)
+            .env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .env("IDX_MOCK_STOCKBIT_STATUS", "401")
+            .args(["-o", "json", "--provider", "stockbit"])
+            .args(args)
+            .output()
+            .expect("run history");
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("falls back to yahoo"), "{stderr}");
+        serde_json::from_slice::<Value>(&output.stdout).expect("JSON on stdout");
+        let _ = fs::remove_dir_all(root);
+    }
+    let root = test_env_dir("stockbit-refused-explicit");
+    run_error_json(
+        mock_bin_with_root(&root)
+            .env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .env("IDX_MOCK_STOCKBIT_STATUS", "401")
+            .args([
+                "-o",
+                "json",
+                "--provider",
+                "stockbit",
+                "stocks",
+                "history",
+                "BBCA",
+            ])
+            .args(["--period", "1mo", "--history-provider", "stockbit"]),
+        "AUTHERROR",
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+/// A test session, signed by nobody, that expires in 2100.
+const FAKE_STOCKBIT_TOKEN: &str = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln";
+
 /// An agent on a headless box gets told how to log in, not "nothing pasted".
 #[test]
 fn stockbit_login_with_empty_stdin_says_how_to_log_in() {

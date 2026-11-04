@@ -145,7 +145,8 @@ impl HistoryProvider for MockProvider {
 /// `stockbit_exodus_chart_candle_<code>_<window>.json`, with the market state
 /// from `stockbit_exodus_market_session.json`. A code without a fixture is
 /// Stockbit's 404. `IDX_MOCK_STOCKBIT_STATUS` (e.g. `403`) answers that HTTP
-/// status instead, and `IDX_MOCK_ERROR` fails as for the other providers.
+/// status instead (`401` on the session API: Stockbit refused the session),
+/// and `IDX_MOCK_ERROR` fails as for the other providers.
 pub struct MockStockbitProvider;
 
 impl MockStockbitProvider {
@@ -179,6 +180,11 @@ impl MockStockbitProvider {
     fn exodus(&self, symbol: &str, name: &str) -> Result<String, IdxError> {
         if !stockbit::has_session() {
             return Err(IdxError::AuthError(stockbit::auth::NO_SESSION.to_string()));
+        }
+        if std::env::var("IDX_MOCK_STOCKBIT_STATUS").as_deref() == Ok("401") {
+            return Err(IdxError::AuthError(
+                "Stockbit rejected the session; run `idx stockbit login` again".to_string(),
+            ));
         }
         if let Some(err) = self.failure(symbol) {
             return Err(err);

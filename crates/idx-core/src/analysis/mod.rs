@@ -128,22 +128,24 @@ impl Analysis<'_> {
         policy: CachePolicy,
     ) -> Result<Fetched<TechnicalReport>, IdxError> {
         let idx = self.idx;
-        let provider = history_provider(source.provider, idx.config.verbose);
-        let bucket = format!("{}-technical", source.provider.as_str());
         let resolved = idx.resolve(symbol)?;
-        cached_fetch(
-            &idx.cache,
-            CacheSpec {
-                bucket: &bucket,
-                key: &resolved,
-                ttl_secs: idx.config.quote_ttl,
-                subject: &resolved,
-                source: source.provider.as_str(),
-            },
-            policy,
-            || provider.history(&resolved, &Period::OneYear, &Interval::Day),
-            |history| build_technical_report(&resolved, &history),
-        )
+        idx.market().with_history_fallback(source, |source| {
+            let provider = history_provider(source.provider, idx.config.verbose);
+            let bucket = format!("{}-technical", source.provider.as_str());
+            cached_fetch(
+                &idx.cache,
+                CacheSpec {
+                    bucket: &bucket,
+                    key: &resolved,
+                    ttl_secs: idx.config.quote_ttl,
+                    subject: &resolved,
+                    source: source.provider.as_str(),
+                },
+                policy,
+                || provider.history(&resolved, &Period::OneYear, &Interval::Day),
+                |history| build_technical_report(&resolved, &history),
+            )
+        })
     }
 
     pub fn growth(

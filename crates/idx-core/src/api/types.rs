@@ -65,8 +65,10 @@ pub struct Quote {
     /// Best offer in IDR (whole Rupiah), gated like `bid`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offer: Option<i64>,
-    /// The provider's own session state, verbatim (Stockbit
-    /// `market_hour.status`, e.g. `close`). Absent for providers without one.
+    /// Stockbit's market state as its public page words it: `open` while
+    /// the regular market trades, `close` otherwise (also the lunch break
+    /// and auctions). A logged-in quote maps its session state to the same
+    /// two words. Absent for other providers, or when the state is unknown.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub market_status: Option<String>,
     /// What the provider says about this symbol's session: suspended,

@@ -77,7 +77,7 @@ impl Market<'_> {
         let idx = self.idx;
         let resolved = idx.resolve(symbol)?;
         let provider = intraday_provider();
-        cached_fetch(
+        let mut day = cached_fetch(
             &idx.cache,
             CacheSpec {
                 bucket: "stockbit-intraday",
@@ -89,7 +89,11 @@ impl Market<'_> {
             policy,
             || provider.intraday(&resolved),
             Ok,
-        )
+        )?;
+        // Stockbit's page keeps the last session's chart up after the close,
+        // so a cached or lagging day reads as current unless it is marked.
+        mark_behind_session(&mut day.data.quote, latest_session(Utc::now()));
+        Ok(day)
     }
 
     /// Resolves the history source for an optional `--history-provider`
@@ -123,23 +127,49 @@ impl Market<'_> {
         policy: CachePolicy,
     ) -> Result<Fetched<Vec<Ohlc>>, IdxError> {
         let idx = self.idx;
-        let provider = history_provider(source.provider, idx.config.verbose);
-        let bucket = format!("{}-history", source.provider.as_str());
         let resolved = idx.resolve(symbol)?;
         let key = format!("{resolved}-{}-{}", period.as_str(), interval.as_str());
-        cached_fetch(
-            &idx.cache,
-            CacheSpec {
-                bucket: &bucket,
-                key: &key,
-                ttl_secs: idx.config.quote_ttl,
-                subject: &resolved,
-                source: source.provider.as_str(),
-            },
-            policy,
-            || provider.history(&resolved, period, interval),
-            Ok,
-        )
+        self.with_history_fallback(source, |source| {
+            let provider = history_provider(source.provider, idx.config.verbose);
+            let bucket = format!("{}-history", source.provider.as_str());
+            cached_fetch(
+                &idx.cache,
+                CacheSpec {
+                    bucket: &bucket,
+                    key: &key,
+                    ttl_secs: idx.config.quote_ttl,
+                    subject: &resolved,
+                    source: source.provider.as_str(),
+                },
+                policy,
+                || provider.history(&resolved, period, interval),
+                Ok,
+            )
+        })
+    }
+
+    /// Runs `fetch` on `source`; when `auto` picked Stockbit because a
+    /// session file exists and Stockbit then refuses that session, runs it
+    /// again on Yahoo instead of failing (`has_session` sees only the file).
+    pub(crate) fn with_history_fallback<T>(
+        &self,
+        source: HistorySource,
+        fetch: impl Fn(HistorySource) -> Result<Fetched<T>, IdxError>,
+    ) -> Result<Fetched<T>, IdxError> {
+        match fetch(source) {
+            Err(IdxError::AuthError(reason))
+                if source.mode == HistoryProviderKind::Auto
+                    && source.provider == ProviderKind::Stockbit =>
+            {
+                crate::runtime::warn(format!("{reason}; history falls back to yahoo meanwhile"));
+                fetch(HistorySource {
+                    provider: ProviderKind::Yahoo,
+                    is_fallback: self.idx.provider.kind() != ProviderKind::Yahoo,
+                    ..source
+                })
+            }
+            other => other,
+        }
     }
 
     /// The order book of one IDX stock from the user's Stockbit session,

@@ -236,6 +236,9 @@ pub fn print_intraday(day: &Intraday, no_color: bool) -> Result<(), IdxError> {
     if let Some(note) = &q.session_note {
         println!("Note: {}", terminal_safe(note));
     }
+    for note in stale_quote_notes(std::slice::from_ref(q), chrono::Utc::now()) {
+        println!("{}", terminal_safe(&note));
+    }
 
     let prices: Vec<f64> = day.points.iter().map(|p| p.price).collect();
     if let (Some(first), Some(last)) = (day.points.first(), day.points.last()) {

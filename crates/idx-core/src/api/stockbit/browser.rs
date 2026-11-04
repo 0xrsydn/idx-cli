@@ -55,6 +55,12 @@ pub const PROFILE_DIR: &str = "stockbit-browser";
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// Pause between cookie reads.
 const POLL: Duration = Duration::from_millis(500);
+/// How long a session check that failed for a passing reason (network, rate
+/// limit) waits before the same cookie is checked again.
+#[cfg(not(test))]
+const VERIFY_RETRY: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const VERIFY_RETRY: Duration = Duration::from_millis(50);
 /// Socket timeout for one DevTools message.
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long the browser gets to quit after `Browser.close`.
@@ -228,6 +234,8 @@ fn wait_for_session(
 ) -> Result<(), IdxError> {
     let deadline = Instant::now() + timeout;
     let mut rejected: Option<String> = None;
+    // After a check fails for a passing reason, the next is held back.
+    let mut retry_at: Option<Instant> = None;
     let mut last_error: Option<String> = None;
     // The window is watched so closing it ends the wait instead of running
     // out the clock; the first polls may not see a page yet.
@@ -235,7 +243,10 @@ fn wait_for_session(
     let mut misses = 0;
     loop {
         match devtools.session_cookie() {
-            Ok(Some(cookie)) if rejected.as_deref() != Some(cookie.value.as_str()) => {
+            Ok(Some(cookie))
+                if rejected.as_deref() != Some(cookie.value.as_str())
+                    && retry_at.is_none_or(|at| Instant::now() >= at) =>
+            {
                 match verify(&cookie.value) {
                     Ok(()) => {
                         // The session now lives in idx's own file. Take the
@@ -250,12 +261,20 @@ fn wait_for_session(
                         devtools.close();
                         return Ok(());
                     }
+                    Err(err) if super::check_is_transient(&err) => {
+                        crate::runtime::warn(format!(
+                            "could not check the session in idx's browser yet ({err}); \
+                             retrying"
+                        ));
+                        retry_at = Some(Instant::now() + VERIFY_RETRY);
+                    }
                     Err(err) => {
                         crate::runtime::warn(format!(
                             "Stockbit refused the session in idx's browser ({err}); sign in \
                              again in that window"
                         ));
                         rejected = Some(cookie.value);
+                        retry_at = None;
                     }
                 }
             }
@@ -975,6 +994,33 @@ mod tests {
         .unwrap_err();
         assert!(err.to_string().contains("timed out"), "{err}");
         assert_eq!(checks.get(), 1, "one refusal per distinct cookie");
+        browser.finish();
+        let _ = std::fs::remove_dir_all(&profile);
+    }
+
+    /// A check that fails for a passing reason (a timeout, a 429) is not a
+    /// refusal: the same cookie is checked again and can still sign in.
+    #[test]
+    fn a_check_that_fails_in_passing_is_retried() {
+        let profile = temp_dir("transient");
+        let browser = FakeBrowser::start(Fake::default());
+        write_endpoint(&profile, browser.port);
+        let mut devtools = connect(&profile, &|| true).unwrap();
+        let checks = std::cell::Cell::new(0);
+        wait_for_session(
+            &mut devtools,
+            Duration::from_secs(5),
+            &|_| {
+                checks.set(checks.get() + 1);
+                match checks.get() {
+                    1 => Err(IdxError::RateLimited),
+                    _ => Ok(()),
+                }
+            },
+            &|| true,
+        )
+        .unwrap();
+        assert_eq!(checks.get(), 2);
         browser.finish();
         let _ = std::fs::remove_dir_all(&profile);
     }
