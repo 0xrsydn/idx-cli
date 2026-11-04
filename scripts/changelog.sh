@@ -17,6 +17,8 @@ root="${CHANGELOG_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 changelog="${root}/CHANGELOG.md"
 unreleased="${root}/changes/unreleased"
 repo_url="https://github.com/0xrsydn/idx-cli"
+# X.Y.Z with no leading zeros, so each version has one spelling.
+version_re='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
 
 # Sections in the order a release lists them.
 sections=(
@@ -96,13 +98,15 @@ check_summary() {
   ' "$file" >&2
 }
 
+# CHANGELOG.md, or the file given (a release checks what it is about to write).
 check_changelog() {
-  [[ -f "$changelog" ]] || die "missing ${changelog}"
-  awk -v file="$changelog" '
+  local file="${1:-$changelog}"
+  [[ -f "$file" ]] || die "missing ${file}"
+  awk -v file="$file" '
     /^```/ { fence = !fence }
     fence || !/^## / { next }
     {
-      if ($0 !~ /^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) {
+      if ($0 !~ /^## \[(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) {
         printf "%s:%d: version headings read \"## [X.Y.Z] - YYYY-MM-DD\"\n", file, NR; bad = 1; next
       }
       version = substr($2, 2, length($2) - 2)
@@ -116,7 +120,7 @@ check_changelog() {
       last = key
     }
     END { exit bad }
-  ' "$changelog" >&2
+  ' "$file" >&2
 }
 
 cmd_check() {
@@ -180,7 +184,7 @@ section_body() {
 
 cmd_release() {
   local version="${1:-}" date="${2:-}"
-  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "release takes a version such as 0.5.0"
+  [[ "$version" =~ $version_re ]] || die "release takes a version such as 0.5.0, without leading zeros"
   if [[ -z "$date" ]]; then
     date="$(date -u +%Y-%m-%d)"
   fi
@@ -229,6 +233,11 @@ cmd_release() {
     { print }
     END { if (!done) { print ""; while ((getline line < section) > 0) print line } }
   ' "$changelog" >"${out}.full"
+  # Nothing is replaced or deleted unless the result passes check.
+  if ! check_changelog "${out}.full"; then
+    rm -f "$out" "${out}.full"
+    die "the new CHANGELOG.md would not pass check; nothing was changed"
+  fi
   mv "${out}.full" "$changelog"
   rm -f "$out" "${files[@]}" "${unreleased}/summary.md"
   printf 'changelog: %s released from %d entries; review CHANGELOG.md, then commit\n' \
@@ -240,7 +249,7 @@ cmd_release() {
 cmd_notes() {
   local version="${1:-}"
   version="${version#v}"
-  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "notes takes a version such as 0.5.0"
+  [[ "$version" =~ $version_re ]] || die "notes takes a version such as 0.5.0, without leading zeros"
   [[ -f "$changelog" ]] || die "missing ${changelog}"
   awk -v want="$version" '
     /^```/ && inside { fence = !fence }

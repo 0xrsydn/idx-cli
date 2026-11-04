@@ -102,6 +102,10 @@ reset
 printf '\n## 0.3.0\n' >>"$work/CHANGELOG.md"
 expect_check_error "a malformed version heading" 'version headings read'
 
+reset
+printf '\n## [0.03.0] - 2026-01-01\n' >>"$work/CHANGELOG.md"
+expect_check_error "a version with a leading zero" 'version headings read'
+
 # --- release -----------------------------------------------------------------
 
 # b-feature.md cites a lower PR than a-fix.md, so it comes first.
@@ -192,6 +196,9 @@ if err="$(changelog release 0.4.9 2026-11-06 2>&1)"; then
   fail "release accepted a version older than the newest"
 elif ! grep -q "older than 0.5.0" <<<"$err"; then
   fail "release of an older version said: ${err}"
+fi
+if changelog release 00.5.0 2026-11-06 >/dev/null 2>&1; then
+  fail "release accepted a version with a leading zero"
 fi
 [[ -f "$work/changes/unreleased/again.md" ]] || fail "a refused release deleted the entries"
 diff -q "$expected" "$work/CHANGELOG.md" >/dev/null || fail "a refused release changed CHANGELOG.md"
