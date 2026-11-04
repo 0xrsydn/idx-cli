@@ -189,7 +189,9 @@ IDX_STOCKBIT_REFRESH_TOKEN) and when its tokens expire; never the tokens. Withou
 get_orderbook fails and stockbit-provider quotes use Stockbit's delayed public page; the \
 user adds one with stockbit_login, or `idx stockbit login` in a terminal. After \
 stockbit_login, `sign_in.state` says whether that sign-in is waiting, signed_in or failed \
-(with `sign_in.error`).")]
+(with `sign_in.error`). While it waits, `sign_in.warning` is the latest problem it hit, such \
+as Stockbit refusing the session the user signed in with: pass it on, since the user may need \
+to sign in again.")]
     async fn stockbit_status(&self) -> ToolResult {
         blocking(login_status).await
     }

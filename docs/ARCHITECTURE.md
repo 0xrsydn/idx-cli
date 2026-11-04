@@ -217,7 +217,10 @@ WIB as the fallback.
 - `api/stockbit/signin.rs` is the one sign-in flow; `idx stockbit login` waits
   on it in the foreground, and idx-mcp's `stockbit_login` runs it on a thread
   (`start_background`) that `stockbit_status` reports on (`sign_in`: waiting,
-  signed_in or failed, with the error's code). A thread does not outlive
+  signed_in or failed, with the error's code). The thread's warnings go into
+  `sign_in.warning` through `runtime::on_warning`, since nobody reads
+  idx-mcp's stderr, and the error that ends a browser wait names a refusal
+  it hit. A thread does not outlive
   `main`, so idx-mcp calls `signin::shutdown` when stdin closes or on SIGTERM
   or Ctrl-C, which closes a waiting browser (SIGKILL cannot). `Method::Auto` uses the browser
   unless the shell is over SSH or has no display, and falls back to the page
