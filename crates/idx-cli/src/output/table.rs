@@ -1867,10 +1867,18 @@ pub fn print_corporate_calendar(
     range: &CalendarRange,
     actions: &[CorporateAction],
 ) -> Result<(), IdxError> {
+    // Offers still open are listed by the day they opened, which can be
+    // before `from`; the title says so rather than claim the range bounds
+    // every row.
+    let earlier = if actions.iter().any(|a| a.date < range.from) {
+        ", with offers opened earlier and still open"
+    } else {
+        ""
+    };
     println!(
         "{}",
         format!(
-            "Corporate actions from {} to {} ({})",
+            "Corporate actions from {} to {}{earlier} ({})",
             range.from,
             range.to,
             actions.len()
