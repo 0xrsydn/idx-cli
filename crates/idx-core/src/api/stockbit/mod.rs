@@ -295,12 +295,10 @@ fn keep_after_failed_check(err: &IdxError, rotated: bool) -> bool {
 }
 
 /// Whether a session check failed for a reason that says nothing about the
-/// session itself, so the same session may be checked again later.
+/// session itself, so the same session may be checked again later. A CDN
+/// block (`UpstreamBlocked`) is not: idx never retries a block.
 pub(crate) fn check_is_transient(err: &IdxError) -> bool {
-    matches!(
-        err,
-        IdxError::Http(_) | IdxError::RateLimited | IdxError::UpstreamBlocked(_)
-    )
+    matches!(err, IdxError::Http(_) | IdxError::RateLimited)
 }
 
 fn restore(store: &SessionStore, previous: Option<Vec<u8>>) {
@@ -343,6 +341,9 @@ mod tests {
         assert!(check_is_transient(&IdxError::RateLimited));
         assert!(check_is_transient(&network));
         assert!(!check_is_transient(&refused));
+        assert!(!check_is_transient(&IdxError::UpstreamBlocked(
+            "403".to_string()
+        )));
         assert!(!check_is_transient(&IdxError::InvalidInput(
             "x".to_string()
         )));

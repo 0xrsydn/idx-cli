@@ -271,6 +271,12 @@ fn wait_for_session(
                         ));
                         retry_at = Some(Instant::now() + VERIFY_RETRY);
                     }
+                    // A block holds for every session from this network, so
+                    // the wait ends with it rather than at the timeout.
+                    Err(err @ IdxError::UpstreamBlocked(_)) => {
+                        devtools.close();
+                        return Err(err);
+                    }
                     Err(err) => {
                         crate::runtime::warn(format!(
                             "Stockbit refused the session in idx's browser ({err}); sign in \
@@ -1037,6 +1043,35 @@ mod tests {
         )
         .unwrap();
         assert_eq!(checks.get(), 2);
+        browser.finish();
+        let _ = std::fs::remove_dir_all(&profile);
+    }
+
+    /// A CDN block is never retried: the wait ends with it at once, not at
+    /// the timeout.
+    #[test]
+    fn a_blocked_check_ends_the_wait() {
+        let profile = temp_dir("blocked");
+        let browser = FakeBrowser::start(Fake::default());
+        write_endpoint(&profile, browser.port);
+        let mut devtools = connect(&profile, &|| true).unwrap();
+        let checks = std::cell::Cell::new(0);
+        let started = Instant::now();
+        let err = wait_for_session(
+            &mut devtools,
+            Duration::from_secs(30),
+            &|_| {
+                checks.set(checks.get() + 1);
+                Err(IdxError::UpstreamBlocked(
+                    "HTTP 403 from its CDN".to_string(),
+                ))
+            },
+            &|| true,
+        )
+        .unwrap_err();
+        assert!(matches!(err, IdxError::UpstreamBlocked(_)), "{err}");
+        assert_eq!(checks.get(), 1);
+        assert!(started.elapsed() < Duration::from_secs(5));
         browser.finish();
         let _ = std::fs::remove_dir_all(&profile);
     }
