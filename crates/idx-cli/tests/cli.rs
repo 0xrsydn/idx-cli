@@ -3293,3 +3293,24 @@ fn bandar_never_reads_a_broker_summary_cached_in_the_old_shape() {
     assert!(!table.contains("No trades."), "{table}");
     assert!(table.contains("big distribution"), "{table}");
 }
+
+/// `--kind` takes the names JSON carried before they matched it, so a kind
+/// copied from an older answer works here as it does over MCP.
+#[test]
+fn actions_kind_takes_the_old_json_names() {
+    let root = test_env_dir("actions-old-kinds");
+    let rows = run_success_json(
+        mock_bin_with_root(&root)
+            .env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .args(["-o", "json", "stocks", "actions", "BBCA", "--kind"])
+            .arg("stock_dividend,reverse_split,public_expose,tender_offer"),
+    );
+    let kinds: Vec<&str> = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["kind"].as_str().unwrap())
+        .collect();
+    assert!(kinds.contains(&"expose"), "{kinds:?}");
+    let _ = fs::remove_dir_all(root);
+}

@@ -184,9 +184,10 @@ call takes about a second per kind; answers are cached for 6 hours.",
     #[command(
         about = "Upcoming and recent corporate actions across the market (Stockbit login)",
         long_about = "Corporate actions across IDX from your own Stockbit session (`idx stockbit \
-login`), oldest first, dated within --from and --to (default: today and the next 30 days). \
-An action's date is its cum date for dividends, bonuses, rights and splits, else the event's \
-first day. Stockbit lists about a year back and what is announced ahead. One request per \
+login`), oldest first, dated within --from and --to (default: today and the next 30 days), \
+plus rights trading, tender offers and IPO offers still open then. An action's date is its \
+cum date for dividends, bonuses, rights and splits (its ex date when Stockbit gives no cum \
+date), else the event's first day. Stockbit lists about a year back and what is announced ahead. One request per \
 kind, 1 s apart; answers are cached for 6 hours.",
         after_help = "Examples:\n  idx stocks calendar\n  idx stocks calendar --kind dividend,rights\n  idx stocks calendar --from 2026-12-01 --to 2026-12-31 --kind meeting"
     )]

@@ -290,7 +290,7 @@ Examples:
 ### `idx stocks calendar`
 
 ```text
-Corporate actions across IDX from your own Stockbit session (`idx stockbit login`), oldest first, dated within --from and --to (default: today and the next 30 days). An action's date is its cum date for dividends, bonuses, rights and splits, else the event's first day. Stockbit lists about a year back and what is announced ahead. One request per kind, 1 s apart; answers are cached for 6 hours.
+Corporate actions across IDX from your own Stockbit session (`idx stockbit login`), oldest first, dated within --from and --to (default: today and the next 30 days), plus rights trading, tender offers and IPO offers still open then. An action's date is its cum date for dividends, bonuses, rights and splits (its ex date when Stockbit gives no cum date), else the event's first day. Stockbit lists about a year back and what is announced ahead. One request per kind, 1 s apart; answers are cached for 6 hours.
 
 Usage: idx stocks calendar [OPTIONS]
 
