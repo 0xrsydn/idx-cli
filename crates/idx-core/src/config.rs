@@ -13,10 +13,14 @@ use crate::error::IdxError;
 pub const OUTPUT_VALUES: &[&str] = &["auto", "table", "json", "jsonl"];
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "clap", value(rename_all = "lower"))]
 pub enum ProviderKind {
     Yahoo,
     Msn,
+    // Opt-in: quotes from Stockbit's public page (delayed, no login).
+    Stockbit,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -27,6 +31,8 @@ pub enum HistoryProviderKind {
     Auto,
     Yahoo,
     Msn,
+    // Needs the user's Stockbit session (`idx stockbit login`).
+    Stockbit,
 }
 
 impl ProviderKind {
@@ -34,6 +40,7 @@ impl ProviderKind {
         match self {
             Self::Yahoo => "yahoo",
             Self::Msn => "msn",
+            Self::Stockbit => "stockbit",
         }
     }
 
@@ -42,9 +49,11 @@ impl ProviderKind {
             Ok(Self::Yahoo)
         } else if value.eq_ignore_ascii_case("msn") {
             Ok(Self::Msn)
+        } else if value.eq_ignore_ascii_case("stockbit") {
+            Ok(Self::Stockbit)
         } else {
             Err(IdxError::ConfigError(format!(
-                "invalid provider '{value}' (expected yahoo or msn)"
+                "invalid provider '{value}' (expected yahoo, msn, or stockbit)"
             )))
         }
     }
@@ -56,6 +65,7 @@ impl HistoryProviderKind {
             Self::Auto => "auto",
             Self::Yahoo => "yahoo",
             Self::Msn => "msn",
+            Self::Stockbit => "stockbit",
         }
     }
 
@@ -66,9 +76,11 @@ impl HistoryProviderKind {
             Ok(Self::Yahoo)
         } else if value.eq_ignore_ascii_case("msn") {
             Ok(Self::Msn)
+        } else if value.eq_ignore_ascii_case("stockbit") {
+            Ok(Self::Stockbit)
         } else {
             Err(IdxError::ConfigError(format!(
-                "invalid history provider '{value}' (expected auto, yahoo, or msn)"
+                "invalid history provider '{value}' (expected auto, yahoo, msn, or stockbit)"
             )))
         }
     }

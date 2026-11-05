@@ -93,7 +93,9 @@ Key decisions:
 - **`Fetched<T>` envelope** for live data: `{ data, source, fetched_at, stale }`,
   so agents and API clients can see freshness. idx-core still emits the
   stale-cache warnings through `runtime` (which `set_quiet` silences) so CLI
-  stderr stays identical.
+  stderr stays identical. idx-mcp also catches a call's warnings with
+  `runtime::on_warning` (the call runs on one blocking thread) and returns
+  them as `warnings`, since an agent never reads the server's stderr.
 - **`CachePolicy`**: `Default | Offline | Refresh` replaces the `--offline` /
   `--no-cache` flag handling now spread through `cli/stocks.rs`.
 - **Explicit configuration.** `CoreConfig::load()` is the one place idx-core reads
@@ -184,7 +186,7 @@ is another 20-30% smaller than pretty JSON.
   | 1 | other failure | `IO`, `DATABASEERROR`, `PARSEERROR`, ... |
   | 2 | invalid usage or input | clap errors, `INVALIDINPUT`, `CONFIGERROR` |
   | 3 | not found or no data | `SYMBOLNOTFOUND`, `NOMARKETDATA`, `CACHEMISS` |
-  | 4 | upstream unavailable, retry later | `HTTP`, `RATELIMITED`, `PROVIDERUNAVAILABLE`, `OFFLINE`, `AUTHERROR` |
+  | 4 | upstream unavailable or blocked, retry later | `HTTP`, `RATELIMITED`, `PROVIDERUNAVAILABLE`, `OFFLINE`, `AUTHERROR`, `UPSTREAMBLOCKED` |
   | 5 | unsupported | `UNSUPPORTED` |
 
 - JSON keeps today's top-level shape: no `{data, meta}` wrapper, so `jq` paths

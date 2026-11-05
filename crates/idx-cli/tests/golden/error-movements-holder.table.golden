@@ -1,0 +1,4 @@
+exit: 2
+--- stdout
+--- stderr
+Error: invalid input: holder 'RUDI' is not a holder id; ids are digits, shown in the HOLDER ID column and as holder_id in JSON

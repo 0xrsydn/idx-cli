@@ -1,14 +1,18 @@
 //! Fixture-backed provider for tests, enabled by the `testing` feature and
 //! `IDX_USE_MOCK_PROVIDER`. Release builds do not contain it.
 
-use super::types::{Bar, Fundamentals, Interval, Period, Quote};
+use super::stockbit::{corpaction, exodus, movement};
+use super::types::{Bar, Fundamentals, Interval, Intraday, OrderBook, Period, Quote};
 use super::{
-    BrokerSummaryProvider, FundamentalsProvider, HistoryProvider, QuoteProvider,
-    TradingSummaryProvider, idx, ipot, msn, yahoo,
+    BrokerSummaryProvider, CorporateActionProvider, FundamentalsProvider, HistoryProvider,
+    IntradayProvider, OrderBookProvider, QuoteProvider, ShareholderMovementProvider,
+    TradingSummaryProvider, idx, ipot, msn, stockbit, yahoo,
 };
 use crate::broker::types::{BrokerBoard, BrokerInvestor, BrokerQuery};
 use crate::config::ProviderKind;
+use crate::corporate::types::{ActionKind, CorporateAction};
 use crate::error::IdxError;
+use crate::movements::types::{MovementPage, MovementQuery};
 
 pub(crate) fn enabled() -> bool {
     std::env::var("IDX_USE_MOCK_PROVIDER").is_ok()
@@ -45,6 +49,10 @@ impl MockProvider {
         match provider {
             ProviderKind::Yahoo => Self::from_yahoo_fixtures(history_verbose),
             ProviderKind::Msn => Self::from_msn_fixtures(),
+            // `MockStockbitProvider` serves Stockbit; it has no history.
+            ProviderKind::Stockbit => Self::with_error(IdxError::Unsupported(
+                "Stockbit serves no price history".to_string(),
+            )),
         }
     }
 
@@ -128,6 +136,181 @@ impl HistoryProvider for MockProvider {
         _interval: &Interval,
     ) -> Result<Vec<Bar>, IdxError> {
         self.history.clone()
+    }
+}
+
+/// Stockbit from fixtures. Without a session (none stored or seeded through
+/// `IDX_STOCKBIT_REFRESH_TOKEN`): the public page,
+/// `tests/fixtures/stockbit_symbol_<code>.html`. With one: the session API,
+/// `tests/fixtures/stockbit_exodus_orderbook_<code>.json` and
+/// `stockbit_exodus_chart_candle_<code>_<window>.json`, with the market state
+/// from `stockbit_exodus_market_session.json`. A code without a fixture is
+/// Stockbit's 404. `IDX_MOCK_STOCKBIT_STATUS` (e.g. `403`) answers that HTTP
+/// status instead (`401` on the session API: Stockbit refused the session),
+/// and `IDX_MOCK_ERROR` fails as for the other providers.
+pub struct MockStockbitProvider;
+
+impl MockStockbitProvider {
+    fn failure(&self, symbol: &str) -> Option<IdxError> {
+        if std::env::var("IDX_MOCK_ERROR").is_ok() {
+            return Some(IdxError::ProviderUnavailable);
+        }
+        let status = std::env::var("IDX_MOCK_STOCKBIT_STATUS").ok()?;
+        Some(stockbit::status_error(
+            status.parse().unwrap_or(500),
+            symbol,
+        ))
+    }
+
+    fn snapshot(&self, symbol: &str) -> Result<Intraday, IdxError> {
+        if let Some(err) = self.failure(symbol) {
+            return Err(err);
+        }
+        let code = stockbit::stockbit_code(symbol)?;
+        let path = format!(
+            "tests/fixtures/stockbit_symbol_{}.html",
+            code.to_ascii_lowercase()
+        );
+        match std::fs::read_to_string(path) {
+            Ok(html) => stockbit::parse_symbol_page(symbol, &html),
+            Err(_) => Err(stockbit::status_error(404, symbol)),
+        }
+    }
+
+    /// A session API fixture, or the error a request would meet.
+    fn exodus(&self, symbol: &str, name: &str) -> Result<String, IdxError> {
+        if !stockbit::has_session() {
+            return Err(IdxError::AuthError(stockbit::auth::NO_SESSION.to_string()));
+        }
+        if std::env::var("IDX_MOCK_STOCKBIT_STATUS").as_deref() == Ok("401") {
+            return Err(IdxError::AuthError(
+                "Stockbit rejected the session; run `idx stockbit login` again".to_string(),
+            ));
+        }
+        // The session API's own block, as `exodus::fetch` reports it.
+        if std::env::var("IDX_MOCK_STOCKBIT_STATUS").as_deref() == Ok("403") {
+            return Err(stockbit::exodus::blocked());
+        }
+        if let Some(err) = self.failure(symbol) {
+            return Err(err);
+        }
+        std::fs::read_to_string(format!("tests/fixtures/stockbit_exodus_{name}"))
+            .map_err(|_| IdxError::SymbolNotFound(symbol.to_string()))
+    }
+
+    fn book(&self, symbol: &str) -> Result<OrderBook, IdxError> {
+        let code = stockbit::stockbit_code(symbol)?.to_ascii_lowercase();
+        let body = self.exodus(symbol, &format!("orderbook_{code}.json"))?;
+        let state = self.exodus(symbol, "market_session.json")?;
+        exodus::parse_orderbook(symbol, &body, exodus::parse_market_status(&state))
+    }
+}
+
+impl QuoteProvider for MockStockbitProvider {
+    fn quote(&self, symbol: &str) -> Result<Quote, IdxError> {
+        if stockbit::has_session() {
+            return self.book(symbol).map(|book| exodus::quote_from_book(&book));
+        }
+        let mut quote = self.snapshot(symbol)?.quote;
+        // Quotes are judged against the clock (behind the session, a week
+        // old); a fixed trade time would make their output age.
+        quote.as_of = None;
+        Ok(quote)
+    }
+}
+
+impl FundamentalsProvider for MockStockbitProvider {
+    fn fundamentals(&self, symbol: &str) -> Result<Fundamentals, IdxError> {
+        Err(stockbit::fundamentals_unsupported(symbol))
+    }
+}
+
+impl IntradayProvider for MockStockbitProvider {
+    fn intraday(&self, symbol: &str) -> Result<Intraday, IdxError> {
+        self.snapshot(symbol)
+    }
+}
+
+impl OrderBookProvider for MockStockbitProvider {
+    fn orderbook(&self, symbol: &str) -> Result<OrderBook, IdxError> {
+        self.book(symbol)
+    }
+}
+
+/// `stockbit_exodus_corpaction_<type>.json` for the market,
+/// `..._<type>_<code>.json` for one stock; a stock without a fixture has none
+/// of that kind, as Stockbit answers.
+impl CorporateActionProvider for MockStockbitProvider {
+    fn corporate_actions(
+        &self,
+        kind: ActionKind,
+        symbol: Option<&str>,
+    ) -> Result<Vec<CorporateAction>, IdxError> {
+        let subject = symbol.unwrap_or("corporate actions");
+        let name = match symbol {
+            Some(symbol) => format!(
+                "corpaction_{}_{}.json",
+                corpaction::path_type(kind),
+                stockbit::stockbit_code(symbol)?.to_ascii_lowercase()
+            ),
+            None => format!("corpaction_{}.json", corpaction::path_type(kind)),
+        };
+        let body = match self.exodus(subject, &name) {
+            Err(IdxError::SymbolNotFound(_)) if symbol.is_some() => {
+                r#"{"data":{"none":[]}}"#.to_string()
+            }
+            other => other?,
+        };
+        corpaction::parse_corporate_actions(kind, &body)
+    }
+}
+
+/// `stockbit_exodus_majorholder[_<code>][_p<page>].json` (no suffix for page
+/// 1); a missing fixture is an empty page, as Stockbit answers past the end.
+/// The query's filters apply to the fixture's rows, as Stockbit applies them.
+impl ShareholderMovementProvider for MockStockbitProvider {
+    fn shareholder_movements(
+        &self,
+        query: &MovementQuery,
+        page: u32,
+    ) -> Result<MovementPage, IdxError> {
+        let subject = query.symbol.as_deref().unwrap_or("shareholder movements");
+        // `IDX_MOCK_MOVEMENTS_FAIL_PAGE=N` rate-limits page N alone.
+        if std::env::var("IDX_MOCK_MOVEMENTS_FAIL_PAGE").ok() == Some(page.to_string()) {
+            return Err(IdxError::RateLimited);
+        }
+        let mut name = "majorholder".to_string();
+        if let Some(symbol) = &query.symbol {
+            name.push('_');
+            name.push_str(&stockbit::stockbit_code(symbol)?.to_ascii_lowercase());
+        }
+        if page > 1 {
+            name.push_str(&format!("_p{page}"));
+        }
+        let body = match self.exodus(subject, &format!("{name}.json")) {
+            Err(IdxError::SymbolNotFound(_)) if query.symbol.is_some() || page > 1 => {
+                r#"{"data":{"is_more":false,"movement":[]}}"#.to_string()
+            }
+            other => other?,
+        };
+        let mut parsed = movement::parse_movements(&body)?;
+        parsed.movements.retain(|m| query.admits(m));
+        Ok(parsed)
+    }
+}
+
+impl HistoryProvider for MockStockbitProvider {
+    fn history(
+        &self,
+        symbol: &str,
+        period: &Period,
+        interval: &Interval,
+    ) -> Result<Vec<Bar>, IdxError> {
+        let window = exodus::history_window(period, interval)
+            .ok_or_else(|| exodus::unsupported_window(period, interval))?;
+        let code = stockbit::stockbit_code(symbol)?.to_ascii_lowercase();
+        let body = self.exodus(symbol, &format!("chart_candle_{code}_{window}.json"))?;
+        exodus::daily_for_period(&body, period)
     }
 }
 

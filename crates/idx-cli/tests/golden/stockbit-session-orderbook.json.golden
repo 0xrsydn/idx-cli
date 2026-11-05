@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+{"symbol":"BBCA.JK","name":"Bank Central Asia Tbk.","price":5175,"change":-900,"change_pct":-14.81,"prev_close":6075,"open":5825,"high":5825,"low":5175,"volume":1241098200,"value":6474934315000,"frequency":185072,"foreign_buy":1616461977500,"foreign_sell":3945955065000,"foreign_net":-2329493087500,"bids":[],"offers":[{"price":5175,"shares":264462500,"orders":3284},{"price":5200,"shares":10053400,"orders":337},{"price":5225,"shares":3711400,"orders":396}],"market_status":"STATE_NAME_MARKET_CLOSED","session_note":null}
+--- stderr
