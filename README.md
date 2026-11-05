@@ -203,6 +203,7 @@ User docs, MCP setup per agent, and agent-readable `llms.txt`:
 - [docs/OWNERSHIP_PUBLISH.md](docs/OWNERSHIP_PUBLISH.md): maintainer snapshot publishing
 - [docs/SMOKE.md](docs/SMOKE.md): test layout and the live provider drift check
 - [ROADMAP.md](ROADMAP.md): planned work
+- [CHANGELOG.md](CHANGELOG.md): what each release changed; unreleased entries in [changes/](changes/README.md)
 
 ## Development
 
