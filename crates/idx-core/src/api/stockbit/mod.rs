@@ -17,8 +17,10 @@
 
 pub mod auth;
 pub mod browser;
+pub mod corpaction;
 pub mod exodus;
 pub mod loopback;
+pub mod movement;
 mod parse;
 pub mod signin;
 
@@ -31,9 +33,12 @@ pub use parse::{parse_symbol_page, status_error, stockbit_code};
 
 use super::types::{Bar, Fundamentals, Interval, Intraday, OrderBook, Period, Quote};
 use super::{
-    FundamentalsProvider, HistoryProvider, IntradayProvider, OrderBookProvider, QuoteProvider,
+    CorporateActionProvider, FundamentalsProvider, HistoryProvider, IntradayProvider,
+    OrderBookProvider, QuoteProvider, ShareholderMovementProvider,
 };
+use crate::corporate::types::{ActionKind, CorporateAction};
 use crate::error::IdxError;
+use crate::movements::types::{MovementPage, MovementQuery};
 use auth::SessionStore;
 use exodus::Exodus;
 
@@ -200,6 +205,26 @@ impl IntradayProvider for StockbitProvider {
 impl OrderBookProvider for StockbitProvider {
     fn orderbook(&self, symbol: &str) -> Result<OrderBook, IdxError> {
         self.require_session()?.orderbook(symbol)
+    }
+}
+
+impl CorporateActionProvider for StockbitProvider {
+    fn corporate_actions(
+        &self,
+        kind: ActionKind,
+        symbol: Option<&str>,
+    ) -> Result<Vec<CorporateAction>, IdxError> {
+        self.require_session()?.corporate_actions(kind, symbol)
+    }
+}
+
+impl ShareholderMovementProvider for StockbitProvider {
+    fn shareholder_movements(
+        &self,
+        query: &MovementQuery,
+        page: u32,
+    ) -> Result<MovementPage, IdxError> {
+        self.require_session()?.shareholder_movements(query, page)
     }
 }
 

@@ -4,15 +4,17 @@ use clap::{Args, Subcommand};
 
 use crate::config::{HistoryProviderKind, IdxConfig};
 use crate::output::{
-    render_bandar, render_broker_summary, render_compare, render_earnings, render_financials,
-    render_foreign_flow, render_fundamental, render_growth, render_history, render_insights,
-    render_intraday, render_news, render_orderbook, render_profile, render_quotes, render_risk,
-    render_screener, render_sentiment, render_technical, render_valuation,
+    render_bandar, render_broker_summary, render_compare, render_corporate_actions,
+    render_corporate_calendar, render_earnings, render_financials, render_foreign_flow,
+    render_fundamental, render_growth, render_history, render_insights, render_intraday,
+    render_news, render_orderbook, render_profile, render_quotes, render_risk, render_screener,
+    render_sentiment, render_technical, render_valuation,
 };
 use idx_core::analysis::BandarQuery;
 use idx_core::analysis::bandar::DEFAULT_TOP;
 use idx_core::api::types::{Interval, Period};
 use idx_core::broker::types::{BrokerBoard, BrokerInvestor, BrokerRange};
+use idx_core::corporate::types::{ActionKind, CalendarRange};
 use idx_core::error::IdxError;
 use idx_core::financial::{EarningsFilter, StatementFilter, StatementKind};
 use idx_core::flow::types::{FlowRange, FlowSource};
@@ -162,6 +164,43 @@ the output says so.",
         /// Price levels per side (1-50).
         #[arg(long, default_value_t = 10)]
         depth: usize,
+    },
+    #[command(
+        about = "Dividends, rights, splits and other corporate actions of a stock (Stockbit login)",
+        long_about = "One IDX stock's corporate actions from your own Stockbit session (`idx \
+stockbit login`), newest first: cash and stock dividends, bonus shares, rights issues, \
+warrants, splits and reverse splits, shareholders' meetings, public exposes and tender offers \
+(`--kind ipo` adds its IPO). Stockbit serves one kind per request, 1 s apart, so the first \
+call takes about a second per kind; answers are cached for 6 hours.",
+        after_help = "Examples:\n  idx stocks actions BBCA\n  idx stocks actions TLKM --kind dividend\n  idx -o json stocks actions BBRI --kind dividend,split | jq '.[0]'"
+    )]
+    Actions {
+        /// Single ticker symbol (e.g. BBCA).
+        symbol: String,
+        /// Kinds to list (default: all but ipo).
+        #[arg(long = "kind", value_enum, value_delimiter = ',', num_args = 1..)]
+        kinds: Vec<ActionKind>,
+    },
+    #[command(
+        about = "Upcoming and recent corporate actions across the market (Stockbit login)",
+        long_about = "Corporate actions across IDX from your own Stockbit session (`idx stockbit \
+login`), oldest first, dated within --from and --to (default: today and the next 30 days), \
+plus rights trading, tender offers and IPO offers still open then. An action's date is its \
+cum date for dividends, bonuses, rights and splits (its ex date when Stockbit gives no cum \
+date), else the event's first day. Stockbit lists about a year back and what is announced ahead. One request per \
+kind, 1 s apart; answers are cached for 6 hours.",
+        after_help = "Examples:\n  idx stocks calendar\n  idx stocks calendar --kind dividend,rights\n  idx stocks calendar --from 2026-12-01 --to 2026-12-31 --kind meeting"
+    )]
+    Calendar {
+        /// First day, YYYY-MM-DD. Default: today.
+        #[arg(long)]
+        from: Option<String>,
+        /// Last day, YYYY-MM-DD. Default: 30 days after --from (at most 366).
+        #[arg(long)]
+        to: Option<String>,
+        /// Kinds to list (default: all).
+        #[arg(long = "kind", value_enum, value_delimiter = ',', num_args = 1..)]
+        kinds: Vec<ActionKind>,
     },
     #[command(
         about = "Get historical OHLC data",
@@ -359,6 +398,27 @@ pub fn handle(
             book.bids.truncate(*depth);
             book.offers.truncate(*depth);
             render_orderbook(&book, format, no_color)
+        }
+        StocksSubcommand::Actions { symbol, kinds } => {
+            let kinds = if kinds.is_empty() {
+                ActionKind::STOCK_DEFAULT.to_vec()
+            } else {
+                kinds.clone()
+            };
+            let actions = idx.corporate().actions(symbol, &kinds, policy)?;
+            let resolved = idx_core::api::resolve_symbol(symbol, &config.core.exchange)?;
+            render_corporate_actions(&resolved, &actions.data, format)
+        }
+        StocksSubcommand::Calendar { from, to, kinds } => {
+            let range =
+                CalendarRange::from_args(from.as_deref(), to.as_deref(), idx.corporate().today())?;
+            let kinds = if kinds.is_empty() {
+                ActionKind::ALL.to_vec()
+            } else {
+                kinds.clone()
+            };
+            let actions = idx.corporate().calendar(range, &kinds, policy)?;
+            render_corporate_calendar(&range, &actions.data, format)
         }
         StocksSubcommand::History {
             symbol,

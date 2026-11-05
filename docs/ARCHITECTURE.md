@@ -286,6 +286,30 @@ WIB as the fallback.
   provider uses Stockbit's daily windows (`5d` to `1y`, trimmed from `1m`,
   `3m` or `1y`), Yahoo otherwise. Without one, quotes use the public page and
   the order book is `AUTHERROR`.
+- Corporate actions (`corporate/`, `api/stockbit/corpaction.rs`):
+  `/corpaction/{type}` per kind (`dividend`, `stock_dividend`, `bonus`,
+  `rightissue`, `warrant`, `stocksplit`, `reversesplit`, `rups`, `pubex`,
+  `ipo`, `tenderoffer`), with `?symbol=` for one stock's history or without
+  for the market (about a year back and what is announced ahead). Each type
+  has its own field prefix and the list key is not always the path's, so
+  entitlements are read by field suffix (`_cumdate`, `_exdate`, ...). One
+  request per kind, cached 6 hours under `stockbit-corpaction`
+  (`<kind>:<SYMBOL.JK>` or `<kind>:market`); `stocks actions` /
+  `get_corporate_actions` sort newest first, `stocks calendar` /
+  `get_corporate_calendar` keep what `CalendarRange::includes`: a
+  `CorporateAction::date` (the cum date for entitlements) in the range, or a
+  rights, tender or IPO `period` that overlaps it (not a warrant's, which
+  runs for years), sorted oldest first. Endpoint notes and the wider
+  design: `docs/STOCKBIT.md`.
+- Shareholder movements (`movements`, `api/stockbit/movement.rs`) read
+  `/insider/company/majorholder`: IDX insider disclosures and KSEI 5% holder
+  changes, 50 rows a page, filtered by Stockbit (`symbol`, `date_start`,
+  `date_end`, `insider` (holder id), `action_type`, `source_type`).
+  `ownership movements` and `get_shareholder_movements` read up to 10 pages
+  as one answer, cached an hour under `stockbit-movements`, keyed by every
+  filter and the page count. If a page after the first fails, the rows read
+  before it come back with `incomplete` set and nothing is cached. The KSEI
+  register in SQLite is not involved.
 
 ### Capability Gating
 ```
@@ -299,6 +323,8 @@ Factory functions:
   trading_summary_provider() → Box<dyn TradingSummaryProvider>
   intraday_provider() → Box<dyn IntradayProvider>
   orderbook_provider() → Box<dyn OrderBookProvider>
+  corporate_action_provider() → Box<dyn CorporateActionProvider>
+  shareholder_movement_provider() → Box<dyn ShareholderMovementProvider>
 ```
 
 `ProviderKind::Stockbit` serves quotes (and, with a session, daily history):

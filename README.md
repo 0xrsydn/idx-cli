@@ -97,7 +97,9 @@ idx ownership changes --from 2026-07-31 --to 2026-08-31
   minute) and `--provider stockbit` quotes with the best bid/offer while the
   market is open, delayed at least 10 minutes. With your own account
   (`idx stockbit login`): `stocks orderbook` depth, live
-  quotes and Stockbit daily history. Personal use under Stockbit's terms; see
+  quotes, Stockbit daily history, and corporate actions (`stocks actions`,
+  `stocks calendar`: dividends, rights, splits, meetings, IPOs and more), and
+  insider and major holder buys and sells (`ownership movements`). Personal use under Stockbit's terms; see
   the [Stockbit page](https://idx.rasyidanaf.com/cli/stockbit/)
 - Local file cache with TTL, and `--offline` mode with stale-cache fallback
 
@@ -165,8 +167,9 @@ change it to `auto` with `idx config set general.output auto`.
 
 ## MCP server
 
-`idx-mcp` serves the same data to MCP clients over stdio, as 17 tools:
-`get_quotes`, `get_intraday`, `get_orderbook`, `stockbit_status`, `get_price_history`, `screen_stocks`, `get_company`,
+`idx-mcp` serves the same data to MCP clients over stdio, as 21 tools:
+`get_quotes`, `get_intraday`, `get_orderbook`, `get_corporate_actions`,
+`get_corporate_calendar`, `get_shareholder_movements`, `stockbit_status`, `stockbit_login`, `get_price_history`, `screen_stocks`, `get_company`,
 `analyze_stock`, `compare_stocks`, `get_broker_summary`, `analyze_bandar`,
 `get_foreign_flow`, `get_shareholders`, `get_investor_holdings`,
 `search_investors`, `get_ownership_changes`, and `ownership_status`. Live results come wrapped as

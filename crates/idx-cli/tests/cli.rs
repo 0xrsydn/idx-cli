@@ -2239,6 +2239,33 @@ fn auto_history_falls_back_to_yahoo_when_the_session_is_refused() {
     let _ = fs::remove_dir_all(root);
 }
 
+/// A page after the first that fails keeps the rows read before it, says
+/// why, and is not cached; a query's pages are cached as one answer.
+#[test]
+fn movements_keep_the_pages_read_when_a_later_one_fails() {
+    let root = test_env_dir("movements-partial");
+    let run = |fail_page: Option<&str>| {
+        let mut cmd = mock_bin_with_root(&root);
+        cmd.env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .args(["-o", "json", "ownership", "movements", "--pages", "2"]);
+        if let Some(page) = fail_page {
+            cmd.env("IDX_MOCK_MOVEMENTS_FAIL_PAGE", page);
+        }
+        run_success_json(&mut cmd)
+    };
+    let partial = run(Some("2"));
+    assert_eq!(partial["movements"].as_array().unwrap().len(), 8);
+    assert_eq!(partial["more"], true);
+    assert!(partial["incomplete"].is_string(), "{partial}");
+    // Not cached: the next run reads both pages.
+    let full = run(None);
+    assert_eq!(full["movements"].as_array().unwrap().len(), 14);
+    assert!(full.get("incomplete").is_none());
+    // Cached as one answer: a failing page 2 now changes nothing.
+    assert_eq!(run(Some("2")), full);
+    let _ = fs::remove_dir_all(root);
+}
+
 /// A test session, signed by nobody, that expires in 2100.
 const FAKE_STOCKBIT_TOKEN: &str = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln";
 
@@ -3265,4 +3292,25 @@ fn bandar_never_reads_a_broker_summary_cached_in_the_old_shape() {
     ]));
     assert!(!table.contains("No trades."), "{table}");
     assert!(table.contains("big distribution"), "{table}");
+}
+
+/// `--kind` takes the names JSON carried before they matched it, so a kind
+/// copied from an older answer works here as it does over MCP.
+#[test]
+fn actions_kind_takes_the_old_json_names() {
+    let root = test_env_dir("actions-old-kinds");
+    let rows = run_success_json(
+        mock_bin_with_root(&root)
+            .env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .args(["-o", "json", "stocks", "actions", "BBCA", "--kind"])
+            .arg("stock_dividend,reverse_split,public_expose,tender_offer"),
+    );
+    let kinds: Vec<&str> = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["kind"].as_str().unwrap())
+        .collect();
+    assert!(kinds.contains(&"expose"), "{kinds:?}");
+    let _ = fs::remove_dir_all(root);
 }

@@ -14,10 +14,17 @@ history lives in git.
 - Multi-period financial statements (today `financials` is single-period)
 - Order book depth without a login: no free source exists (IDX sells delayed
   depth to vendors); `stocks orderbook` needs the user's Stockbit login.
-- Stockbit login follow-ups: intraday OHLCV from the session's `1d` chart;
-  confirming session 1 is `STATE_NAME_SESSION_1` (session 2, `BREAK` and
-  `MARKET_CLOSED` were recorded on 2026-11-03), and when `has_foreign_bs`
-  turns on with the day's foreign figures; an
+- Shareholder movement follow-ups (`docs/STOCKBIT.md`): `ownership movements
+  --summary`, a per-symbol score (net value, distinct buyers, share-plan
+  flag), then an event study before calling any of it a signal; joining
+  holders to ownership entities by name. Corporate-action follow-ups:
+  ex-dates of splits, bonuses and rights noted in `stocks history`, and the
+  `stock_dividend` / `reversesplit` row shapes once Stockbit lists one.
+- Stockbit login follow-ups: hourly OHLCV from the session's `1w` chart (the
+  `1d` chart is per-minute closes only); confirming session 1 is
+  `STATE_NAME_SESSION_1` (session 2, `BREAK` and `MARKET_CLOSED` were
+  recorded on 2026-11-03), and when `has_foreign_bs` turns on with the day's
+  foreign figures; an
   opt-in daily refresh so a session outlives the refresh token's week, once
   it is known whether Stockbit caps a session's total life; and the sign-in
   response (`/login/v6/*`, read over DevTools' `Fetch`) as a second signal

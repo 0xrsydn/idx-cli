@@ -15,8 +15,12 @@ use idx_core::api::types::{
     Intraday, NewsItem, Ohlc, OrderBook, Quote, SentimentData,
 };
 use idx_core::broker::types::{BrokerBoard, BrokerFlow, BrokerInvestor, BrokerKind, BrokerSummary};
+use idx_core::corporate::types::{ActionKind, CalendarRange, CorporateAction, DateRange};
 use idx_core::error::IdxError;
 use idx_core::flow::types::{FlowSource, ForeignFlow};
+use idx_core::movements::types::{
+    MovementAction, MovementList, MovementSource, ShareholderMovement,
+};
 
 pub fn format_idr(value: i64) -> String {
     let sign = if value.is_negative() { "-" } else { "" };
@@ -1673,14 +1677,381 @@ outside the regular board (negotiated and cash)."
     );
 }
 
+fn action_kind_label(kind: ActionKind) -> &'static str {
+    match kind {
+        ActionKind::Dividend => "dividend",
+        ActionKind::StockDividend => "stock dividend",
+        ActionKind::Bonus => "bonus",
+        ActionKind::Rights => "rights",
+        ActionKind::Warrant => "warrant",
+        ActionKind::Split => "split",
+        ActionKind::ReverseSplit => "reverse split",
+        ActionKind::Meeting => "meeting",
+        ActionKind::PublicExpose => "public expose",
+        ActionKind::Ipo => "IPO",
+        ActionKind::TenderOffer => "tender offer",
+    }
+}
+
+/// IDR with thousands separators and up to two decimals: `1,191.09`, `3.8`.
+fn format_rupiah(value: f64) -> String {
+    let cents = (value * 100.0).round() as i64;
+    let (whole, frac) = (cents / 100, (cents % 100).abs());
+    match frac {
+        0 => format_idr(whole),
+        f if f % 10 == 0 => format!("{}.{}", format_idr(whole), f / 10),
+        f => format!("{}.{f:02}", format_idr(whole)),
+    }
+}
+
+/// Another currency's amount with up to six decimals, since a dollar
+/// dividend can be a fraction of a cent: `0.0012`, `1,250.5`.
+fn format_foreign_amount(value: f64) -> String {
+    let micros = (value.abs() * 1_000_000.0).round() as u64;
+    let (whole, frac) = (micros / 1_000_000, micros % 1_000_000);
+    let sign = if value < 0.0 && micros > 0 { "-" } else { "" };
+    let whole = format_u64(whole);
+    if frac == 0 {
+        return format!("{sign}{whole}");
+    }
+    let frac = format!("{frac:06}");
+    format!("{sign}{whole}.{}", frac.trim_end_matches('0'))
+}
+
+/// What an action gives or asks, in one line.
+fn action_detail(action: &CorporateAction) -> String {
+    let span = |range: Option<DateRange>| range.map(|r| format!("{} to {}", r.start, r.end));
+    let price = action.price.map(|p| format!("Rp {}", format_idr(p)));
+    let mut parts: Vec<String> = Vec::new();
+    match action.kind {
+        ActionKind::Dividend => {
+            let (unit, amount): (String, fn(f64) -> String) = match action.currency.as_deref() {
+                Some(currency) => (terminal_safe(currency), format_foreign_amount),
+                None => ("Rp".to_string(), format_rupiah),
+            };
+            parts.extend(
+                action
+                    .cash_per_share
+                    .map(|c| format!("{unit} {} per share", amount(c))),
+            );
+        }
+        ActionKind::StockDividend | ActionKind::Bonus => {
+            parts.extend(
+                action
+                    .ratio
+                    .map(|r| format!("{} new per {} held", format_u64(r.new), format_u64(r.old))),
+            );
+        }
+        ActionKind::Split | ActionKind::ReverseSplit => {
+            parts.extend(
+                action
+                    .ratio
+                    .map(|r| format!("{} becomes {}", format_u64(r.old), format_u64(r.new))),
+            );
+        }
+        ActionKind::Rights => {
+            parts.extend(action.ratio.map(|r| {
+                format!(
+                    "{} rights per {} held",
+                    format_u64(r.new),
+                    format_u64(r.old)
+                )
+            }));
+            parts.extend(price.map(|p| format!("at {p}")));
+            parts.extend(span(action.period).map(|s| format!("trading {s}")));
+        }
+        ActionKind::Warrant => {
+            parts.extend(price.map(|p| format!("exercise at {p}")));
+            parts.extend(span(action.exercise).map(|s| format!("exercisable {s}")));
+            parts.extend(action.period.map(|r| format!("trades until {}", r.end)));
+        }
+        ActionKind::Meeting | ActionKind::PublicExpose => {
+            parts.extend(
+                action
+                    .time
+                    .as_deref()
+                    .map(|t| format!("{} WIB", terminal_safe(t))),
+            );
+            parts.extend(
+                action
+                    .venue
+                    .as_deref()
+                    .map(|v| truncate_chars(&terminal_safe(v), 60)),
+            );
+        }
+        ActionKind::Ipo => {
+            parts.extend(price);
+            parts.extend(action.shares.map(|s| format!("{} shares", format_u64(s))));
+            parts.extend(span(action.period).map(|s| format!("offered {s}")));
+        }
+        ActionKind::TenderOffer => {
+            parts.extend(price);
+            parts.extend(action.shares.map(|s| {
+                let share = action
+                    .percentage_bps
+                    .map(|bps| format!(" ({}.{:02}%)", bps / 100, bps % 100))
+                    .unwrap_or_default();
+                format!("for {} shares{share}", format_u64(s))
+            }));
+            parts.extend(span(action.period).map(|s| format!("open {s}")));
+        }
+    }
+    if parts.is_empty() {
+        "-".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
+const CORPORATE_DATE_NOTE: &str = "DATE is the cum date for dividends, bonuses, rights and \
+splits (buy by that day to be entitled); for other actions, the event's first day.";
+const CORPORATE_EX_NOTE: &str = "A DATE marked (ex) is the ex date: Stockbit gives no cum \
+date for it, and buying that day is too late to be entitled.";
+
+/// An entitlement Stockbit gave no cum date for sits on its ex date.
+fn on_ex_date(action: &CorporateAction) -> bool {
+    action.kind.is_entitlement() && action.cum_date.is_none()
+}
+
+fn action_date_cell(action: &CorporateAction) -> Cell {
+    if on_ex_date(action) {
+        cell(format!("{} (ex)", action.date))
+    } else {
+        cell(action.date)
+    }
+}
+
+fn print_corporate_notes(actions: &[CorporateAction]) {
+    println!("{CORPORATE_DATE_NOTE}");
+    if actions.iter().any(on_ex_date) {
+        println!("{CORPORATE_EX_NOTE}");
+    }
+}
+
+fn opt_date(date: Option<chrono::NaiveDate>) -> String {
+    date.map(|d| d.to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+pub fn print_corporate_actions(symbol: &str, actions: &[CorporateAction]) -> Result<(), IdxError> {
+    println!(
+        "{}",
+        format!("Corporate actions for {}", terminal_safe(symbol)).bold()
+    );
+    if actions.is_empty() {
+        println!("None of these kinds on record.");
+    } else {
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_header(vec!["DATE", "KIND", "EX", "RECORD", "PAY", "DETAIL"]);
+        for action in actions {
+            table.add_row(vec![
+                action_date_cell(action),
+                cell(action_kind_label(action.kind)),
+                cell(opt_date(action.ex_date)),
+                cell(opt_date(action.record_date)),
+                cell(opt_date(action.pay_date)),
+                cell(action_detail(action)),
+            ]);
+        }
+        println!("{table}");
+        print_corporate_notes(actions);
+    }
+    println!("{STOCKBIT_SESSION_NOTE}");
+    Ok(())
+}
+
+pub fn print_corporate_calendar(
+    range: &CalendarRange,
+    actions: &[CorporateAction],
+) -> Result<(), IdxError> {
+    // Offers still open are listed by the day they opened, which can be
+    // before `from`; the title says so rather than claim the range bounds
+    // every row.
+    let earlier = if actions.iter().any(|a| a.date < range.from) {
+        ", with offers opened earlier and still open"
+    } else {
+        ""
+    };
+    println!(
+        "{}",
+        format!(
+            "Corporate actions from {} to {}{earlier} ({})",
+            range.from,
+            range.to,
+            actions.len()
+        )
+        .bold()
+    );
+    if actions.is_empty() {
+        println!("None of these kinds in that range.");
+    } else {
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_header(vec!["DATE", "SYMBOL", "KIND", "EX", "DETAIL"]);
+        for action in actions {
+            table.add_row(vec![
+                action_date_cell(action),
+                cell(action.symbol.trim_end_matches(".JK")),
+                cell(action_kind_label(action.kind)),
+                cell(opt_date(action.ex_date)),
+                cell(action_detail(action)),
+            ]);
+        }
+        println!("{table}");
+        print_corporate_notes(actions);
+    }
+    println!("{STOCKBIT_SESSION_NOTE}");
+    Ok(())
+}
+
+fn movement_action_label(action: MovementAction, no_color: bool) -> String {
+    let label = action.as_str().replace('_', " ");
+    match action {
+        _ if no_color => label,
+        MovementAction::Buy => label.green().to_string(),
+        MovementAction::Sell => label.red().to_string(),
+        _ => label,
+    }
+}
+
+/// Signed exact shares: `+147,933`, `-10,000,000`.
+fn format_signed_shares(value: i64) -> String {
+    let text = format_idr(value);
+    if value > 0 { format!("+{text}") } else { text }
+}
+
+/// The stake after the change and the change in percentage points:
+/// `40.65% (-0.16)`. A stake that rounds to 0 basis points reads `<0.01%`.
+fn movement_stake(movement: &ShareholderMovement) -> String {
+    let after = match movement.percentage_after_bps {
+        0 if movement.shares_after > 0 => "<0.01%".to_string(),
+        bps => format!("{:.2}%", bps as f64 / 100.0),
+    };
+    match movement.percentage_change_bps {
+        0 => after,
+        bps => format!("{after} ({:+.2})", bps as f64 / 100.0),
+    }
+}
+
+const MOVEMENT_NOTE: &str = "IDX rows are insider disclosures (directors, commissioners and \
+other insiders); KSEI rows are changes of holders at 5% and above. ~ marks Stockbit's estimated \
+price. Rows appear days after the change.";
+
+/// What to do when rows remain past the pages read.
+pub fn more_movements_hint(pages: u32) -> String {
+    if pages >= idx_core::movements::types::MAX_PAGES {
+        "More rows exist: narrow --from/--to (10 pages is the most one query reads).".to_string()
+    } else {
+        format!(
+            "More rows exist: raise --pages (up to {}) or narrow --from/--to.",
+            idx_core::movements::types::MAX_PAGES
+        )
+    }
+}
+
+pub fn print_shareholder_movements(
+    symbol: Option<&str>,
+    list: &MovementList,
+    pages: u32,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    let title = match symbol {
+        Some(symbol) => format!("Shareholder movements for {}", terminal_safe(symbol)),
+        None => "Shareholder movements across IDX".to_string(),
+    };
+    println!("{}", format!("{title} ({})", list.movements.len()).bold());
+    if list.movements.is_empty() {
+        println!("No movements reported for this query.");
+    } else {
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_header(vec![
+                "DATE",
+                "SYMBOL",
+                "HOLDER",
+                "ROLE",
+                "ACTION",
+                "SHARES",
+                "STAKE",
+                "PRICE",
+                "VALUE",
+                "SOURCE",
+                "HOLDER ID",
+            ]);
+        for movement in &list.movements {
+            let estimated = if movement.price_estimated { "~" } else { "" };
+            table.add_row(vec![
+                cell(movement.date),
+                cell(&movement.symbol),
+                cell(&movement.holder),
+                cell(if movement.roles.is_empty() {
+                    "-".to_string()
+                } else {
+                    movement.roles.join(", ")
+                }),
+                painted(movement_action_label(movement.action, no_color)),
+                cell(format_signed_shares(movement.shares_change)),
+                cell(movement_stake(movement)),
+                cell(
+                    movement
+                        .price
+                        .map(|p| format!("{estimated}{}", format_idr(p)))
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                cell(
+                    movement
+                        .value
+                        .map(|v| format!("{estimated}{}", format_compact(v)))
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                cell(match movement.source {
+                    Some(MovementSource::Idx) => "IDX",
+                    Some(MovementSource::Ksei) => "KSEI",
+                    None => "-",
+                }),
+                cell(&movement.holder_id),
+            ]);
+        }
+        println!("{table}");
+        println!("{MOVEMENT_NOTE}");
+    }
+    if let Some(reason) = &list.incomplete {
+        println!(
+            "Reading stopped early ({}); these are the rows read before it.",
+            terminal_safe(reason)
+        );
+    } else if list.more {
+        println!("{}", more_movements_hint(pages));
+    }
+    println!("{STOCKBIT_SESSION_NOTE}");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        format_earnings_period, format_idr, format_signal, format_table_date, format_u64,
-        humanize_metric_key, stale_quote_notes,
+        format_earnings_period, format_foreign_amount, format_idr, format_rupiah, format_signal,
+        format_table_date, format_u64, humanize_metric_key, stale_quote_notes,
     };
     use idx_core::analysis::signals::Signal;
     use idx_core::api::types::Quote;
+
+    /// Rupiah to the sen; another currency keeps a fraction of a cent.
+    #[test]
+    fn dividend_amounts_keep_their_decimals() {
+        assert_eq!(format_rupiah(1191.09), "1,191.09");
+        assert_eq!(format_rupiah(3.8), "3.8");
+        assert_eq!(format_foreign_amount(0.0012), "0.0012");
+        assert_eq!(format_foreign_amount(1250.5), "1,250.5");
+        assert_eq!(format_foreign_amount(2.0), "2");
+    }
 
     fn quote_as_of(symbol: &str, as_of: &str) -> Quote {
         Quote {

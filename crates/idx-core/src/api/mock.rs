@@ -1,15 +1,18 @@
 //! Fixture-backed provider for tests, enabled by the `testing` feature and
 //! `IDX_USE_MOCK_PROVIDER`. Release builds do not contain it.
 
-use super::stockbit::exodus;
+use super::stockbit::{corpaction, exodus, movement};
 use super::types::{Bar, Fundamentals, Interval, Intraday, OrderBook, Period, Quote};
 use super::{
-    BrokerSummaryProvider, FundamentalsProvider, HistoryProvider, IntradayProvider,
-    OrderBookProvider, QuoteProvider, TradingSummaryProvider, idx, ipot, msn, stockbit, yahoo,
+    BrokerSummaryProvider, CorporateActionProvider, FundamentalsProvider, HistoryProvider,
+    IntradayProvider, OrderBookProvider, QuoteProvider, ShareholderMovementProvider,
+    TradingSummaryProvider, idx, ipot, msn, stockbit, yahoo,
 };
 use crate::broker::types::{BrokerBoard, BrokerInvestor, BrokerQuery};
 use crate::config::ProviderKind;
+use crate::corporate::types::{ActionKind, CorporateAction};
 use crate::error::IdxError;
+use crate::movements::types::{MovementPage, MovementQuery};
 
 pub(crate) fn enabled() -> bool {
     std::env::var("IDX_USE_MOCK_PROVIDER").is_ok()
@@ -184,6 +187,10 @@ impl MockStockbitProvider {
                 "Stockbit rejected the session; run `idx stockbit login` again".to_string(),
             ));
         }
+        // The session API's own block, as `exodus::fetch` reports it.
+        if std::env::var("IDX_MOCK_STOCKBIT_STATUS").as_deref() == Ok("403") {
+            return Err(stockbit::exodus::blocked());
+        }
         if let Some(err) = self.failure(symbol) {
             return Err(err);
         }
@@ -227,6 +234,68 @@ impl IntradayProvider for MockStockbitProvider {
 impl OrderBookProvider for MockStockbitProvider {
     fn orderbook(&self, symbol: &str) -> Result<OrderBook, IdxError> {
         self.book(symbol)
+    }
+}
+
+/// `stockbit_exodus_corpaction_<type>.json` for the market,
+/// `..._<type>_<code>.json` for one stock; a stock without a fixture has none
+/// of that kind, as Stockbit answers.
+impl CorporateActionProvider for MockStockbitProvider {
+    fn corporate_actions(
+        &self,
+        kind: ActionKind,
+        symbol: Option<&str>,
+    ) -> Result<Vec<CorporateAction>, IdxError> {
+        let subject = symbol.unwrap_or("corporate actions");
+        let name = match symbol {
+            Some(symbol) => format!(
+                "corpaction_{}_{}.json",
+                corpaction::path_type(kind),
+                stockbit::stockbit_code(symbol)?.to_ascii_lowercase()
+            ),
+            None => format!("corpaction_{}.json", corpaction::path_type(kind)),
+        };
+        let body = match self.exodus(subject, &name) {
+            Err(IdxError::SymbolNotFound(_)) if symbol.is_some() => {
+                r#"{"data":{"none":[]}}"#.to_string()
+            }
+            other => other?,
+        };
+        corpaction::parse_corporate_actions(kind, &body)
+    }
+}
+
+/// `stockbit_exodus_majorholder[_<code>][_p<page>].json` (no suffix for page
+/// 1); a missing fixture is an empty page, as Stockbit answers past the end.
+/// The query's filters apply to the fixture's rows, as Stockbit applies them.
+impl ShareholderMovementProvider for MockStockbitProvider {
+    fn shareholder_movements(
+        &self,
+        query: &MovementQuery,
+        page: u32,
+    ) -> Result<MovementPage, IdxError> {
+        let subject = query.symbol.as_deref().unwrap_or("shareholder movements");
+        // `IDX_MOCK_MOVEMENTS_FAIL_PAGE=N` rate-limits page N alone.
+        if std::env::var("IDX_MOCK_MOVEMENTS_FAIL_PAGE").ok() == Some(page.to_string()) {
+            return Err(IdxError::RateLimited);
+        }
+        let mut name = "majorholder".to_string();
+        if let Some(symbol) = &query.symbol {
+            name.push('_');
+            name.push_str(&stockbit::stockbit_code(symbol)?.to_ascii_lowercase());
+        }
+        if page > 1 {
+            name.push_str(&format!("_p{page}"));
+        }
+        let body = match self.exodus(subject, &format!("{name}.json")) {
+            Err(IdxError::SymbolNotFound(_)) if query.symbol.is_some() || page > 1 => {
+                r#"{"data":{"is_more":false,"movement":[]}}"#.to_string()
+            }
+            other => other?,
+        };
+        let mut parsed = movement::parse_movements(&body)?;
+        parsed.movements.retain(|m| query.admits(m));
+        Ok(parsed)
     }
 }
 

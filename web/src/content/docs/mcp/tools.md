@@ -8,7 +8,9 @@ description: Every idx-mcp tool and its inputs, generated from the server's tool
 idx-mcp serves these tools. `ownership_sync` is listed only when the server
 starts with `--allow-sync`. Results that come from a live provider are wrapped
 as `{data, source, fetched_at, stale}`; failures return `{error, code,
-message}` with `isError` set.
+message}` with `isError` set. Either may carry `warnings`, what idx worked
+around (such as a history fallback or a stale cache entry), when there was
+any.
 
 ## `analyze_bandar`
 
@@ -62,6 +64,25 @@ Company data for one IDX ticker: profile, financial statements, earnings, analys
 | --- | --- | --- | --- |
 | `sections` | array of `profile` / `financials` / `earnings` / `sentiment` / `insights` / `news` | no | Sections to fetch (default: all). |
 | `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
+
+## `get_corporate_actions`
+
+Corporate actions of one IDX stock from the user's own Stockbit session, newest first: `kind` (dividend, stock-dividend, bonus, rights, warrant, split, reverse-split, meeting, expose, ipo, tender), `date` (the cum date for dividends, bonuses, rights and splits, i.e. the last day to buy and be entitled, or the ex date when `cum_date` is absent; else the event's first day), `ex_date`, `record_date`, `pay_date`, and per kind `cash_per_share` (IDR, may have decimals; in `currency`, an ISO code, when that is present), `ratio` {old, new} (1:5 split = 1 share becomes 5; 655:104 rights = 104 rights per 655 held), `factor` (price adjustment), `price` (rights, warrant exercise, tender or IPO price, IDR), `period` and `exercise` {start, end}, `shares`, `percentage_bps`, `time`, `venue`. Absent fields are omitted. One Stockbit request per kind (about 1 s each on a cold cache, then cached 6 hours). AUTHERROR means there is no session: call stockbit_status, then stockbit_login.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `kinds` | array of `dividend` / `stock-dividend` / `bonus` / `rights` / `warrant` / `split` / `reverse-split` / `meeting` / `expose` / `ipo` / `tender` | no | Kinds to list (default: every kind but "ipo"). Each kind is one request to Stockbit. |
+| `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
+
+## `get_corporate_calendar`
+
+Corporate actions across IDX from the user's own Stockbit session, oldest first, dated from `from` to `to` (default today and the next 30 days), plus rights trading, tender offers and IPO offers still open in that range (their `period` overlaps it, though `date` may be earlier): upcoming cum dates, meetings, exposes, rights, warrants, IPOs and tender offers, and the past year. Each item has the same fields as get_corporate_actions, with `symbol`. One Stockbit request per kind (about 1 s each on a cold cache, then cached 6 hours); pass `kinds` to ask for less. AUTHERROR means there is no session: call stockbit_status, then stockbit_login.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `from` | string | no | First day, YYYY-MM-DD (default today). |
+| `kinds` | array of `dividend` / `stock-dividend` / `bonus` / `rights` / `warrant` / `split` / `reverse-split` / `meeting` / `expose` / `ipo` / `tender` | no | Kinds to list (default: every kind). Each kind is one request to Stockbit. |
+| `to` | string | no | Last day, YYYY-MM-DD (default 30 days after `from`; at most 366 days). |
 
 ## `get_foreign_flow`
 
@@ -130,6 +151,20 @@ Latest quotes (price, change, volume, 52-week range, market cap) for one or more
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
 | `symbols` | array of string | yes | IDX tickers, e.g. ["BBCA", "BBRI"]; the `.JK` suffix is optional. At most 20. |
+
+## `get_shareholder_movements`
+
+Reported changes in insiders' and major holders' stakes in IDX stocks, from the user's own Stockbit session, newest first: IDX insider disclosures (directors, commissioners and other insiders, any size, with the trade price) and KSEI changes of holders at 5% and above (price estimated: `price_estimated`). One stock's, or the market's without `symbol`. Shares are exact and signed (`shares_change` < 0 is a sale); percentages are basis points as Stockbit rounds them, so a small insider can read 0. `more` is true when rows remain past `pages`; `incomplete`, when present, says a later page failed and the rows are those read before it (retry later for the rest). These are filings, not signals: many insiders buying at one price on one day is usually a share plan, and rows appear days after the change. AUTHERROR means there is no session: call stockbit_status, then stockbit_login.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `action` | `buy` / `sell` / `transfer` / `cross` / `corporate-action` | no | Only this kind of movement; "corporate-action" covers rights issues, private placements and the like. |
+| `from` | string | no | First day, YYYY-MM-DD. |
+| `holder_id` | string | no | One holder's movements: the `holder_id` of a row. |
+| `pages` | integer | no | Pages of 50 rows (default 1, at most 10); each page is one request to Stockbit. |
+| `source` | `idx` / `ksei` | no | "idx" (insider disclosures, any size) or "ksei" (holders at 5% and above). |
+| `symbol` | string | no | IDX ticker, e.g. "BBCA"; omit for the whole market. |
+| `to` | string | no | Last day, YYYY-MM-DD. |
 
 ## `get_shareholders`
 

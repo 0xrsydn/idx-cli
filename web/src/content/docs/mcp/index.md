@@ -5,9 +5,9 @@ description: idx-mcp serves idx's stock and ownership data to AI agents over MCP
 
 `idx-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
 server over stdio. It gives an agent the same data as the `idx` CLI, as
-[17 tools](/mcp/tools/) (plus an opt-in `ownership_sync`): quotes, today's
-session by the minute, the order book (with a Stockbit login), price
-history, screening, company data, analysis, comparison, broker summaries,
+[21 tools](/mcp/tools/) (plus an opt-in `ownership_sync`): quotes, today's
+session by the minute, the order book, corporate actions and insider movements (with a Stockbit
+login), price history, screening, company data, analysis, comparison, broker summaries,
 bandarmology, foreign flow, and the KSEI ownership queries.
 
 It shares idx's [config, cache and ownership database](/start/config/#files-idx-keeps),
@@ -32,6 +32,21 @@ Tools that fetch live data return:
 `stale` is true when an expired cache entry was served because a fresh fetch
 failed. Ownership tools return their data directly, from the local
 database.
+
+What `idx` prints as a warning in a terminal comes back in `warnings`, on an
+answer or an error, when there was any. For example, history that fell back to
+Yahoo because Stockbit refused your session says so, and a stale answer names
+the failure behind it:
+
+```json
+{
+  "data": [{ "date": "2026-11-03", "close": 9875, "...": "..." }],
+  "source": "yahoo",
+  "fetched_at": "2026-11-04T03:20:11Z",
+  "stale": false,
+  "warnings": ["Stockbit rejected the session; run `idx stockbit login` again; history falls back to yahoo meanwhile"]
+}
+```
 
 Errors come back as a tool result with `isError` set and the CLI's error
 body, so the agent can decide whether to retry:

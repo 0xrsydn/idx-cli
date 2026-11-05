@@ -47,6 +47,33 @@ value and trades, and foreign buy, sell and net once Stockbit marks them
 current (not during trading, when they lag a day). Without one it answers
 `AUTHERROR`. See [Stockbit](/cli/stockbit/#with-your-stockbit-login).
 
+## Corporate actions (Stockbit login)
+
+```bash
+idx stocks actions BBCA                       # newest first
+idx stocks actions TLKM --kind dividend
+idx stocks calendar                           # today and the next 30 days
+idx stocks calendar --kind dividend,rights --to 2026-12-31
+```
+
+`actions` lists one stock's cash and stock dividends, bonus shares, rights
+issues, warrants, splits and reverse splits, shareholders' meetings, public
+exposes and tender offers (`--kind ipo` adds its IPO). `calendar` lists them
+across the market between `--from` and `--to` (at most 366 days), including
+what is announced ahead, plus rights trading, tender offers and IPO offers
+still open in that range, so an offer that began earlier still shows while
+you can act on it. An action's date is its cum date for dividends,
+bonuses, rights and splits: buy by then to be entitled. For the others it is
+the event's first day. When Stockbit gives no cum date, the action sits on
+its ex date, marked `(ex)` in the table, and JSON leaves `cum_date` out.
+Dividends per share keep their decimals (`Rp 3.8`); one not paid in Rupiah
+carries `currency` (e.g. `USD`). JSON's `kind` is the name `--kind` takes.
+
+Both need your Stockbit session and answer `AUTHERROR` without one. Stockbit
+serves one kind per request, 1 s apart, so a first call with every kind takes
+about ten seconds; answers are then cached for 6 hours. `--kind` asks for
+less.
+
 ## Company data
 
 | Command | What it shows |

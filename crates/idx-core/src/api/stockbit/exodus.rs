@@ -27,11 +27,24 @@ use serde_json::Value;
 use super::auth::SessionStore;
 use super::parse::number;
 use super::{USER_AGENT, pace, stockbit_code};
+use super::{corpaction, movement};
 use crate::api::types::{BookLevel, Interval, Ohlc, OrderBook, Period, Quote};
+use crate::corporate::types::{ActionKind, CorporateAction};
 use crate::error::IdxError;
+use crate::movements::types::{MovementPage, MovementQuery};
 
 const BASE_URL: &str = "https://exodus.stockbit.com";
 const REFRESH_PATH: &str = "/login/refresh";
+/// The only paths idx GETs from the session API. The same API places orders,
+/// withdraws cash and changes the PIN; a path outside these fails before any
+/// request (or token refresh) leaves the process. A feature that reads a new
+/// endpoint adds its prefix here.
+const READ_PATHS: &[&str] = &[
+    "/company-price-feed/",
+    "/charts/",
+    "/corpaction/",
+    "/insider/company/majorholder?",
+];
 /// The prefix of the states in which the regular market trades:
 /// `STATE_NAME_SESSION_2` was recorded on 2026-11-03 from 13:30; session 1 is
 /// assumed to follow the same naming. Every other state (`STATE_NAME_BREAK`,
@@ -120,6 +133,43 @@ impl Exodus {
         daily_for_period(&body, period)
     }
 
+    /// Corporate actions of `kind`: one stock's (`resolved`) or the market's.
+    pub(crate) fn corporate_actions(
+        &self,
+        kind: ActionKind,
+        resolved: Option<&str>,
+    ) -> Result<Vec<CorporateAction>, IdxError> {
+        let path = format!("/corpaction/{}", corpaction::path_type(kind));
+        let (path, subject) = match resolved {
+            Some(resolved) => (
+                format!("{path}?symbol={}", stockbit_code(resolved)?),
+                resolved.to_string(),
+            ),
+            None => (path, "corporate actions".to_string()),
+        };
+        let body = self.get(&path, &subject)?;
+        corpaction::parse_corporate_actions(kind, &body)
+    }
+
+    /// Page `page` of shareholder movements: one stock's (`query.symbol`,
+    /// resolved) or the market's.
+    pub(crate) fn shareholder_movements(
+        &self,
+        query: &MovementQuery,
+        page: u32,
+    ) -> Result<MovementPage, IdxError> {
+        let code = query.symbol.as_deref().map(stockbit_code).transpose()?;
+        let subject = query
+            .symbol
+            .clone()
+            .unwrap_or_else(|| "shareholder movements".to_string());
+        let body = self.get(
+            &movement::request_path(query, code.as_deref(), page),
+            &subject,
+        )?;
+        movement::parse_movements(&body)
+    }
+
     /// The market's state, read at most every `MARKET_STATE_TTL` per process.
     /// Unknown on any failure, which hides bid/offer.
     fn market_status(&self) -> Option<String> {
@@ -139,6 +189,11 @@ impl Exodus {
     }
 
     fn get(&self, path: &str, subject: &str) -> Result<String, IdxError> {
+        if !is_read_path(path) {
+            return Err(IdxError::Unsupported(format!(
+                "idx does not call {path} on Stockbit's session API"
+            )));
+        }
         let refresher = |refresh: &str| self.refresh(refresh);
         let token = self.store.access(&refresher, unix_now())?;
         let mut reply = self.send(path, &token)?;
@@ -217,11 +272,7 @@ fn classify(reply: Reply, subject: &str) -> Result<String, IdxError> {
             Err(IdxError::SymbolNotFound(subject.to_string()))
         }
         429 => Err(IdxError::RateLimited),
-        403 => Err(IdxError::UpstreamBlocked(
-            "exodus.stockbit.com refused this client (HTTP 403 from its CDN); idx does not \
-             retry a block. Try again later or from another network"
-                .to_string(),
-        )),
+        403 => Err(blocked()),
         status => Err(IdxError::Http(format!(
             "stockbit api: HTTP {status}{}",
             message(&reply.body)
@@ -457,9 +508,58 @@ fn trim_to_period(mut bars: Vec<Ohlc>, period: &Period) -> Vec<Ohlc> {
     }
 }
 
+/// A 403 from the CDN in front of the session API: a block, not a refused
+/// session, so nothing is retried.
+pub(crate) fn blocked() -> IdxError {
+    IdxError::UpstreamBlocked(
+        "exodus.stockbit.com refused this client (HTTP 403 from its CDN); idx does not \
+         retry a block. Try again later or from another network"
+            .to_string(),
+    )
+}
+
+/// Whether `path` is one idx reads; `..` never climbs out of a prefix.
+fn is_read_path(path: &str) -> bool {
+    READ_PATHS.iter().any(|prefix| path.starts_with(prefix)) && !path.contains("..")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only the endpoints idx reads pass; trading and account paths, and a
+    /// path that climbs out of a prefix, never leave the process.
+    #[test]
+    fn only_read_paths_are_called() {
+        for path in [
+            "/company-price-feed/market-time/session",
+            "/company-price-feed/v2/orderbook/companies/BBCA",
+            "/charts/BBCA/daily?timeframe=1y&chart_type=PRICE_CHART_TYPE_CANDLE",
+            "/corpaction/dividend?symbol=BBCA",
+            "/insider/company/majorholder?page=1&symbol=BBCA",
+        ] {
+            assert!(is_read_path(path), "{path}");
+        }
+        // Paths another module builds come from its own builder, so the
+        // allowlist cannot drift from them.
+        let query = MovementQuery::default();
+        for path in [
+            movement::request_path(&query, None, 1),
+            movement::request_path(&query, Some("BBCA"), 3),
+        ] {
+            assert!(is_read_path(&path), "{path}");
+        }
+        for path in [
+            "/order/buy",
+            "/login/refresh",
+            "/corpaction/../order/buy",
+            "/insider/company/majorholder/../../order",
+            "/charts",
+            "",
+        ] {
+            assert!(!is_read_path(path), "{path}");
+        }
+    }
 
     fn fixture(name: &str) -> String {
         std::fs::read_to_string(format!(
