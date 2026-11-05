@@ -1,0 +1,13 @@
+{
+  "message": "Successfully refresh token",
+  "data": {
+    "access": {
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6InRlc3QiLCJ0eXAiOiJKV1QifQ.eyJkYXRhIjp7InVzZSI6ImRlbW8iLCJzZXMiOiJzZXNzaW9uLTEiLCJkdmMiOiJkZXZpY2UtMSIsInVpZCI6MSwiY291IjoiSUQifSwiZXhwIjoxNzkyMzg1MDA4LCJpYXQiOjE3OTIyOTg2MDgsImlzcyI6IlNUT0NLQklUIiwianRpIjoidGVzdCIsIm5iZiI6MTc5MjI5ODYwOCwidmVyIjoidjEifQ.dGVzdC1zaWduYXR1cmU",
+      "expired_at": "2026-10-19T04:43:28Z"
+    },
+    "refresh": {
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6InRlc3QiLCJ0eXAiOiJKV1QifQ.eyJkYXRhIjp7InR5cCI6InJlZnJlc2giLCJ1c2UiOiJkZW1vIiwic2VzIjoic2Vzc2lvbi0xIiwiZHZjIjoiZGV2aWNlLTEiLCJ1aWQiOjEsImNvdSI6IklEIn0sImV4cCI6MTc5MjkwMzQwOCwiaWF0IjoxNzkyMjk4NjA4LCJpc3MiOiJTVE9DS0JJVCIsImp0aSI6InRlc3QiLCJuYmYiOjE3OTIyOTg2MDgsInZlciI6InYxIn0.dGVzdC1zaWduYXR1cmU",
+      "expired_at": "2026-10-25T04:43:28Z"
+    }
+  }
+}

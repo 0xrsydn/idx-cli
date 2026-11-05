@@ -1,0 +1,29 @@
+exit: 0
+--- stdout
+Corporate actions from 2026-11-05 to 2026-11-06 (10)
+┌────────────┬────────┬───────────────┬────┬────────────────────────────────────────────────────────────────────────────┐
+│ DATE       ┆ SYMBOL ┆ KIND          ┆ EX ┆ DETAIL                                                                     │
+╞════════════╪════════╪═══════════════╪════╪════════════════════════════════════════════════════════════════════════════╡
+│ 2026-11-05 ┆ AUTO   ┆ public expose ┆ -  ┆ 10:00 WIB, Zoom Webinar                                                    │
+├╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 2026-11-05 ┆ BATA   ┆ meeting       ┆ -  ┆ 14:00 WIB, Gedung Ventura, lantai 7. Jl. Raden Ajeng Kartini No.26, Cil... │
+├╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 2026-11-06 ┆ AMAG   ┆ public expose ┆ -  ┆ 15:00 WIB, Virtual Zoom Webinar, di PT Asuransi Multi Artha Guna Tbk, G... │
+├╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 2026-11-06 ┆ BRIS   ┆ meeting       ┆ -  ┆ 10:00 WIB, Jakarta Pusat, melalui fasilitas Electronic General Meeting ... │
+├╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 2026-11-06 ┆ GIAA   ┆ meeting       ┆ -  ┆ 14:00 WIB, Secara elektronik melalui sistem eASY.KSEI (https//akses.kse... │
+├╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 2026-11-06 ┆ INPS   ┆ meeting       ┆ -  ┆ 14:00 WIB, Gedung Inprase, Jl. Sunter Garden Raya Blok D8 No. 3G-3H, Su... │
+├╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 2026-11-06 ┆ KDTN   ┆ meeting       ┆ -  ┆ 14:00 WIB, PT Puri Sentul Permai Tbk diumumkan dan sesuai iklan)           │
+├╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 2026-11-06 ┆ MTFN   ┆ meeting       ┆ -  ┆ 10:00 WIB, Kantor Taman E3.3, Unit D3A, Lantai 5, Jl. DR. Ide Anak Agun... │
+├╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 2026-11-06 ┆ MTFN   ┆ public expose ┆ -  ┆ 11:00 WIB, Kantor Taman E3.3, Unit D3A, Lantai 5 Jl. DR. Ide Anak Agung... │
+├╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ 2026-11-06 ┆ ULTJ   ┆ meeting       ┆ -  ┆ 10:00 WIB, Kantor Perseroan, Jalan Raya Cimareme No 131 Bandung Barat, ... │
+└────────────┴────────┴───────────────┴────┴────────────────────────────────────────────────────────────────────────────┘
+DATE is the cum date for dividends, bonuses, rights and splits (buy by that day to be entitled); for other actions, the event's first day.
+Source: your Stockbit session; for personal, non-commercial use (Stockbit's terms).
+--- stderr
