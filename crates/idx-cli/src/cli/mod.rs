@@ -2,6 +2,7 @@ pub mod cache;
 pub mod config;
 #[cfg(feature = "ownership")]
 pub mod ownership;
+pub mod stockbit;
 pub mod stocks;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -69,6 +70,8 @@ pub enum Commands {
     #[cfg(feature = "ownership")]
     #[command(about = "Ownership intelligence (bootstrap with `ownership sync`)")]
     Ownership(ownership::OwnershipCmd),
+    #[command(about = "Your Stockbit session (opt-in: order book, live quotes)")]
+    Stockbit(stockbit::StockbitCmd),
     #[command(about = "Generate shell completions")]
     Completions { shell: Shell },
     #[command(about = "Show idx-cli version")]

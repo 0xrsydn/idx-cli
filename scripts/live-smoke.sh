@@ -71,10 +71,14 @@ LOG_DIR="$WORKDIR/logs"
 COMMON_ENV=("IDX_PROVIDER=msn" "IDX_HISTORY_PROVIDER=auto" "IDX_NO_COLOR=1")
 
 # Each binary gets its own config, cache, and data so both really fetch.
+# Stockbit session cases keep the user's real config directory, which holds
+# the session: a copy would refresh on its own and spend the user's rotating
+# refresh token, while the real file is shared under its lock.
+REAL_CONFIG=0
 side_env() {
     local home="$WORKDIR/$1"
-    printf '%s\n' "XDG_CONFIG_HOME=$home/config" "XDG_CACHE_HOME=$home/cache" \
-        "XDG_DATA_HOME=$home/data" "${COMMON_ENV[@]}"
+    (( REAL_CONFIG )) || printf '%s\n' "XDG_CONFIG_HOME=$home/config"
+    printf '%s\n' "XDG_CACHE_HOME=$home/cache" "XDG_DATA_HOME=$home/data" "${COMMON_ENV[@]}"
 }
 
 # Values of these commands should not move between two back-to-back runs.
@@ -128,6 +132,16 @@ contract() {
             echo '(.highlights | type == "array") and (.risks | type == "array")' ;;
         "stocks news "*)
             echo 'type == "array" and all(.[]; (.title | type == "string") and (.url | type == "string"))' ;;
+        "stocks orderbook "*)
+            echo '(.symbol | type == "string") and (.price | type == "number") and (.market_status | type == "string") and (.bids | type == "array") and (.offers | type == "array")' ;;
+        # The smoke symbol always has dividends on record; a quiet month can
+        # leave the calendar empty.
+        "stocks actions "*)
+            echo 'type == "array" and length > 0 and all(.[]; (.symbol | type == "string") and (.kind | type == "string") and (.date | type == "string"))' ;;
+        "stocks calendar"*)
+            echo 'type == "array" and all(.[]; (.symbol | type == "string") and (.kind | type == "string") and (.date | type == "string"))' ;;
+        "ownership movements"*)
+            echo '(.more | type == "boolean") and (.movements | length > 0) and all(.movements[]; (.symbol | type == "string") and (.date | type == "string") and (.holder_id | type == "string") and (.action | type == "string") and (.shares_change | type == "number"))' ;;
         "stocks broker "*)
             echo '(.symbol | type == "string") and (.buyers | length > 0) and (.sellers | length > 0) and all(.buyers[]; (.code | type == "string") and (.value | type == "number")) and (.total_value | type == "number")' ;;
         "stocks bandar "*)
@@ -253,6 +267,17 @@ if selected stockbit; then
     run_new_case intraday "stocks intraday $SYMBOL"
     run_new_case intraday-index "stocks intraday ^JKSE"
     run_new_case quote-stockbit "--provider stockbit stocks quote $SYMBOL"
+    # With the user's own session (`idx stockbit login`), if there is one.
+    if (( DRY_RUN )) || "${BIN_PATH:-idx}" -o json stockbit status 2>/dev/null | jq -e '.logged_in' >/dev/null; then
+        REAL_CONFIG=1
+        run_new_case orderbook "stocks orderbook $SYMBOL --depth 5"
+        run_new_case actions "stocks actions $SYMBOL --kind dividend,split"
+        run_new_case calendar "stocks calendar --kind dividend,rights"
+        run_new_case movements "ownership movements"
+        REAL_CONFIG=0
+    else
+        echo "     no Stockbit session: orderbook, actions, calendar and movements not run"
+    fi
 fi
 
 if selected ownership; then

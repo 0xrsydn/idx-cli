@@ -65,8 +65,10 @@ pub struct Quote {
     /// Best offer in IDR (whole Rupiah), gated like `bid`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offer: Option<i64>,
-    /// The provider's own session state, verbatim (Stockbit
-    /// `market_hour.status`, e.g. `close`). Absent for providers without one.
+    /// Stockbit's market state as its public page words it: `open` while
+    /// the regular market trades, `close` otherwise (also the lunch break
+    /// and auctions). A logged-in quote maps its session state to the same
+    /// two words. Absent for other providers, or when the state is unknown.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub market_status: Option<String>,
     /// What the provider says about this symbol's session: suspended,
@@ -92,6 +94,54 @@ pub struct Intraday {
     /// Oldest first; empty when the symbol did not trade (suspended,
     /// delisted, or no session yet), never an error.
     pub points: Vec<IntradayPoint>,
+}
+
+/// One price level of an order book.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BookLevel {
+    /// Limit price in IDR (whole Rupiah).
+    pub price: i64,
+    /// Size resting at this price, in shares (1 lot = 100 shares).
+    pub shares: u64,
+    /// Orders queued at this price.
+    pub orders: u64,
+}
+
+/// The order book of one IDX stock from the user's Stockbit session, with
+/// the session's figures and foreign flow. Outside trading it is the book as
+/// the market left it; `market_status` says which.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderBook {
+    pub symbol: String,
+    pub name: Option<String>,
+    /// Last price in IDR (whole Rupiah).
+    pub price: i64,
+    pub change: Option<i64>,
+    pub change_pct: Option<f64>,
+    pub prev_close: Option<i64>,
+    pub open: Option<i64>,
+    pub high: Option<i64>,
+    pub low: Option<i64>,
+    /// Session volume in shares.
+    pub volume: Option<u64>,
+    /// Session value traded in IDR.
+    pub value: Option<u64>,
+    /// Trades in the session.
+    pub frequency: Option<u64>,
+    /// Foreign buy, sell and net value over the session, IDR; `None` while
+    /// Stockbit marks them not current (in session they lag a day).
+    pub foreign_buy: Option<i64>,
+    pub foreign_sell: Option<i64>,
+    pub foreign_net: Option<i64>,
+    /// Best price first.
+    pub bids: Vec<BookLevel>,
+    /// Best price first.
+    pub offers: Vec<BookLevel>,
+    /// Stockbit's session state, verbatim (e.g. `STATE_NAME_SESSION_2`,
+    /// `STATE_NAME_BREAK`, `STATE_NAME_MARKET_CLOSED`).
+    pub market_status: Option<String>,
+    /// Stockbit's listing status when it is not active (e.g. suspended).
+    pub session_note: Option<String>,
 }
 
 /// OHLC candle data normalized from Yahoo Finance chart indicators.

@@ -164,16 +164,17 @@ WIB as the fallback.
   `chart.prices[]` holds one price per minute in WIB with no offset, after a
   synthetic first row at the previous close; per-minute OHLC and volume are
   empty. An unknown code is HTTP 404 with the 404 page.
-- Stockbit's JSON API (`exodus.stockbit.com`: chart, order book) answers 401
-  without a user's bearer token; it is not used.
+- Stockbit's JSON API (`exodus.stockbit.com`) answers 401 without a user's
+  bearer token; it is used only with the user's own session (below).
 - Bid and offer are kept only while `market_hour.status` is `open`, so a
   closing book never reads as a live one. Observed 2026-10-23: `open` during
   trading (bid/offer set), `break` from 11:30 on a Friday, `close` after
   hours; any other value fails closed. In session the chart gained a point
   every minute and the last trade was within a minute of the clock, although
   Stockbit's terms call its data delayed at least 10 minutes. Order-book
-  sizes are dropped: the page does not say whether they are lots or shares.
-  `as_of` comes from `date`/`time`
+  sizes are not shown; they are shares (BBCA's best bid on 2026-10-23 was
+  1,357,500 on the page and 13,575 lots in the session API's book). `as_of`
+  comes from `date`/`time`
   only when the stock traded (a suspended stock carries today's date).
   `session_note` repeats what the page says (suspended, delisted) or "no
   trades this session"; it is never inferred.
@@ -189,6 +190,127 @@ WIB as the fallback.
   personal use; frontends say so. Fixtures (`tests/fixtures/stockbit_*`) are
   pages recorded 2026-10-22 after the close, cut to the fields read.
 
+### Stockbit session (opt-in login)
+- `idx stockbit login` stores the user's session from a pasted
+  `credentialStorage` cookie (or a bare refresh token) in
+  `stockbit-session.json`, written atomically with mode 0600, in
+  `auth::session_dir()`: the config directory, or on macOS the other default
+  location when the session or profile is there, because a shell with
+  `XDG_CONFIG_HOME=~/.config` and an app started from the Dock resolve to
+  different places (a custom `XDG_CONFIG_HOME` stands alone, which keeps
+  isolated runs off the user's session);
+  `IDX_STOCKBIT_REFRESH_TOKEN` / `IDX_STOCKBIT_ACCESS_TOKEN` fill fields the
+  file lacks. Stockbit publishes no OAuth client a third party can register,
+  and its sign-in is a first-party flow guarded by reCAPTCHA, so idx cannot
+  ask for a token itself; every way in ends with the cookie's two tokens.
+- What the cookie is (read from Stockbit's web bundle, 2026-10-29): the web
+  app's persisted credential store, written by script, host-only on
+  `stockbit.com`, for 30 days, as percent-encoded
+  `{"state":{"access","refresh","user"},"version":0}`. Every sign-in
+  (password, Google or Apple, a new device's one-time code, recovery) and the
+  app's own `POST /login/refresh` go through one `setCredentials`, so the
+  cookie always holds the newest pair. A signed-out page writes the store
+  without tokens, so a cookie counts only when `auth::session_from_paste`
+  finds tokens in it. The app refreshes by itself when it loads with a stale
+  access token, which is why idx never leaves a session in a browser it does
+  not own.
+- `api/stockbit/signin.rs` is the one sign-in flow; `idx stockbit login` waits
+  on it in the foreground, and idx-mcp's `stockbit_login` runs it on a thread
+  (`start_background`) that `stockbit_status` reports on (`sign_in`: waiting,
+  signed_in or failed, with the error's code). The thread's warnings go into
+  `sign_in.warning` through `runtime::on_warning`, since nobody reads
+  idx-mcp's stderr, and the error that ends a browser wait names a refusal
+  it hit. A thread does not outlive
+  `main`, so idx-mcp calls `signin::shutdown` when stdin closes or on SIGTERM
+  or Ctrl-C, which closes a waiting browser (SIGKILL cannot). `Method::Auto` uses the browser
+  unless the shell is over SSH or has no display, and falls back to the page
+  only when the browser cannot start (none found, or it exits at launch); a
+  sign-in that started and then timed out or was closed is an error. Both
+  ways end in `signin::accept`, which is `stockbit::login`: store, check with
+  one request, restore the previous session if refused. A stored session that
+  still works means nothing to sign in to: both frontends verify it with one
+  request first, which is the common case, because every refresh extends the
+  session.
+- The browser way (`api/stockbit/browser.rs`): Chrome, Chromium, Edge, Brave
+  or Helium on `stockbit.com/login`, with a profile of its own at
+  `<session dir>/stockbit-browser` (mode 0700) and
+  `--remote-debugging-port=0`. A profile belongs to one browser (its cookies
+  use that browser's key, and an older Chromium may refuse a newer profile),
+  so `<profile>/idx-browser` records the executable and the next run reuses
+  it; `IDX_STOCKBIT_BROWSER` overrides that (and is the only browser the mock
+  provider will start). The
+  browser writes the port and WebSocket path to `<profile>/DevToolsActivePort`;
+  idx connects and polls `Storage.getCookies`. On a session `accept` takes, it
+  opens a blank tab, closes every other one (no Stockbit script may write the
+  cookie back), deletes `credentialStorage` by the domain and path the browser
+  reported, reads the cookies again to confirm it is gone, and asks the
+  browser to close. Stockbit's device cookies stay, so a later
+  sign-in needs no new one-time code. The window waits 15 minutes; closing it
+  or the browser exiting ends the wait at once. The password, one-time codes
+  and reCAPTCHA stay in the browser. Google refused its own sign-in in this
+  window on 2026-10-31 ("This browser or app may not be secure"), most likely
+  because of the debugging flag, so password sign-in is the supported way
+  here and Google users go through the page.
+- The page way (`api/stockbit/loopback.rs`), for `--no-browser`, SSH, no
+  display or no browser: a page on 127.0.0.1 (7878 when free, so an `ssh -L`
+  forward stays the same) with a bookmarklet that reads the cookie in the
+  user's own browser and opens the page with it in the URL fragment, or a
+  clipboard button; a per-run secret guards the path, the page is `no-store`
+  with a strict CSP, and the server stops on success or after five minutes.
+  Piped stdin keeps the paste path. Sign-in progress goes to stderr (as JSON
+  lines with `-o json`), so stdout holds only the result.
+- `api/stockbit/auth.rs` reads expiries from the JWTs (`exp`, unverified)
+  and refreshes an access token within an hour of expiry with
+  `POST /login/refresh` (bearer = refresh token), which rotates both tokens.
+  Because a refresh token is spent once, refreshes run under an exclusive
+  lock on `stockbit-session.lock` and re-read the file first, so concurrent
+  idx processes never spend the same token. A data request answered 401 (or
+  a JSON 403) refreshes once and retries once; a second refusal is
+  `AUTHERROR`. Tokens never reach output, errors, logs or cache keys
+  (`Session`'s `Debug` redacts them).
+- `api/stockbit/exodus.rs` (endpoints and units mapped by fzn0x/idx, MIT;
+  its recordings are `tests/fixtures/stockbit_exodus_*`):
+  `/company-price-feed/v2/orderbook/companies/{CODE}` gives the depth ladder
+  (`volume` in shares, `que_num` orders), OHLC, value, frequency and foreign
+  buy/sell/net (kept only when `has_foreign_bs` is true: on 2026-11-03 in
+  session it was false and the figures were the previous session's);
+  `/company-price-feed/market-time/session` the market state of the `regular`
+  board (`STATE_NAME_SESSION_2` while trading, `STATE_NAME_BREAK`,
+  `STATE_NAME_MARKET_CLOSED`; cached 30 s per process; the `fca` board's own
+  state is not read); `/charts/{CODE}/daily`
+  daily candles for `1m`/`3m`/`1y` windows (volume in lots, returned in
+  shares). Requests share the public page's cross-process pacing.
+- With a session, `--provider stockbit` quotes come from the order book (bid
+  and offer only in a `STATE_NAME_SESSION_<n>` state; session 2 was observed
+  on 2026-11-03, session 1 is assumed to match), `stocks orderbook` works, and `auto` history under the stockbit
+  provider uses Stockbit's daily windows (`5d` to `1y`, trimmed from `1m`,
+  `3m` or `1y`), Yahoo otherwise. Without one, quotes use the public page and
+  the order book is `AUTHERROR`.
+- Corporate actions (`corporate/`, `api/stockbit/corpaction.rs`):
+  `/corpaction/{type}` per kind (`dividend`, `stock_dividend`, `bonus`,
+  `rightissue`, `warrant`, `stocksplit`, `reversesplit`, `rups`, `pubex`,
+  `ipo`, `tenderoffer`), with `?symbol=` for one stock's history or without
+  for the market (about a year back and what is announced ahead). Each type
+  has its own field prefix and the list key is not always the path's, so
+  entitlements are read by field suffix (`_cumdate`, `_exdate`, ...). One
+  request per kind, cached 6 hours under `stockbit-corpaction`
+  (`<kind>:<SYMBOL.JK>` or `<kind>:market`); `stocks actions` /
+  `get_corporate_actions` sort newest first, `stocks calendar` /
+  `get_corporate_calendar` keep what `CalendarRange::includes`: a
+  `CorporateAction::date` (the cum date for entitlements) in the range, or a
+  rights, tender or IPO `period` that overlaps it (not a warrant's, which
+  runs for years), sorted oldest first. Endpoint notes and the wider
+  design: `docs/STOCKBIT.md`.
+- Shareholder movements (`movements`, `api/stockbit/movement.rs`) read
+  `/insider/company/majorholder`: IDX insider disclosures and KSEI 5% holder
+  changes, 50 rows a page, filtered by Stockbit (`symbol`, `date_start`,
+  `date_end`, `insider` (holder id), `action_type`, `source_type`).
+  `ownership movements` and `get_shareholder_movements` read up to 10 pages
+  as one answer, cached an hour under `stockbit-movements`, keyed by every
+  filter and the page count. If a page after the first fails, the rows read
+  before it come back with `incomplete` set and nothing is cached. The KSEI
+  register in SQLite is not involved.
+
 ### Capability Gating
 ```
 MarketDataProvider = QuoteProvider + FundamentalsProvider
@@ -196,15 +318,19 @@ HistoryProvider    = separate trait, not all providers implement
 
 Factory functions:
   default_provider(kind) → Box<dyn MarketDataProvider>
-  history_provider(kind, mode, verbose) → Result<(ProviderKind, Box<dyn HistoryProvider>)>
+  history_provider(source, verbose) → Box<dyn HistoryProvider>   (source from history_source)
   broker_provider() → Box<dyn BrokerSummaryProvider>
   trading_summary_provider() → Box<dyn TradingSummaryProvider>
   intraday_provider() → Box<dyn IntradayProvider>
+  orderbook_provider() → Box<dyn OrderBookProvider>
+  corporate_action_provider() → Box<dyn CorporateActionProvider>
+  shareholder_movement_provider() → Box<dyn ShareholderMovementProvider>
 ```
 
-`ProviderKind::Stockbit` implements quotes only: fundamentals are
-`UNSUPPORTED`, the MSN-only capabilities say "requires --provider msn", and
-`auto` history falls back to Yahoo.
+`ProviderKind::Stockbit` serves quotes (and, with a session, daily history):
+fundamentals are `UNSUPPORTED`, the MSN-only capabilities say "requires
+--provider msn", and `auto` history uses Yahoo unless a session covers the
+window.
 
 ## Ownership Module (SQLite-backed)
 

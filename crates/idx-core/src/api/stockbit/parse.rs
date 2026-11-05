@@ -124,8 +124,8 @@ pub fn status_error(status: u16, resolved: &str) -> IdxError {
     match status {
         403 => IdxError::UpstreamBlocked(
             "stockbit.com refused this client (HTTP 403 from its CDN); idx does not retry a \
-             block. Try again later or from another network; `--provider msn` serves quotes \
-             without Stockbit"
+             block. Try again later or from another network; the msn provider (`--provider msn`, \
+             or IDX_PROVIDER=msn for idx-mcp) serves quotes without Stockbit"
                 .to_string(),
         ),
         404 => IdxError::SymbolNotFound(resolved.to_string()),
@@ -271,7 +271,7 @@ fn wib(local: NaiveDateTime) -> Option<DateTime<FixedOffset>> {
 
 /// A JSON number or numeric string (`"+59.54"`, `"5175.000000"`); `"N/A"`,
 /// `"NA"` and empty strings are absent.
-fn number(value: &Value) -> Option<f64> {
+pub(super) fn number(value: &Value) -> Option<f64> {
     let n = match value {
         Value::Number(n) => n.as_f64()?,
         Value::String(s) => s.trim().parse::<f64>().ok()?,

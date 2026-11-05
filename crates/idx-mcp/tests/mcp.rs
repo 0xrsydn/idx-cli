@@ -9,23 +9,35 @@ use idx_core::config::CoreConfig;
 use idx_core::investor::{ImportSource, Investor};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 15] = [
+const TOOLS: [&str; 21] = [
     "analyze_bandar",
     "analyze_stock",
     "compare_stocks",
     "get_broker_summary",
     "get_company",
+    "get_corporate_actions",
+    "get_corporate_calendar",
     "get_foreign_flow",
     "get_intraday",
     "get_investor_holdings",
+    "get_orderbook",
     "get_ownership_changes",
     "get_price_history",
     "get_quotes",
+    "get_shareholder_movements",
     "get_shareholders",
     "ownership_status",
     "screen_stocks",
     "search_investors",
+    "stockbit_login",
+    "stockbit_status",
 ];
+
+/// An unsigned test token expiring in 2100, as a seeded Stockbit session.
+const TEST_SESSION: (&str, &str) = (
+    "IDX_STOCKBIT_REFRESH_TOKEN",
+    "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln",
+);
 
 struct Client {
     child: Child,
@@ -360,6 +372,298 @@ fn stockbit_provider_quotes_carry_market_status_and_blocks_surface_once() {
         body["message"].as_str().unwrap().contains("does not retry"),
         "{body}"
     );
+}
+
+/// What idx works around reaches the agent as `warnings`, since it never
+/// sees idx-mcp's stderr: a refused session that made history fall back to
+/// yahoo, and a movements query cut short. A clean answer has none.
+#[test]
+fn workarounds_reach_the_agent_as_warnings() {
+    let mut client = Client::start_with_env(
+        &[],
+        false,
+        &[
+            TEST_SESSION,
+            ("IDX_PROVIDER", "stockbit"),
+            ("IDX_MOCK_STOCKBIT_STATUS", "401"),
+        ],
+    );
+    let history = client.ok(
+        "get_price_history",
+        json!({"symbol": "BBCA", "period": "1mo"}),
+    );
+    assert_eq!(history["source"], "yahoo");
+    let warnings = history["warnings"].as_array().expect("warnings");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0]
+            .as_str()
+            .unwrap()
+            .contains("Stockbit rejected the session")
+            && warnings[0]
+                .as_str()
+                .unwrap()
+                .contains("falls back to yahoo"),
+        "{warnings:?}"
+    );
+    let analysis = client.ok("analyze_stock", json!({"symbol": "BBCA"}));
+    assert!(
+        analysis["warnings"][0]
+            .as_str()
+            .unwrap()
+            .contains("falls back to yahoo")
+    );
+    // The next call starts with none of the last one's warnings.
+    let (is_error, body) = client.call("get_orderbook", json!({"symbol": "BBCA"}));
+    assert!(is_error && body["code"] == "AUTHERROR", "{body}");
+    assert!(body.get("warnings").is_none(), "{body}");
+
+    let mut client = Client::start_with_env(
+        &[],
+        false,
+        &[TEST_SESSION, ("IDX_MOCK_MOVEMENTS_FAIL_PAGE", "2")],
+    );
+    let partial = client.ok(
+        "get_shareholder_movements",
+        json!({"symbol": "BBCA", "pages": 3}),
+    );
+    assert_eq!(partial["data"]["incomplete"], "provider rate limited");
+    assert!(
+        partial["warnings"][0]
+            .as_str()
+            .unwrap()
+            .contains("showing the 8 rows read before it")
+    );
+
+    let mut client = Client::start_with_env(&[], false, &[TEST_SESSION]);
+    let clean = client.ok("get_shareholder_movements", json!({"symbol": "BBCA"}));
+    assert!(clean.get("warnings").is_none(), "{clean}");
+}
+
+/// The sign-in tool answers at once. With no browser to open (the mock
+/// provider never starts one), auto falls back to the page and says why; the
+/// page takes the cookie the way the browser would, and stockbit_status
+/// reports the sign-in finishing.
+#[test]
+fn stockbit_login_returns_a_page_that_takes_the_cookie() {
+    let mut client = Client::start(&[], false);
+    let login = client.ok("stockbit_login", json!({}));
+    assert_eq!(login["method"], "page", "{login}");
+    assert_eq!(login["state"], "waiting", "{login}");
+    assert!(login["reason"].is_string(), "auto says why: {login}");
+    let url = login["url"].as_str().expect("url").to_string();
+    assert!(url.starts_with("http://127.0.0.1:"), "{login}");
+    assert!(
+        login["forward"].as_str().unwrap().starts_with("ssh -L "),
+        "{login}"
+    );
+    assert_eq!(login["already_open"], false, "{login}");
+    assert!(login["next"].as_str().unwrap().contains("stockbit_status"));
+
+    // A second call hands back the page that is already up.
+    let again = client.ok("stockbit_login", json!({}));
+    assert_eq!(again["url"], login["url"]);
+    assert_eq!(again["already_open"], true, "{again}");
+
+    let waiting = client.ok("stockbit_status", json!({}));
+    assert_eq!(waiting["logged_in"], false, "{waiting}");
+    assert_eq!(waiting["sign_in"]["state"], "waiting", "{waiting}");
+
+    let cookie = std::fs::read_to_string(
+        core_dir().join("tests/fixtures/stockbit_exodus_credential_storage_cookie_constructed.txt"),
+    )
+    .expect("cookie fixture");
+    let (status, body) = post(&url, cookie.trim());
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"ok\":true"), "{body}");
+
+    // The sign-in's thread records the outcome just after the page answers.
+    let mut status = client.ok("stockbit_status", json!({}));
+    for _ in 0..50 {
+        if status["sign_in"]["state"] != "waiting" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        status = client.ok("stockbit_status", json!({}));
+    }
+    assert_eq!(status["logged_in"], true, "{status}");
+    assert_eq!(status["sign_in"]["state"], "signed_in", "{status}");
+
+    // Now there is nothing to sign in to.
+    let done = client.ok("stockbit_login", json!({}));
+    assert_eq!(done["state"], "signed_in", "{done}");
+    assert_eq!(done["method"], "existing", "{done}");
+}
+
+/// Asking for the browser where there is none fails, instead of quietly
+/// serving the page.
+#[test]
+fn stockbit_login_with_the_browser_forced_fails_without_one() {
+    let mut client = Client::start(&[], false);
+    let (is_error, body) = client.call("stockbit_login", json!({"method": "browser"}));
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "UNSUPPORTED", "{body}");
+    let status = client.ok("stockbit_status", json!({}));
+    assert!(status.get("sign_in").is_none(), "nothing started: {status}");
+}
+
+/// POSTs to the sign-in page the way its own script does.
+fn post(url: &str, body: &str) -> (u16, String) {
+    use std::io::Read;
+    use std::net::TcpStream;
+
+    let rest = url.trim_start_matches("http://");
+    let (authority, path) = rest.split_once('/').expect("path");
+    let mut stream = TcpStream::connect(authority).expect("connect to the page");
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .unwrap();
+    write!(
+        stream,
+        "POST /{path} HTTP/1.1\r\nHost: {authority}\r\nContent-Type: text/plain\r\n\
+         Content-Length: {}\r\n\r\n{body}",
+        body.len()
+    )
+    .unwrap();
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).unwrap();
+    let status = raw
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+    (
+        status,
+        raw.split("\r\n\r\n").nth(1).unwrap_or_default().to_string(),
+    )
+}
+
+#[test]
+fn the_order_book_needs_a_session_and_status_never_shows_tokens() {
+    let mut client = Client::start(&[], false);
+    let status = client.ok("stockbit_status", json!({}));
+    assert_eq!(status["logged_in"], false);
+    let (is_error, body) = client.call("get_orderbook", json!({"symbol": "BBCA"}));
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "AUTHERROR");
+
+    let mut client = Client::start_with_env(&[], false, &[TEST_SESSION]);
+    let status = client.ok("stockbit_status", json!({}));
+    assert_eq!(status["logged_in"], true);
+    assert!(!status.to_string().contains(TEST_SESSION.1));
+
+    let book = client.ok("get_orderbook", json!({"symbol": "BBCA", "depth": 2}));
+    assert_fetched(&book);
+    assert_eq!(book["source"], "stockbit");
+    let offers = book["data"]["offers"].as_array().unwrap();
+    assert_eq!(offers.len(), 2);
+    assert_eq!(
+        offers[0],
+        json!({"price": 5175, "shares": 264_462_500, "orders": 3284})
+    );
+    assert_eq!(book["data"]["foreign_net"], -2_329_493_087_500_i64);
+    assert_eq!(book["data"]["market_status"], "STATE_NAME_MARKET_CLOSED");
+    for depth in [0, 51] {
+        let (is_error, body) =
+            client.call("get_orderbook", json!({"symbol": "BBCA", "depth": depth}));
+        assert!(is_error, "{body}");
+        assert_eq!(body["code"], "INVALIDINPUT");
+    }
+}
+
+#[test]
+fn corporate_actions_need_a_session_and_keep_kinds_apart() {
+    let mut client = Client::start(&[], false);
+    let (is_error, body) = client.call("get_corporate_actions", json!({"symbol": "BBCA"}));
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "AUTHERROR");
+
+    let mut client = Client::start_with_env(
+        &[],
+        false,
+        &[TEST_SESSION, ("IDX_MOCK_TODAY", "2026-11-03")],
+    );
+    let actions = client.ok(
+        "get_corporate_actions",
+        json!({"symbol": "BBCA", "kinds": ["dividend", "split"]}),
+    );
+    assert_fetched(&actions);
+    assert_eq!(actions["source"], "stockbit");
+    let rows = actions["data"].as_array().unwrap();
+    assert_eq!(rows.len(), 40, "37 dividends and 3 splits");
+    assert_eq!(rows[0]["kind"], "dividend");
+    assert_eq!(rows[0]["date"], "2026-08-28");
+    assert_eq!(rows[0]["cash_per_share"], 25.0);
+    assert!(rows[0].get("ratio").is_none(), "absent fields are omitted");
+    let split = rows.iter().find(|r| r["kind"] == "split").unwrap();
+    assert_eq!(split["ratio"], json!({"old": 1, "new": 5}));
+
+    let calendar = client.ok(
+        "get_corporate_calendar",
+        json!({"to": "2026-11-12", "kinds": ["rights", "dividend"]}),
+    );
+    let rows = calendar["data"].as_array().unwrap();
+    assert_eq!(rows[0]["symbol"], "MGLV.JK");
+    assert_eq!(rows[0]["price"], 8880);
+    assert!(
+        rows.windows(2)
+            .all(|w| w[0]["date"].as_str() <= w[1]["date"].as_str())
+    );
+
+    let (is_error, body) = client.call(
+        "get_corporate_actions",
+        json!({"symbol": "BBCA", "kinds": ["rups"]}),
+    );
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "INVALIDINPUT");
+}
+
+#[test]
+fn shareholder_movements_page_and_filter() {
+    let mut client = Client::start(&[], false);
+    let (is_error, body) = client.call("get_shareholder_movements", json!({}));
+    assert!(is_error, "{body}");
+    assert_eq!(body["code"], "AUTHERROR");
+
+    let mut client = Client::start_with_env(&[], false, &[TEST_SESSION]);
+    let market = client.ok("get_shareholder_movements", json!({"pages": 2}));
+    assert_fetched(&market);
+    assert_eq!(market["source"], "stockbit");
+    let rows = market["data"]["movements"].as_array().unwrap();
+    assert_eq!(rows.len(), 14, "8 rows on page 1, 6 on the last page");
+    assert_eq!(market["data"]["more"], false);
+    assert!(
+        rows.windows(2)
+            .all(|w| w[0]["date"].as_str() >= w[1]["date"].as_str()),
+        "newest first"
+    );
+
+    let sells = client.ok(
+        "get_shareholder_movements",
+        json!({"action": "sell", "source": "ksei", "holder_id": "1000004481", "pages": 3}),
+    );
+    let rows = sells["data"]["movements"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|r| r["symbol"] == "ATLA"
+        && r["action"] == "sell"
+        && r["shares_change"].as_i64() < Some(0)
+        && r["price_estimated"] == true));
+
+    let bbca = client.ok("get_shareholder_movements", json!({"symbol": "bbca"}));
+    assert_eq!(bbca["data"]["more"], true, "BBCA has a second page");
+    assert_eq!(bbca["data"]["movements"][0]["roles"], json!(["director"]));
+
+    for bad in [
+        json!({"action": "dividend"}),
+        json!({"source": "bing"}),
+        json!({"holder_id": "RUDI"}),
+        json!({"pages": 11}),
+        json!({"from": "2026-11-02", "to": "2026-11-01"}),
+    ] {
+        let (is_error, body) = client.call("get_shareholder_movements", bad.clone());
+        assert!(is_error, "{bad} -> {body}");
+        assert_eq!(body["code"], "INVALIDINPUT", "{bad} -> {body}");
+    }
 }
 
 #[test]

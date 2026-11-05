@@ -263,6 +263,52 @@ args = ["stocks", "intraday", "MABA"]
 name = "stockbit-quote"
 args = ["--provider", "stockbit", "stocks", "quote", "BBCA,MABA"]
 
+# With a session: IDX_STOCKBIT_REFRESH_TOKEN seeds an unsigned test token that
+# expires in 2100; the mock serves the recorded exodus responses.
+
+[[case]]
+name = "stockbit-session-orderbook"
+args = ["stocks", "orderbook", "BBCA", "--depth", "3"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "stockbit-session-quote"
+args = ["--provider", "stockbit", "stocks", "quote", "BBCA"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "stockbit-session-history"
+args = ["--provider", "stockbit", "stocks", "history", "BBCA", "--period", "1mo"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "stockbit-status-logged-out"
+args = ["stockbit", "status"]
+
+# Corporate actions: BBCA's recorded dividends, splits, meetings and exposes
+# (no fixture for a kind means none, as Stockbit answers); the calendar reads
+# the market-wide recordings of 2026-11-03.
+
+[[case]]
+name = "stockbit-actions"
+args = ["stocks", "actions", "BBCA", "--kind", "split,meeting,expose"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "stockbit-actions-dividends"
+args = ["stocks", "actions", "BBCA", "--kind", "dividend"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "stockbit-calendar"
+args = ["stocks", "calendar", "--to", "2026-11-12", "--kind", "dividend,bonus,rights,warrant,split,ipo,tender"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln", IDX_MOCK_TODAY = "2026-11-03" }
+
+[[case]]
+name = "stockbit-calendar-meetings"
+args = ["stocks", "calendar", "--from", "2026-11-05", "--to", "2026-11-06", "--kind", "meeting,expose"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln", IDX_MOCK_TODAY = "2026-11-03" }
+
 # --- stocks: broker summaries (IPOT) and foreign flow (IDX) --------------------
 
 [[case]]
@@ -366,7 +412,49 @@ args = ["stocks", "intraday", "ZZZZ"]
 name = "error-stockbit-fundamental-unsupported"
 args = ["--provider", "stockbit", "stocks", "fundamental", "BBCA"]
 
+[[case]]
+name = "error-orderbook-no-session"
+args = ["stocks", "orderbook", "BBCA"]
+
+[[case]]
+name = "error-actions-no-session"
+args = ["stocks", "actions", "BBCA"]
+
+[[case]]
+name = "error-movements-no-session"
+args = ["ownership", "movements", "BBCA"]
+
+[[case]]
+name = "error-movements-holder"
+args = ["ownership", "movements", "--holder", "RUDI"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "error-calendar-range"
+args = ["stocks", "calendar", "--from", "2026-11-10", "--to", "2026-11-01"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln", IDX_MOCK_TODAY = "2026-11-03" }
+
+[[case]]
+name = "error-stockbit-history-window"
+args = ["stocks", "history", "BBCA", "--period", "5y", "--history-provider", "stockbit"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
 # --- ownership --------------------------------------------------------------------
+
+[[case]]
+name = "ownership-movements"
+args = ["ownership", "movements", "--pages", "2"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "ownership-movements-bbca"
+args = ["ownership", "movements", "BBCA"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "ownership-movements-ksei-sells"
+args = ["ownership", "movements", "--action", "sell", "--source", "ksei", "--pages", "3"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
 
 [[case]]
 name = "ownership-releases-empty"

@@ -8,7 +8,9 @@ description: Every idx-mcp tool and its inputs, generated from the server's tool
 idx-mcp serves these tools. `ownership_sync` is listed only when the server
 starts with `--allow-sync`. Results that come from a live provider are wrapped
 as `{data, source, fetched_at, stale}`; failures return `{error, code,
-message}` with `isError` set.
+message}` with `isError` set. Either may carry `warnings`, what idx worked
+around (such as a history fallback or a stale cache entry), when there was
+any.
 
 ## `analyze_bandar`
 
@@ -63,6 +65,25 @@ Company data for one IDX ticker: profile, financial statements, earnings, analys
 | `sections` | array of `profile` / `financials` / `earnings` / `sentiment` / `insights` / `news` | no | Sections to fetch (default: all). |
 | `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
 
+## `get_corporate_actions`
+
+Corporate actions of one IDX stock from the user's own Stockbit session, newest first: `kind` (dividend, stock-dividend, bonus, rights, warrant, split, reverse-split, meeting, expose, ipo, tender), `date` (the cum date for dividends, bonuses, rights and splits, i.e. the last day to buy and be entitled, or the ex date when `cum_date` is absent; else the event's first day), `ex_date`, `record_date`, `pay_date`, and per kind `cash_per_share` (IDR, may have decimals; in `currency`, an ISO code, when that is present), `ratio` {old, new} (1:5 split = 1 share becomes 5; 655:104 rights = 104 rights per 655 held), `factor` (price adjustment), `price` (rights, warrant exercise, tender or IPO price, IDR), `period` and `exercise` {start, end}, `shares`, `percentage_bps`, `time`, `venue`. Absent fields are omitted. One Stockbit request per kind (about 1 s each on a cold cache, then cached 6 hours). AUTHERROR means there is no session: call stockbit_status, then stockbit_login.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `kinds` | array of `dividend` / `stock-dividend` / `bonus` / `rights` / `warrant` / `split` / `reverse-split` / `meeting` / `expose` / `ipo` / `tender` | no | Kinds to list (default: every kind but "ipo"). Each kind is one request to Stockbit. |
+| `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
+
+## `get_corporate_calendar`
+
+Corporate actions across IDX from the user's own Stockbit session, oldest first, dated from `from` to `to` (default today and the next 30 days), plus rights trading, tender offers and IPO offers still open in that range (their `period` overlaps it, though `date` may be earlier): upcoming cum dates, meetings, exposes, rights, warrants, IPOs and tender offers, and the past year. Each item has the same fields as get_corporate_actions, with `symbol`. One Stockbit request per kind (about 1 s each on a cold cache, then cached 6 hours); pass `kinds` to ask for less. AUTHERROR means there is no session: call stockbit_status, then stockbit_login.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `from` | string | no | First day, YYYY-MM-DD (default today). |
+| `kinds` | array of `dividend` / `stock-dividend` / `bonus` / `rights` / `warrant` / `split` / `reverse-split` / `meeting` / `expose` / `ipo` / `tender` | no | Kinds to list (default: every kind). Each kind is one request to Stockbit. |
+| `to` | string | no | Last day, YYYY-MM-DD (default 30 days after `from`; at most 366 days). |
+
 ## `get_foreign_flow`
 
 Foreign investors' buying and selling of one IDX ticker, session by session (oldest first), with range totals; end of day. With `source` "ipot" (default): `foreign_buy_value`, `foreign_sell_value` and `foreign_net_value` in IDR across all boards, `value` traded, and `foreign_share_bps` (foreign share of trading); share counts, close and `non_regular_bps` are null, and `rounded` = true means one decimal of precision. With "idx": exact foreign share counts on the regular board, values estimated at the session's average price, the close, `change_bps` and `non_regular_bps`.
@@ -92,6 +113,15 @@ Every IDX holding (above 1%) of one investor, matched by name.
 | --- | --- | --- | --- |
 | `entity` | string | yes | Investor name or part of it, e.g. "DWIMURIA"; the closest match is used. |
 
+## `get_orderbook`
+
+Order book of one IDX stock from the user's own Stockbit session: `bids` and `offers` (best price first) of {price, shares, orders}, the session's OHLC, volume (shares), value and frequency, and foreign buy/sell/net in IDR (null while Stockbit marks them not current, as during trading; get_foreign_flow has them per session). `market_status` is Stockbit's state, verbatim: STATE_NAME_SESSION_1 or _2 is trading; in any other state the book is as the market left it. AUTHERROR means there is no session: call stockbit_status, then stockbit_login for a URL the user can open.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `depth` | integer | no | Price levels per side (default 10, at most 50). |
+| `symbol` | string | yes | IDX ticker, e.g. "BBCA". |
+
 ## `get_ownership_changes`
 
 Holder changes (new, exited, increased, decreased) between two KSEI release dates, optionally for one ticker. Rows come largest change first, one page at a time: `summary` covers all of them (counts by type, tickers with the most changes), and `next_offset` is the `offset` for the next page, or null after the last.
@@ -116,11 +146,25 @@ OHLCV price history for one IDX ticker.
 
 ## `get_quotes`
 
-Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close: the provider lags, the stock did not trade, or the day was an exchange holiday. When the server runs with the stockbit provider, quotes also carry `market_status` (Stockbit's, e.g. "open", "close"), `bid`/`offer` (best price, only while the market is open) and `session_note` (suspended, delisted, no trades); Stockbit data is delayed at least 10 minutes.
+Latest quotes (price, change, volume, 52-week range, market cap) for one or more IDX tickers. `as_of` is the last trade in WIB; `behind_session` is true when that is before the latest IDX session, so the price is not that session's close: the provider lags, the stock did not trade, or the day was an exchange holiday. When the server runs with the stockbit provider, quotes also carry `market_status` ("open" while the regular market trades, else "close", with or without a login), `bid`/`offer` (best price, only while the market is open) and `session_note` (suspended, delisted, no trades); Stockbit data is delayed at least 10 minutes.
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
 | `symbols` | array of string | yes | IDX tickers, e.g. ["BBCA", "BBRI"]; the `.JK` suffix is optional. At most 20. |
+
+## `get_shareholder_movements`
+
+Reported changes in insiders' and major holders' stakes in IDX stocks, from the user's own Stockbit session, newest first: IDX insider disclosures (directors, commissioners and other insiders, any size, with the trade price) and KSEI changes of holders at 5% and above (price estimated: `price_estimated`). One stock's, or the market's without `symbol`. Shares are exact and signed (`shares_change` < 0 is a sale); percentages are basis points as Stockbit rounds them, so a small insider can read 0. `more` is true when rows remain past `pages`; `incomplete`, when present, says a later page failed and the rows are those read before it (retry later for the rest). These are filings, not signals: many insiders buying at one price on one day is usually a share plan, and rows appear days after the change. AUTHERROR means there is no session: call stockbit_status, then stockbit_login.
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `action` | `buy` / `sell` / `transfer` / `cross` / `corporate-action` | no | Only this kind of movement; "corporate-action" covers rights issues, private placements and the like. |
+| `from` | string | no | First day, YYYY-MM-DD. |
+| `holder_id` | string | no | One holder's movements: the `holder_id` of a row. |
+| `pages` | integer | no | Pages of 50 rows (default 1, at most 10); each page is one request to Stockbit. |
+| `source` | `idx` / `ksei` | no | "idx" (insider disclosures, any size) or "ksei" (holders at 5% and above). |
+| `symbol` | string | no | IDX ticker, e.g. "BBCA"; omit for the whole market. |
+| `to` | string | no | Last day, YYYY-MM-DD. |
 
 ## `get_shareholders`
 
@@ -162,3 +206,17 @@ Search investor names in the KSEI ownership database.
 | --- | --- | --- | --- |
 | `limit` | integer | no | Maximum results (default 20, at most 100). |
 | `query` | string | yes | Full-text query over investor names. |
+
+## `stockbit_login`
+
+Start a Stockbit sign-in and return at once; this call does not wait for it. With method auto (the default), idx-mcp opens a browser window on Stockbit's own sign-in page when its machine has a display and is not reached over SSH (`method: "browser"` in the answer): the user signs in there and the window closes by itself. Otherwise it serves a page on 127.0.0.1 (`method: "page"`, with `url` and an `ssh -L` `forward` for a browser on another machine) that takes stockbit.com's session cookie from the user's own browser. Never ask the user for their password, and never type it. Then poll stockbit_status until `sign_in.state` is signed_in or failed. A session that already works answers state signed_in without opening anything; a second call while one is waiting returns it again (`already_open`).
+
+| Input | Type | Required | Description |
+| --- | --- | --- | --- |
+| `method` | `auto` / `browser` / `page` | no | "auto" (default): a browser window when idx-mcp's machine has a display and no SSH, else the local page; "browser" or "page" picks one. |
+
+## `stockbit_status`
+
+Whether a Stockbit session is stored (or seeded by IDX_STOCKBIT_REFRESH_TOKEN) and when its tokens expire; never the tokens. Without one, get_orderbook fails and stockbit-provider quotes use Stockbit's delayed public page; the user adds one with stockbit_login, or `idx stockbit login` in a terminal. After stockbit_login, `sign_in.state` says whether that sign-in is waiting, signed_in or failed (with `sign_in.error`). While it waits, `sign_in.warning` is the latest problem it hit, such as Stockbit refusing the session the user signed in with: pass it on, since the user may need to sign in again.
+
+No inputs.

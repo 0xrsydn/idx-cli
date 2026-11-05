@@ -15,12 +15,14 @@ use idx_core::analysis::fundamental::{
 use idx_core::analysis::report::TechnicalReport;
 use idx_core::api::types::{
     CompanyProfile, EarningsReport, FinancialStatements, InsightData, Intraday, NewsItem, Ohlc,
-    Quote, SentimentData,
+    OrderBook, Quote, SentimentData,
 };
 use idx_core::broker::types::BrokerSummary;
 use idx_core::config::ProviderKind;
+use idx_core::corporate::types::{CalendarRange, CorporateAction};
 use idx_core::error::IdxError;
 use idx_core::flow::types::ForeignFlow;
+use idx_core::movements::types::MovementList;
 
 /// Output format requested by the user (flag, `IDX_OUTPUT`, or config file).
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq, Serialize, serde::Deserialize, Default)]
@@ -89,6 +91,64 @@ pub fn render_intraday(
     match format {
         OutputFormat::Table => table::print_intraday(day, no_color),
         OutputFormat::Json | OutputFormat::Jsonl => json::print_json(day),
+    }
+}
+
+pub fn render_orderbook(
+    book: &OrderBook,
+    format: &OutputFormat,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_orderbook(book, no_color),
+        OutputFormat::Json | OutputFormat::Jsonl => json::print_json(book),
+    }
+}
+
+pub fn render_corporate_actions(
+    symbol: &str,
+    actions: &[CorporateAction],
+    format: &OutputFormat,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_corporate_actions(symbol, actions),
+        OutputFormat::Json | OutputFormat::Jsonl => json::print_json(actions),
+    }
+}
+
+pub fn render_corporate_calendar(
+    range: &CalendarRange,
+    actions: &[CorporateAction],
+    format: &OutputFormat,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_corporate_calendar(range, actions),
+        OutputFormat::Json | OutputFormat::Jsonl => json::print_json(actions),
+    }
+}
+
+/// JSON is `{movements, more}` (`more`: rows remain past the pages read), plus
+/// `incomplete` when a later page failed and only the rows before it came back;
+/// JSONL is one movement per line.
+/// `pages` is how many pages the query asked for, for the hint when more
+/// rows exist. JSONL streams the rows only, so the hint goes to stderr.
+pub fn render_shareholder_movements(
+    symbol: Option<&str>,
+    list: &MovementList,
+    pages: u32,
+    format: &OutputFormat,
+    no_color: bool,
+) -> Result<(), IdxError> {
+    match format {
+        OutputFormat::Table => table::print_shareholder_movements(symbol, list, pages, no_color),
+        OutputFormat::Json => json::print_json(list),
+        OutputFormat::Jsonl => {
+            json::print_json(&list.movements)?;
+            if list.more {
+                idx_core::runtime::info(table::more_movements_hint(pages));
+            }
+            Ok(())
+        }
     }
 }
 
