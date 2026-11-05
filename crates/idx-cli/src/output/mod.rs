@@ -127,7 +127,8 @@ pub fn render_corporate_calendar(
     }
 }
 
-/// JSON is `{movements, more}` (`more`: rows remain past the pages read);
+/// JSON is `{movements, more}` (`more`: rows remain past the pages read), plus
+/// `incomplete` when a later page failed and only the rows before it came back;
 /// JSONL is one movement per line.
 /// `pages` is how many pages the query asked for, for the hint when more
 /// rows exist. JSONL streams the rows only, so the hint goes to stderr.
