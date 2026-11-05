@@ -33,6 +33,21 @@ Tools that fetch live data return:
 failed. Ownership tools return their data directly, from the local
 database.
 
+What `idx` prints as a warning in a terminal comes back in `warnings`, on an
+answer or an error, when there was any. For example, history that fell back to
+Yahoo because Stockbit refused your session says so, and a stale answer names
+the failure behind it:
+
+```json
+{
+  "data": [{ "date": "2026-11-03", "close": 9875, "...": "..." }],
+  "source": "yahoo",
+  "fetched_at": "2026-11-04T03:20:11Z",
+  "stale": false,
+  "warnings": ["Stockbit rejected the session; run `idx stockbit login` again; history falls back to yahoo meanwhile"]
+}
+```
+
 Errors come back as a tool result with `isError` set and the CLI's error
 body, so the agent can decide whether to retry:
 

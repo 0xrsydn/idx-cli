@@ -374,6 +374,72 @@ fn stockbit_provider_quotes_carry_market_status_and_blocks_surface_once() {
     );
 }
 
+/// What idx works around reaches the agent as `warnings`, since it never
+/// sees idx-mcp's stderr: a refused session that made history fall back to
+/// yahoo, and a movements query cut short. A clean answer has none.
+#[test]
+fn workarounds_reach_the_agent_as_warnings() {
+    let mut client = Client::start_with_env(
+        &[],
+        false,
+        &[
+            TEST_SESSION,
+            ("IDX_PROVIDER", "stockbit"),
+            ("IDX_MOCK_STOCKBIT_STATUS", "401"),
+        ],
+    );
+    let history = client.ok(
+        "get_price_history",
+        json!({"symbol": "BBCA", "period": "1mo"}),
+    );
+    assert_eq!(history["source"], "yahoo");
+    let warnings = history["warnings"].as_array().expect("warnings");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0]
+            .as_str()
+            .unwrap()
+            .contains("Stockbit rejected the session")
+            && warnings[0]
+                .as_str()
+                .unwrap()
+                .contains("falls back to yahoo"),
+        "{warnings:?}"
+    );
+    let analysis = client.ok("analyze_stock", json!({"symbol": "BBCA"}));
+    assert!(
+        analysis["warnings"][0]
+            .as_str()
+            .unwrap()
+            .contains("falls back to yahoo")
+    );
+    // The next call starts with none of the last one's warnings.
+    let (is_error, body) = client.call("get_orderbook", json!({"symbol": "BBCA"}));
+    assert!(is_error && body["code"] == "AUTHERROR", "{body}");
+    assert!(body.get("warnings").is_none(), "{body}");
+
+    let mut client = Client::start_with_env(
+        &[],
+        false,
+        &[TEST_SESSION, ("IDX_MOCK_MOVEMENTS_FAIL_PAGE", "2")],
+    );
+    let partial = client.ok(
+        "get_shareholder_movements",
+        json!({"symbol": "BBCA", "pages": 3}),
+    );
+    assert_eq!(partial["data"]["incomplete"], "provider rate limited");
+    assert!(
+        partial["warnings"][0]
+            .as_str()
+            .unwrap()
+            .contains("showing the 8 rows read before it")
+    );
+
+    let mut client = Client::start_with_env(&[], false, &[TEST_SESSION]);
+    let clean = client.ok("get_shareholder_movements", json!({"symbol": "BBCA"}));
+    assert!(clean.get("warnings").is_none(), "{clean}");
+}
+
 /// The sign-in tool answers at once. With no browser to open (the mock
 /// provider never starts one), auto falls back to the page and says why; the
 /// page takes the cookie the way the browser would, and stockbit_status

@@ -187,6 +187,10 @@ impl MockStockbitProvider {
                 "Stockbit rejected the session; run `idx stockbit login` again".to_string(),
             ));
         }
+        // The session API's own block, as `exodus::fetch` reports it.
+        if std::env::var("IDX_MOCK_STOCKBIT_STATUS").as_deref() == Ok("403") {
+            return Err(stockbit::exodus::blocked());
+        }
         if let Some(err) = self.failure(symbol) {
             return Err(err);
         }
