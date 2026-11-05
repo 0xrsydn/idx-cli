@@ -2,7 +2,9 @@
 //! `Idx` (as one CLI invocation would), so tools share the CLI's on-disk
 //! cache and ownership database.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use idx_core::analysis::BandarQuery;
 use idx_core::analysis::bandar::{BandarReport, DEFAULT_TOP};
@@ -16,8 +18,9 @@ use idx_core::financial::{EarningsFilter, StatementFilter};
 use idx_core::flow::types::FlowRange;
 use idx_core::investor::{HolderSource, Investor};
 use idx_core::market::{ScreenFilter, ScreenQuery, ScreenRegion};
+use idx_core::movements::types::MovementQuery;
 use idx_core::ownership::types::ChangeRow;
-use idx_core::{CachePolicy, Fetched, Idx};
+use idx_core::{CachePolicy, Fetched, Idx, runtime};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Implementation, ServerCapabilities, ServerConfig};
@@ -29,8 +32,8 @@ use tokio::sync::Semaphore;
 use crate::params::{
     AnalysisKind, AnalyzeParams, BandarParams, BrokerParams, ChangesParams, CompanyParams,
     CompanySection, CorporateActionsParams, CorporateCalendarParams, EntityParams, FlowParams,
-    HistoryParams, IntradayParams, LoginMethod, LoginParams, OrderBookParams, ScreenParams,
-    SearchParams, ShareholdersParams, SymbolsParams, SyncParams, action_kinds,
+    HistoryParams, IntradayParams, LoginMethod, LoginParams, MovementsParams, OrderBookParams,
+    ScreenParams, SearchParams, ShareholdersParams, SymbolsParams, SyncParams, action_kinds,
 };
 
 const SYNC_TOOL: &str = "ownership_sync";
@@ -56,7 +59,9 @@ static CALL_SLOTS: Semaphore = Semaphore::const_new(4);
 
 const INSTRUCTIONS: &str = "Indonesian stock market (IDX) data. Market and financial \
 tools fetch live data (cached on disk) and wrap it as {data, source, fetched_at, stale}; \
-stale=true means an expired cache entry was served. Ownership tools read a local KSEI \
+stale=true means an expired cache entry was served. An answer (or error) may carry \
+`warnings`: what idx worked around, such as a refused Stockbit session that made history \
+fall back to yahoo, or the failure behind a stale entry; pass on any that need the user. Ownership tools read a local KSEI \
 database of holders above 1%: call ownership_status first to see which release dates \
 exist. Percentages ending in _bps are basis points (5494 = 54.94%). Errors carry a \
 stable code, e.g. SYMBOLNOTFOUND, RATELIMITED, INVALIDINPUT.";
@@ -408,6 +413,43 @@ AUTHERROR means there is no session: call stockbit_status, then stockbit_login."
     }
 
     #[tool(
+        description = "Reported changes in insiders' and major holders' stakes in IDX stocks, \
+from the user's own Stockbit session, newest first: IDX insider disclosures (directors, \
+commissioners and other insiders, any size, with the trade price) and KSEI changes of holders \
+at 5% and above (price estimated: `price_estimated`). One stock's, or the market's without \
+`symbol`. Shares are exact and signed (`shares_change` < 0 is a sale); percentages are basis \
+points as Stockbit rounds them, so a small insider can read 0. `more` is true when rows remain \
+past `pages`; `incomplete`, when present, says a later page failed and the rows are those read \
+before it (retry later for the rest). These are filings, not signals: many insiders buying at one price on one day is \
+usually a share plan, and rows appear days after the change. AUTHERROR means there is no \
+session: call stockbit_status, then stockbit_login."
+    )]
+    async fn get_shareholder_movements(&self, params: Parameters<MovementsParams>) -> ToolResult {
+        let MovementsParams {
+            symbol,
+            from,
+            to,
+            holder_id,
+            action,
+            source,
+            pages,
+        } = params.0;
+        self.live(move |idx| {
+            let mut query = MovementQuery::from_args(
+                symbol.as_deref(),
+                from.as_deref(),
+                to.as_deref(),
+                holder_id.as_deref(),
+                pages.unwrap_or(1),
+            )?;
+            query.action = action.as_deref().map(str::parse).transpose()?;
+            query.source = source.as_deref().map(str::parse).transpose()?;
+            idx.movements().list(&query, CachePolicy::Default)
+        })
+        .await
+    }
+
+    #[tool(
         description = "Company data for one IDX ticker: profile, financial statements, \
 earnings, analyst sentiment, insights, and news. News items carry `relevance`: \
 `company` (about this ticker) first, then `market` (general market news). Sections \
@@ -709,13 +751,43 @@ where
         .acquire()
         .await
         .map_err(|err| ErrorData::internal_error(err.to_string(), None))?;
-    let result = tokio::task::spawn_blocking(move || f().and_then(to_json))
-        .await
-        .map_err(|err| ErrorData::internal_error(err.to_string(), None))?;
-    Ok(match result {
-        Ok(value) => CallToolResult::structured(value),
-        Err(err) => CallToolResult::structured_error(Value::Object(error_body(&err))),
+    let (result, warnings) = tokio::task::spawn_blocking(move || {
+        // idx-core warns on stderr, which the agent never sees; what this
+        // call warns about (a fallback, a stale cache, a partial answer)
+        // goes into its answer instead. The call runs on this thread.
+        let warnings = Rc::new(RefCell::new(Vec::<String>::new()));
+        let sink = {
+            let warnings = warnings.clone();
+            runtime::on_warning(move |message| {
+                let mut warnings = warnings.borrow_mut();
+                if !warnings.iter().any(|seen| seen == message) {
+                    warnings.push(message.to_string());
+                }
+            })
+        };
+        let result = f().and_then(to_json);
+        drop(sink);
+        (result, warnings.take())
     })
+    .await
+    .map_err(|err| ErrorData::internal_error(err.to_string(), None))?;
+    Ok(match result {
+        Ok(value) => CallToolResult::structured(with_warnings(value, warnings)),
+        Err(err) => CallToolResult::structured_error(with_warnings(
+            Value::Object(error_body(&err)),
+            warnings,
+        )),
+    })
+}
+
+/// Adds `warnings` to an answer when the call had any.
+fn with_warnings(mut value: Value, warnings: Vec<String>) -> Value {
+    if !warnings.is_empty()
+        && let Some(object) = value.as_object_mut()
+    {
+        object.insert("warnings".into(), json!(warnings));
+    }
+    value
 }
 
 /// Per-symbol failures as error bodies carrying their symbol.

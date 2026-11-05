@@ -14,8 +14,10 @@ history lives in git.
 - Multi-period financial statements (today `financials` is single-period)
 - Order book depth without a login: no free source exists (IDX sells delayed
   depth to vendors); `stocks orderbook` needs the user's Stockbit login.
-- Shareholder movements (`ownership movements`) from the Stockbit session;
-  design and endpoints in `docs/STOCKBIT.md`. Corporate-action follow-ups:
+- Shareholder movement follow-ups (`docs/STOCKBIT.md`): `ownership movements
+  --summary`, a per-symbol score (net value, distinct buyers, share-plan
+  flag), then an event study before calling any of it a signal; joining
+  holders to ownership entities by name. Corporate-action follow-ups:
   ex-dates of splits, bonuses and rights noted in `stocks history`, and the
   `stock_dividend` / `reversesplit` row shapes once Stockbit lists one.
 - Stockbit login follow-ups: hourly OHLCV from the session's `1w` chart (the

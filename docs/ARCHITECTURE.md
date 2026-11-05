@@ -301,6 +301,15 @@ WIB as the fallback.
   rights, tender or IPO `period` that overlaps it (not a warrant's, which
   runs for years), sorted oldest first. Endpoint notes and the wider
   design: `docs/STOCKBIT.md`.
+- Shareholder movements (`movements`, `api/stockbit/movement.rs`) read
+  `/insider/company/majorholder`: IDX insider disclosures and KSEI 5% holder
+  changes, 50 rows a page, filtered by Stockbit (`symbol`, `date_start`,
+  `date_end`, `insider` (holder id), `action_type`, `source_type`).
+  `ownership movements` and `get_shareholder_movements` read up to 10 pages
+  as one answer, cached an hour under `stockbit-movements`, keyed by every
+  filter and the page count. If a page after the first fails, the rows read
+  before it come back with `incomplete` set and nothing is cached. The KSEI
+  register in SQLite is not involved.
 
 ### Capability Gating
 ```
@@ -315,6 +324,7 @@ Factory functions:
   intraday_provider() → Box<dyn IntradayProvider>
   orderbook_provider() → Box<dyn OrderBookProvider>
   corporate_action_provider() → Box<dyn CorporateActionProvider>
+  shareholder_movement_provider() → Box<dyn ShareholderMovementProvider>
 ```
 
 `ProviderKind::Stockbit` serves quotes (and, with a session, daily history):

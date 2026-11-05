@@ -556,6 +556,76 @@
     "name": "get_quotes"
   },
   {
+    "description": "Reported changes in insiders' and major holders' stakes in IDX stocks, from the user's own Stockbit session, newest first: IDX insider disclosures (directors, commissioners and other insiders, any size, with the trade price) and KSEI changes of holders at 5% and above (price estimated: `price_estimated`). One stock's, or the market's without `symbol`. Shares are exact and signed (`shares_change` < 0 is a sale); percentages are basis points as Stockbit rounds them, so a small insider can read 0. `more` is true when rows remain past `pages`; `incomplete`, when present, says a later page failed and the rows are those read before it (retry later for the rest). These are filings, not signals: many insiders buying at one price on one day is usually a share plan, and rows appear days after the change. AUTHERROR means there is no session: call stockbit_status, then stockbit_login.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "default": null,
+          "description": "Only this kind of movement; \"corporate-action\" covers rights issues, private placements and the like.",
+          "enum": [
+            "buy",
+            "sell",
+            "transfer",
+            "cross",
+            "corporate-action"
+          ],
+          "type": "string"
+        },
+        "from": {
+          "default": null,
+          "description": "First day, YYYY-MM-DD.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "holder_id": {
+          "default": null,
+          "description": "One holder's movements: the `holder_id` of a row.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pages": {
+          "default": null,
+          "description": "Pages of 50 rows (default 1, at most 10); each page is one request to Stockbit.",
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "source": {
+          "default": null,
+          "description": "\"idx\" (insider disclosures, any size) or \"ksei\" (holders at 5% and above).",
+          "enum": [
+            "idx",
+            "ksei"
+          ],
+          "type": "string"
+        },
+        "symbol": {
+          "default": null,
+          "description": "IDX ticker, e.g. \"BBCA\"; omit for the whole market.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "default": null,
+          "description": "Last day, YYYY-MM-DD.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "name": "get_shareholder_movements"
+  },
+  {
     "description": "Shareholders above 1% of an IDX ticker from the latest KSEI release, with concentration metrics (top1, top3, HHI, free float).",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",

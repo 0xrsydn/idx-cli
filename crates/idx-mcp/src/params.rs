@@ -7,6 +7,7 @@ use idx_core::broker::types::{BrokerBoard, BrokerInvestor};
 use idx_core::corporate::types::ActionKind;
 use idx_core::flow::types::FlowSource;
 use idx_core::market::{ScreenFilter, ScreenRegion};
+use idx_core::movements::types::{ActionFilter, MAX_PAGES};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::Deserialize;
 
@@ -253,6 +254,34 @@ pub struct CorporateCalendarParams {
     pub kinds: Option<Vec<String>>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct MovementsParams {
+    /// IDX ticker, e.g. "BBCA"; omit for the whole market.
+    #[serde(default)]
+    pub symbol: Option<String>,
+    /// First day, YYYY-MM-DD.
+    #[serde(default)]
+    pub from: Option<String>,
+    /// Last day, YYYY-MM-DD.
+    #[serde(default)]
+    pub to: Option<String>,
+    /// One holder's movements: the `holder_id` of a row.
+    #[serde(default)]
+    pub holder_id: Option<String>,
+    /// Only this kind of movement; "corporate-action" covers rights issues, private placements and the like.
+    #[serde(default)]
+    #[schemars(schema_with = "movement_action_schema")]
+    pub action: Option<String>,
+    /// "idx" (insider disclosures, any size) or "ksei" (holders at 5% and above).
+    #[serde(default)]
+    #[schemars(schema_with = "movement_source_schema")]
+    pub source: Option<String>,
+    /// Pages of 50 rows (default 1, at most 10); each page is one request to Stockbit.
+    #[serde(default)]
+    #[schemars(schema_with = "movement_pages_schema")]
+    pub pages: Option<u32>,
+}
+
 /// Parses `kinds`, or `default` when absent.
 pub fn action_kinds(
     kinds: Option<Vec<String>>,
@@ -344,6 +373,18 @@ fn flow_source_schema(_: &mut SchemaGenerator) -> Schema {
 fn action_kinds_schema(_: &mut SchemaGenerator) -> Schema {
     let kinds: Vec<&str> = ActionKind::ALL.iter().map(|k| k.as_str()).collect();
     json_schema!({ "type": "array", "items": { "type": "string", "enum": kinds } })
+}
+
+fn movement_action_schema(_: &mut SchemaGenerator) -> Schema {
+    string_enum(ActionFilter::ALL.map(ActionFilter::as_str).to_vec())
+}
+
+fn movement_source_schema(_: &mut SchemaGenerator) -> Schema {
+    string_enum(vec!["idx", "ksei"])
+}
+
+fn movement_pages_schema(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({ "type": "integer", "minimum": 1, "maximum": MAX_PAGES })
 }
 
 fn login_method_schema(_: &mut SchemaGenerator) -> Schema {

@@ -183,19 +183,33 @@ lists are not errors. A row whose dates are all placeholders is dropped.
 
 ### Endpoint
 
-`GET /insider/company/majorholder?symbol=&insider=&date_start=&date_end=&page=`;
-all parameters optional. 50 rows a page, `data.is_more` for the next page.
+Rows shipped as `idx ownership movements` and `get_shareholder_movements`;
+the summary score is next.
+
+`GET /insider/company/majorholder?symbol=&insider=&date_start=&date_end=&action_type=&source_type=&page=`;
+all parameters optional, all filtered by Stockbit (checked 2026-11-03).
+`date_start` / `date_end` are YYYY-MM-DD; `insider` is the holder id, which is
+the row's `id` (not unique per row); `action_type` takes `ACTION_TYPE_BUY`,
+`_SELL`, `_TRANSFER`, `_CROSS` or `_CORPACTION` (the app's filter list);
+`source_type` takes `SOURCE_TYPE_IDX` or `_KSEI`. `page` counts from 1. 50 rows
+a page, `data.is_more` for the next page; a busy day has more than 50 rows.
 Without `symbol` it is market-wide, newest first: on 2026-11-03 the newest rows
 were from 2026-11-02. BBCA's 50 rows span 2024-03-22 to 2026-03-25.
 
 Each row (`data.movement[]`): `name`, `symbol`, `date` (`"25 Mar 26"`),
 `previous` / `current` / `changes` `{value: shares as "193,206", percentage}`,
-`action_type` (`ACTION_TYPE_BUY|SELL|TRANSFER`), `nationality`
+`action_type` (`ACTION_TYPE_BUY`, `_SELL`, `_TRANSFER`, `_CROSS`,
+`_RIGHT_ISSUE`, `_PRIVATE_PLACEMENT`, `_TENDER_OFFER`; the bundle also names
+`_BONUS_STOCK`, `_DIVIDEND_STOCK`, `_DIVIDEND_CASH`), `nationality`
 (`NATIONALITY_TYPE_LOCAL|FOREIGN`), `badges` (`SHAREHOLDER_BADGE_DIREKTUR`,
 `..._KOMISARIS`), `price.raw.value`, `value.raw.value` (IDR),
 `is_estimated_price`, `purpose` (free text such as "Pembelian", "Investasi"),
 `data_source.type` (`SOURCE_TYPE_IDX` for insider disclosures,
 `SOURCE_TYPE_KSEI` for 5% holder changes), `broker_detail` (empty so far).
+KSEI rows carry an estimated price (`is_estimated_price`: true); IDX rows
+mostly the trade price, though crossings can be estimated too. `CROSS` rows
+name securities firms as the holder. A rights issue can change the stake
+with no change in shares (dilution).
 
 ### Relation to `ownership`
 
@@ -224,10 +238,15 @@ Yahoo prices, forward 5/20/60-session returns against IHSG).
 
 ### Surface
 
-- `idx ownership movements [SYM] [--from DATE] [--to DATE] [--holder NAME]
-  [--action buy|sell|transfer] [--pages N]`: rows, newest first.
-- `idx ownership movements --summary [--from DATE]`: the per-symbol score.
-- MCP: `get_shareholder_movements {symbol?, from?, to?, holder?, pages?}`.
+- `idx ownership movements [SYM] [--from DATE] [--to DATE] [--holder ID]
+  [--action buy|sell|transfer|cross|corporate-action] [--source idx|ksei]
+  [--pages N]`: rows, newest first (shipped). `--holder` takes the holder id
+  rather than a name: Stockbit filters by id, and a name search would only see
+  the pages already read.
+- MCP: `get_shareholder_movements {symbol?, from?, to?, holder_id?, action?,
+  source?, pages?}` (shipped).
+- Next: `idx ownership movements --summary [--from DATE]`, the per-symbol
+  score.
 
 ## P2 and P3
 
@@ -252,7 +271,7 @@ Yahoo prices, forward 5/20/60-session returns against IHSG).
    states (done 2026-11-03).
 2. Corporate actions (parsers, `stocks actions`, `stocks calendar`, MCP,
    goldens) (done).
-3. Shareholder movements, rows first, then `--summary`.
+3. Shareholder movements, rows first (done), then `--summary`.
 4. Event study for the movement score; P2 by demand.
 
 ## Open questions

@@ -124,8 +124,8 @@ pub fn status_error(status: u16, resolved: &str) -> IdxError {
     match status {
         403 => IdxError::UpstreamBlocked(
             "stockbit.com refused this client (HTTP 403 from its CDN); idx does not retry a \
-             block. Try again later or from another network; `--provider msn` serves quotes \
-             without Stockbit"
+             block. Try again later or from another network; the msn provider (`--provider msn`, \
+             or IDX_PROVIDER=msn for idx-mcp) serves quotes without Stockbit"
                 .to_string(),
         ),
         404 => IdxError::SymbolNotFound(resolved.to_string()),

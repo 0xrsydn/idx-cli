@@ -93,7 +93,9 @@ Key decisions:
 - **`Fetched<T>` envelope** for live data: `{ data, source, fetched_at, stale }`,
   so agents and API clients can see freshness. idx-core still emits the
   stale-cache warnings through `runtime` (which `set_quiet` silences) so CLI
-  stderr stays identical.
+  stderr stays identical. idx-mcp also catches a call's warnings with
+  `runtime::on_warning` (the call runs on one blocking thread) and returns
+  them as `warnings`, since an agent never reads the server's stderr.
 - **`CachePolicy`**: `Default | Offline | Refresh` replaces the `--offline` /
   `--no-cache` flag handling now spread through `cli/stocks.rs`.
 - **Explicit configuration.** `CoreConfig::load()` is the one place idx-core reads

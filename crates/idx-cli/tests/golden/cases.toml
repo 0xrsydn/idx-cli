@@ -421,6 +421,15 @@ name = "error-actions-no-session"
 args = ["stocks", "actions", "BBCA"]
 
 [[case]]
+name = "error-movements-no-session"
+args = ["ownership", "movements", "BBCA"]
+
+[[case]]
+name = "error-movements-holder"
+args = ["ownership", "movements", "--holder", "RUDI"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
 name = "error-calendar-range"
 args = ["stocks", "calendar", "--from", "2026-11-10", "--to", "2026-11-01"]
 env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln", IDX_MOCK_TODAY = "2026-11-03" }
@@ -431,6 +440,21 @@ args = ["stocks", "history", "BBCA", "--period", "5y", "--history-provider", "st
 env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
 
 # --- ownership --------------------------------------------------------------------
+
+[[case]]
+name = "ownership-movements"
+args = ["ownership", "movements", "--pages", "2"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "ownership-movements-bbca"
+args = ["ownership", "movements", "BBCA"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
+
+[[case]]
+name = "ownership-movements-ksei-sells"
+args = ["ownership", "movements", "--action", "sell", "--source", "ksei", "--pages", "3"]
+env = { IDX_STOCKBIT_REFRESH_TOKEN = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln" }
 
 [[case]]
 name = "ownership-releases-empty"

@@ -81,7 +81,9 @@ fn run() -> Result<(), IdxError> {
         }
         #[cfg(feature = "ownership")]
         Commands::Ownership(cmd) => {
-            if let Err(err) = cli::ownership::handle(&cmd.command, &config) {
+            if let Err(err) =
+                cli::ownership::handle(&cmd.command, &config, cli.offline, cli.no_cache)
+            {
                 emit_error(&err, &config.output);
                 return Err(err);
             }

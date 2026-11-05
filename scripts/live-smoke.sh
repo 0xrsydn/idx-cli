@@ -140,6 +140,8 @@ contract() {
             echo 'type == "array" and length > 0 and all(.[]; (.symbol | type == "string") and (.kind | type == "string") and (.date | type == "string"))' ;;
         "stocks calendar"*)
             echo 'type == "array" and all(.[]; (.symbol | type == "string") and (.kind | type == "string") and (.date | type == "string"))' ;;
+        "ownership movements"*)
+            echo '(.more | type == "boolean") and (.movements | length > 0) and all(.movements[]; (.symbol | type == "string") and (.date | type == "string") and (.holder_id | type == "string") and (.action | type == "string") and (.shares_change | type == "number"))' ;;
         "stocks broker "*)
             echo '(.symbol | type == "string") and (.buyers | length > 0) and (.sellers | length > 0) and all(.buyers[]; (.code | type == "string") and (.value | type == "number")) and (.total_value | type == "number")' ;;
         "stocks bandar "*)
@@ -271,9 +273,10 @@ if selected stockbit; then
         run_new_case orderbook "stocks orderbook $SYMBOL --depth 5"
         run_new_case actions "stocks actions $SYMBOL --kind dividend,split"
         run_new_case calendar "stocks calendar --kind dividend,rights"
+        run_new_case movements "ownership movements"
         REAL_CONFIG=0
     else
-        echo "     no Stockbit session: orderbook, actions and calendar not run"
+        echo "     no Stockbit session: orderbook, actions, calendar and movements not run"
     fi
 fi
 

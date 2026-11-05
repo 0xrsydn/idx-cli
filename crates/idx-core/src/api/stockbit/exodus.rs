@@ -25,12 +25,13 @@ use chrono::{Months, NaiveDate};
 use serde_json::Value;
 
 use super::auth::SessionStore;
-use super::corpaction;
 use super::parse::number;
 use super::{USER_AGENT, pace, stockbit_code};
+use super::{corpaction, movement};
 use crate::api::types::{BookLevel, Interval, Ohlc, OrderBook, Period, Quote};
 use crate::corporate::types::{ActionKind, CorporateAction};
 use crate::error::IdxError;
+use crate::movements::types::{MovementPage, MovementQuery};
 
 const BASE_URL: &str = "https://exodus.stockbit.com";
 const REFRESH_PATH: &str = "/login/refresh";
@@ -38,7 +39,12 @@ const REFRESH_PATH: &str = "/login/refresh";
 /// withdraws cash and changes the PIN; a path outside these fails before any
 /// request (or token refresh) leaves the process. A feature that reads a new
 /// endpoint adds its prefix here.
-const READ_PATHS: &[&str] = &["/company-price-feed/", "/charts/", "/corpaction/"];
+const READ_PATHS: &[&str] = &[
+    "/company-price-feed/",
+    "/charts/",
+    "/corpaction/",
+    "/insider/company/majorholder?",
+];
 /// The prefix of the states in which the regular market trades:
 /// `STATE_NAME_SESSION_2` was recorded on 2026-11-03 from 13:30; session 1 is
 /// assumed to follow the same naming. Every other state (`STATE_NAME_BREAK`,
@@ -145,6 +151,25 @@ impl Exodus {
         corpaction::parse_corporate_actions(kind, &body)
     }
 
+    /// Page `page` of shareholder movements: one stock's (`query.symbol`,
+    /// resolved) or the market's.
+    pub(crate) fn shareholder_movements(
+        &self,
+        query: &MovementQuery,
+        page: u32,
+    ) -> Result<MovementPage, IdxError> {
+        let code = query.symbol.as_deref().map(stockbit_code).transpose()?;
+        let subject = query
+            .symbol
+            .clone()
+            .unwrap_or_else(|| "shareholder movements".to_string());
+        let body = self.get(
+            &movement::request_path(query, code.as_deref(), page),
+            &subject,
+        )?;
+        movement::parse_movements(&body)
+    }
+
     /// The market's state, read at most every `MARKET_STATE_TTL` per process.
     /// Unknown on any failure, which hides bid/offer.
     fn market_status(&self) -> Option<String> {
@@ -247,11 +272,7 @@ fn classify(reply: Reply, subject: &str) -> Result<String, IdxError> {
             Err(IdxError::SymbolNotFound(subject.to_string()))
         }
         429 => Err(IdxError::RateLimited),
-        403 => Err(IdxError::UpstreamBlocked(
-            "exodus.stockbit.com refused this client (HTTP 403 from its CDN); idx does not \
-             retry a block. Try again later or from another network"
-                .to_string(),
-        )),
+        403 => Err(blocked()),
         status => Err(IdxError::Http(format!(
             "stockbit api: HTTP {status}{}",
             message(&reply.body)
@@ -487,6 +508,16 @@ fn trim_to_period(mut bars: Vec<Ohlc>, period: &Period) -> Vec<Ohlc> {
     }
 }
 
+/// A 403 from the CDN in front of the session API: a block, not a refused
+/// session, so nothing is retried.
+pub(crate) fn blocked() -> IdxError {
+    IdxError::UpstreamBlocked(
+        "exodus.stockbit.com refused this client (HTTP 403 from its CDN); idx does not \
+         retry a block. Try again later or from another network"
+            .to_string(),
+    )
+}
+
 /// Whether `path` is one idx reads; `..` never climbs out of a prefix.
 fn is_read_path(path: &str) -> bool {
     READ_PATHS.iter().any(|prefix| path.starts_with(prefix)) && !path.contains("..")
@@ -505,13 +536,24 @@ mod tests {
             "/company-price-feed/v2/orderbook/companies/BBCA",
             "/charts/BBCA/daily?timeframe=1y&chart_type=PRICE_CHART_TYPE_CANDLE",
             "/corpaction/dividend?symbol=BBCA",
+            "/insider/company/majorholder?page=1&symbol=BBCA",
         ] {
             assert!(is_read_path(path), "{path}");
+        }
+        // Paths another module builds come from its own builder, so the
+        // allowlist cannot drift from them.
+        let query = MovementQuery::default();
+        for path in [
+            movement::request_path(&query, None, 1),
+            movement::request_path(&query, Some("BBCA"), 3),
+        ] {
+            assert!(is_read_path(&path), "{path}");
         }
         for path in [
             "/order/buy",
             "/login/refresh",
             "/corpaction/../order/buy",
+            "/insider/company/majorholder/../../order",
             "/charts",
             "",
         ] {

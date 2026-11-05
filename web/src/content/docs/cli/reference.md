@@ -1158,6 +1158,7 @@ Commands:
   concentration  Rank tickers by ownership concentration
   flow           Show Bing institutional flow for a ticker
   changes        Diff two KSEI releases
+  movements      Insider and major holder buys and sells, as reported (Stockbit login)
   graph          Ownership network graph
   resolve        Manual entity resolution workflow
   releases       List imported KSEI releases
@@ -1545,6 +1546,79 @@ Options:
 Examples:
   idx ownership releases
   idx ownership changes --from 2026-08-31 --to 2026-09-30
+```
+
+### `idx ownership movements`
+
+```text
+Reported changes in holders' stakes from your own Stockbit session (`idx stockbit login`), newest first: IDX insider disclosures (directors, commissioners and other insiders, any size, with the trade price) and KSEI's changes of holders at 5% and above (Stockbit estimates their price). One stock's, or the whole market's without SYMBOL. Each page is 50 rows and one request; answers are cached for an hour.
+
+These are filings, not signals: a share plan shows as many insiders buying at one price, and a row appears days after the change.
+
+Usage: idx ownership movements [OPTIONS] [SYMBOL]
+
+Arguments:
+  [SYMBOL]
+          Single ticker symbol (e.g. BBCA); omit for the whole market
+
+Options:
+      --from <FROM>
+          First day, YYYY-MM-DD
+
+  -o, --output <OUTPUT>
+          Output format [default: auto = table on a terminal, json when piped]
+
+          [possible values: auto, table, json, jsonl]
+
+      --no-color
+          Disable colored output
+
+      --to <TO>
+          Last day, YYYY-MM-DD
+
+      --holder <ID>
+          One holder's movements, by the id in the HOLDER ID column
+
+  -q, --quiet
+          Suppress non-essential output
+
+      --action <ACTION>
+          Only this kind of movement
+
+          [possible values: buy, sell, transfer, cross, corporate-action]
+
+  -v, --verbose...
+          Increase verbosity (-v, -vv)
+
+      --provider <PROVIDER>
+          Market data provider [default: general.provider, else msn]
+
+          [possible values: yahoo, msn, stockbit]
+
+      --source <SOURCE>
+          Only IDX insider disclosures or KSEI 5% holder changes
+
+          [possible values: idx, ksei]
+
+      --offline
+          Run without network requests
+
+      --pages <PAGES>
+          Pages of 50 rows to read (1-10)
+
+          [default: 1]
+
+      --no-cache
+          Bypass local cache
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  idx ownership movements BBCA
+  idx ownership movements --action sell --source ksei
+  idx ownership movements --from 2026-10-01 --to 2026-10-31 --pages 5
+  idx ownership movements --holder 1000004481   # one holder's history (HOLDER ID column)
 ```
 
 ### `idx ownership graph`

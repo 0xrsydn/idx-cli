@@ -63,8 +63,8 @@ scripts/live-smoke.sh --dry-run
   session sees `market_status: close` and no bid/offer. These run without a
   Stockbit login: each side has its own config, and seeding it with a real
   refresh token would rotate (and so retire) that token. When
-  `idx stockbit status` reports a session, `stocks orderbook`, `stocks actions`
-  and `stocks calendar` also run, on the new binary with your real config
+  `idx stockbit status` reports a session, `stocks orderbook`, `stocks actions`,
+  `stocks calendar` and `ownership movements` (market-wide, one page) also run, on the new binary with your real config
   directory (the session file is shared under its lock, never copied; cache
   and data stay isolated). Check the rest by hand:
   `idx --provider stockbit stocks quote BBCA` and

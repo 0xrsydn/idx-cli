@@ -98,6 +98,10 @@ impl Idx {
         crate::corporate::Corporate { idx: self }
     }
 
+    pub fn movements(&self) -> crate::movements::Movements<'_> {
+        crate::movements::Movements { idx: self }
+    }
+
     pub fn financial(&self) -> crate::financial::Financial<'_> {
         crate::financial::Financial { idx: self }
     }
@@ -195,7 +199,7 @@ where
         Err(err) => {
             if use_cache && let Some(stale) = cache.any::<T>(spec.bucket, spec.key)? {
                 runtime::warn(format!(
-                    "network failed, serving stale cache for {}",
+                    "network failed ({err}), serving stale cache for {}",
                     spec.subject
                 ));
                 return Ok(hit(stale, true));
