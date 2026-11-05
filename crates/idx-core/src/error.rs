@@ -34,6 +34,10 @@ pub enum IdxError {
     InvalidInput(String),
     #[error("no market data: {0}")]
     NoMarketData(String),
+    /// Cloudflare answered with a challenge only a browser can solve, on every
+    /// client tried. Nothing is wrong with the request, so a later run may pass.
+    #[error("cloudflare challenge: {0}")]
+    CloudflareChallenge(String),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -53,6 +57,7 @@ pub enum ErrorCode {
     PdfParseError,
     InvalidInput,
     NoMarketData,
+    CloudflareChallenge,
 }
 
 /// The stable wire form frontends emit, e.g. `SYMBOLNOTFOUND`.
@@ -80,6 +85,7 @@ impl IdxError {
             Self::PdfParseError(_) => ErrorCode::PdfParseError,
             Self::InvalidInput(_) => ErrorCode::InvalidInput,
             Self::NoMarketData(_) => ErrorCode::NoMarketData,
+            Self::CloudflareChallenge(_) => ErrorCode::CloudflareChallenge,
         }
     }
 
@@ -95,6 +101,7 @@ impl IdxError {
             | ErrorCode::Offline
             | ErrorCode::AuthError => 4,
             ErrorCode::Unsupported => 5,
+            ErrorCode::CloudflareChallenge => 6,
             ErrorCode::Io
             | ErrorCode::ParseError
             | ErrorCode::DatabaseError

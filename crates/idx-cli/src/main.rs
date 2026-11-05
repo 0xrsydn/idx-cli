@@ -25,6 +25,7 @@ fn run() -> Result<(), IdxError> {
         Err(err) => return Err(argument_error(err)),
     };
     runtime::set_quiet(cli.quiet);
+    runtime::set_verbose(cli.verbose > 0);
     let config = match IdxConfig::load_with_cli(&cli) {
         Ok(config) => config,
         Err(err) => {

@@ -61,6 +61,8 @@ scripts/live-smoke.sh --dry-run
 - `ownership`: `discover`, then imports the newest supported report into a temp
   DB and lists `releases`. IDX sits behind Cloudflare and returns `403` to many
   datacenter IPs, including GitHub-hosted runners; run it from a network IDX accepts.
+  A case that gets a Cloudflare challenge (`CLOUDFLARECHALLENGE`) prints `CHALLENGED`
+  and counts as a failure, never as a pass.
 
 `--compare <old-idx>` runs every case with both binaries back to back, each
 with its own config and cache, and fails on a different exit code, any added,

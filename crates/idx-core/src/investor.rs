@@ -14,7 +14,9 @@ use sha2::{Digest, Sha256};
 
 use crate::config::CoreConfig;
 use crate::error::IdxError;
-use crate::ownership::remote::{self, DiscoveredOwnershipPdf, OwnershipReportFamily};
+use crate::ownership::remote::{
+    self, DataPagePolicy, DiscoveredOwnershipPdf, OwnershipReportFamily,
+};
 use crate::ownership::snapshot::{self, OwnershipSyncResult};
 use crate::ownership::types::{
     ChangeRow, ConcentrationMetrics, CrossHolderRow, Entity, EntityHoldings, GraphEdge, GraphNode,
@@ -264,8 +266,9 @@ impl Investor {
         &self,
         family: Option<OwnershipReportFamily>,
         limit: usize,
+        data_page: DataPagePolicy,
     ) -> Result<Vec<DiscoveredOwnershipPdf>, IdxError> {
-        remote::discover_idx_ownership_reports(family, limit)
+        remote::discover_idx_ownership_reports(family, limit, data_page)
     }
 
     /// Installs or refreshes the maintained snapshot. `manifest` overrides

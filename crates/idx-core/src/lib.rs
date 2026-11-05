@@ -27,6 +27,7 @@ pub mod runtime {
 
     static QUIET: AtomicBool = AtomicBool::new(false);
     static JSON: AtomicBool = AtomicBool::new(false);
+    static VERBOSE: AtomicBool = AtomicBool::new(false);
 
     pub fn set_quiet(quiet: bool) {
         QUIET.store(quiet, Ordering::Relaxed);
@@ -34,6 +35,10 @@ pub mod runtime {
 
     pub fn is_quiet() -> bool {
         QUIET.load(Ordering::Relaxed)
+    }
+
+    pub fn set_verbose(verbose: bool) {
+        VERBOSE.store(verbose, Ordering::Relaxed);
     }
 
     /// In JSON mode diagnostics are JSON lines, so stderr stays
@@ -59,6 +64,13 @@ pub mod runtime {
 
     pub fn info(message: impl Display) {
         emit("info", message);
+    }
+
+    /// Detail worth keeping in a job's log but not worth showing by default.
+    pub fn verbose(message: impl Display) {
+        if VERBOSE.load(Ordering::Relaxed) {
+            emit("info", message);
+        }
     }
 
     pub fn warn(message: impl Display) {

@@ -44,9 +44,11 @@ pub fn run_owned(stage: &str, args: &[String]) -> Result<Output, IdxError> {
     run_binary(stage, &binary, args)
 }
 
-/// Browser profiles tried, in order, when a site's bot protection rejects
-/// some TLS fingerprints but not others (IDX's Cloudflare rules block
-/// `curl_chrome142` on some pages while Firefox/Safari profiles pass).
+/// Browser profiles tried, in order, because a site's bot protection can reject
+/// some TLS fingerprints but not others. On IDX which profiles pass changes over
+/// time and by path, and at times none does (on 2026-11-05 Chrome, Firefox and
+/// Safari profiles all got a challenge). A profile only changes the fingerprint,
+/// so it cannot solve a challenge that is active for this client.
 const FALLBACK_PROFILES: &[&str] = &[
     "curl_chrome142",
     "curl_firefox144",
@@ -60,9 +62,47 @@ const FALLBACK_PROFILES: &[&str] = &[
 ];
 const FALLBACK_ROUNDS: usize = 2;
 
+/// Marks the line curl adds to stderr describing the response. `--fail` drops
+/// the response itself, and stdout must stay the body alone.
+const PROBE_PREFIX: &str = "idx-curl-probe";
+const PROBE_WRITE_OUT: &str =
+    "%{stderr}idx-curl-probe status=%{http_code} cf-mitigated=%header{cf-mitigated}\\n";
+
+/// What the probe line says about a response.
+#[derive(Debug, PartialEq, Eq)]
+struct ResponseProbe {
+    status: String,
+    challenged: bool,
+}
+
+/// Separates the probe line from curl's own stderr. Without a probe line (the
+/// caller did not ask for one) stderr comes back unchanged.
+fn split_probe(stderr: &[u8]) -> (Option<ResponseProbe>, Vec<u8>) {
+    let mut probe = None;
+    let mut rest = Vec::with_capacity(stderr.len());
+    for line in stderr.split_inclusive(|byte| *byte == b'\n') {
+        let parsed = std::str::from_utf8(line)
+            .ok()
+            .and_then(|text| text.trim_end().strip_prefix(PROBE_PREFIX))
+            .and_then(|fields| fields.strip_prefix(" status="))
+            .and_then(|fields| fields.split_once(" cf-mitigated="));
+        match parsed {
+            Some((status, mitigated)) => {
+                probe = Some(ResponseProbe {
+                    status: status.to_string(),
+                    challenged: mitigated.trim().eq_ignore_ascii_case("challenge"),
+                });
+            }
+            None => rest.extend_from_slice(line),
+        }
+    }
+    (probe, rest)
+}
+
 /// Run curl with each available impersonation profile until `accept` approves
 /// the response body. `IDX_CURL_IMPERSONATE_BIN`, when set, is the only
-/// profile used. Returns the first accepted output, or the last error.
+/// profile used. Returns the first accepted output, or an error: a Cloudflare
+/// challenge from any profile, otherwise the last error.
 pub fn run_owned_with_fallback(
     stage: &str,
     args: &[String],
@@ -83,16 +123,38 @@ pub fn run_owned_with_fallback(
         )));
     }
 
+    run_profiles(stage, &profiles, args, accept)
+}
+
+/// A challenge can differ by profile, so one round tries them all, but a repeat
+/// straight away is unlikely to change the answer: it ends after that round.
+fn run_profiles(
+    stage: &str,
+    profiles: &[String],
+    args: &[String],
+    accept: &dyn Fn(&[u8]) -> Result<(), IdxError>,
+) -> Result<Output, IdxError> {
+    let mut probed_args = vec!["--write-out".to_string(), PROBE_WRITE_OUT.to_string()];
+    probed_args.extend_from_slice(args);
+
     let mut last_error = None;
+    let mut challenge = None;
     for _ in 0..FALLBACK_ROUNDS {
-        for binary in &profiles {
-            match run_binary(stage, binary, args) {
+        for binary in profiles {
+            match run_binary(stage, binary, &probed_args) {
                 Ok(output) => match accept(&output.stdout) {
-                    Ok(()) => return Ok(output),
+                    Ok(()) => {
+                        crate::runtime::verbose(format!("{stage}: fetched with {binary}"));
+                        return Ok(output);
+                    }
                     Err(err) => last_error = Some(err),
                 },
+                Err(err @ IdxError::CloudflareChallenge(_)) => challenge = Some(err),
                 Err(err) => last_error = Some(err),
             }
+        }
+        if let Some(err) = challenge {
+            return Err(err);
         }
     }
     Err(last_error.expect("at least one profile was tried"))
@@ -166,11 +228,19 @@ fn run_binary_limited(
         .wait()
         .map_err(|e| IdxError::Http(format!("failed to wait for {binary} for {stage}: {e}")))?;
     let stderr = stderr_reader.join().unwrap_or_default();
+    let (probe, stderr) = split_probe(&stderr);
     let output = Output {
         status,
         stdout,
         stderr,
     };
+
+    if let Some(probe) = probe.filter(|probe| probe.challenged) {
+        return Err(IdxError::CloudflareChallenge(format!(
+            "{stage}: Cloudflare answered {binary} with a challenge (HTTP {}, cf-mitigated: challenge), which curl cannot solve; retry later",
+            probe.status
+        )));
+    }
 
     if output.status.success() {
         return Ok(output);

@@ -9,4 +9,9 @@ Environment=HOME=/var/lib/idx-ownership-snapshot
 EnvironmentFile=/etc/idx-ownership-snapshot.env
 # Build once with `nix build github:0xrsydn/idx-cli#ownership-publisher -o /opt/idx-ownership-publisher`.
 # Idempotent: exits 0 with "RESULT: up-to-date" when nothing newer exists.
+# Exit 6 is "RESULT: blocked" (a Cloudflare challenge from IDX): tomorrow's run
+# retries, so it is not a failure unless the freshness check below finds stale data.
+# Wire OnFailure= to a notification: it fires on "RESULT: FAILED" and on stale data.
+SuccessExitStatus=6
 ExecStart=/opt/idx-ownership-publisher/bin/idx-ownership-publish --output-dir /var/lib/idx-ownership-snapshot/current --repo 0xrsydn/idx-cli --release-tag ownership-snapshot-current --history 2
+ExecStartPost=/opt/idx-ownership-publisher/bin/idx-ownership-freshness --max-age-days 40

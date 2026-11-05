@@ -924,15 +924,16 @@ Discover the latest IDX-hosted ownership report URLs
 Usage: idx ownership discover [OPTIONS]
 
 Options:
-      --family <FAMILY>  Report family to discover: above1 (default), all, above5, or investor-type [default: above1]
-  -o, --output <OUTPUT>  Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
-      --limit <LIMIT>    Maximum number of discovered report URLs to print [default: 6]
-      --no-color         Disable colored output
-  -q, --quiet            Suppress non-essential output
-  -v, --verbose...       Increase verbosity (-v, -vv)
-      --offline          Run without network requests
-      --no-cache         Bypass local cache
-  -h, --help             Print help
+      --family <FAMILY>    Report family to discover: above1 (default), all, above5, or investor-type [default: above1]
+  -o, --output <OUTPUT>    Output format [default: auto = table on a terminal, json when piped] [possible values: auto, table, json, jsonl]
+      --limit <LIMIT>      Maximum number of discovered report URLs to print [default: 6]
+      --no-color           Disable colored output
+  -q, --quiet              Suppress non-essential output
+      --require-data-page  Fail if the IDX data page cannot be read, instead of warning and listing older announcements. The newest above-1% reports are only on that page
+  -v, --verbose...         Increase verbosity (-v, -vv)
+      --offline            Run without network requests
+      --no-cache           Bypass local cache
+  -h, --help               Print help
 
 Examples:
   idx ownership discover --limit 1

@@ -14,6 +14,7 @@ use idx_core::investor::{
     ConcentrationRank, HolderSource, ImportSource, Investor, parse_report_family,
 };
 use idx_core::ownership::graph;
+use idx_core::ownership::remote::DataPagePolicy;
 use idx_core::ownership::snapshot;
 use idx_core::ownership::types::{ChangeType, FlowSignal, HolderRow, OwnershipSource};
 
@@ -88,6 +89,9 @@ pub struct DiscoverArgs {
     /// Maximum number of discovered report URLs to print.
     #[arg(long, default_value_t = 6)]
     pub limit: usize,
+    /// Fail if the IDX data page cannot be read, instead of warning and listing older announcements. The newest above-1% reports are only on that page.
+    #[arg(long)]
+    pub require_data_page: bool,
 }
 
 #[derive(Debug, Args)]
@@ -284,7 +288,12 @@ fn handle_discover(
     }
 
     let family = parse_report_family(&args.family)?;
-    let reports = investor.discover(family, args.limit)?;
+    let data_page = if args.require_data_page {
+        DataPagePolicy::Required
+    } else {
+        DataPagePolicy::BestEffort
+    };
+    let reports = investor.discover(family, args.limit, data_page)?;
 
     if config.output.is_json() {
         return json::print_json(&reports);

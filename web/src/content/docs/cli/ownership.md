@@ -43,6 +43,7 @@ import IDX's reports directly:
 
 ```bash
 idx ownership discover                     # find the latest report URLs on IDX
+idx ownership discover --require-data-page # fail rather than list only older reports
 idx ownership import --url <xlsx-or-pdf>   # needs curl-impersonate
 idx ownership import --file report.xlsx    # or a local XLSX, PDF, ZIP or TXT
 ```

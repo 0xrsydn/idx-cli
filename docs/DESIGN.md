@@ -186,6 +186,7 @@ is another 20-30% smaller than pretty JSON.
   | 3 | not found or no data | `SYMBOLNOTFOUND`, `NOMARKETDATA`, `CACHEMISS` |
   | 4 | upstream unavailable, retry later | `HTTP`, `RATELIMITED`, `PROVIDERUNAVAILABLE`, `OFFLINE`, `AUTHERROR` |
   | 5 | unsupported | `UNSUPPORTED` |
+  | 6 | Cloudflare challenge, retry later | `CLOUDFLARECHALLENGE` |
 
 - JSON keeps today's top-level shape: no `{data, meta}` wrapper, so `jq` paths
   stay short and JSONL works per record. Freshness metadata (`Fetched<T>`) is
