@@ -151,8 +151,20 @@ if [[ "${1:-}" == "version" ]]; then
     exit 0
 fi
 if [[ "$*" == *"ownership discover"* ]]; then
+    if [[ "$*" != *"--require-data-page"* ]]; then
+        echo "fake idx: discovery must require the data page" >&2
+        exit 99
+    fi
+    if [[ -n "${FAKE_DISCOVER_EXIT:-}" ]]; then
+        echo "fake idx: discovery failed with ${FAKE_DISCOVER_EXIT}" >&2
+        exit "$FAKE_DISCOVER_EXIT"
+    fi
     printf '%s\n' "${FAKE_DISCOVER_JSON:?FAKE_DISCOVER_JSON not set}"
     exit 0
+fi
+if [[ "$*" == *"ownership import"* && -n "${FAKE_IMPORT_EXIT:-}" ]]; then
+    echo "fake idx: import failed with ${FAKE_IMPORT_EXIT}" >&2
+    exit "$FAKE_IMPORT_EXIT"
 fi
 echo "fake idx: unexpected args: $*" >&2
 exit 99
@@ -182,6 +194,10 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$out" ]] || { echo "stub builder: missing --output-dir" >&2; exit 2; }
 printf 'history=%s max_bytes=%s\n' "$history" "$max_bytes" >>"${FAKE_BUILDER_CALLS:?}"
+if [[ -n "${FAKE_BUILDER_EXIT:-}" ]]; then
+    echo "stub builder: failed with ${FAKE_BUILDER_EXIT}" >&2
+    exit "$FAKE_BUILDER_EXIT"
+fi
 if [[ "${FAKE_BUILDER_TOO_LARGE:-0}" == "1" ]]; then
     echo "snapshot is 15290368 bytes (6 monthly releases), above --max-snapshot-bytes $max_bytes; lower --history" >&2
     exit 1
@@ -624,6 +640,82 @@ if [[ -z "$after_result" ]]; then
 else
     fail "--keep-workdir prints nothing after RESULT (trailing='$after_result')"
 fi
+
+# ===========================================================================
+# 9c. a Cloudflare challenge is "blocked"; every other failure stays FAILED
+# ===========================================================================
+reset_remote
+run_publisher
+manifest_before="$(cat "$state/remote/assets/ownership-snapshot-manifest.json")"
+calls_before="$(builder_calls)"
+
+export FAKE_DISCOVER_EXIT="6"
+run_publisher
+unset FAKE_DISCOVER_EXIT
+if [[ "$PUBLISH_STATUS" == "6" ]] && [[ "$PUBLISH_LAST" == "RESULT: blocked stage=discover" ]]; then
+    pass "challenged discovery is blocked with its own exit status"
+else
+    fail "challenged discovery is blocked (status=$PUBLISH_STATUS last='$PUBLISH_LAST')"
+fi
+if [[ "$(builder_calls)" == "$calls_before" ]]; then
+    pass "challenged discovery does not run the builder"
+else
+    fail "challenged discovery does not run the builder"
+fi
+
+export FAKE_DISCOVER_EXIT="4" FAKE_BUILDER_EXIT="4"
+run_publisher
+unset FAKE_DISCOVER_EXIT FAKE_BUILDER_EXIT
+if [[ "$PUBLISH_STATUS" == "4" ]] && [[ "$PUBLISH_LAST" == "RESULT: FAILED stage=build-snapshot (exit 4)" ]]; then
+    pass "a failed data page is FAILED, never up-to-date"
+else
+    fail "a failed data page is FAILED (status=$PUBLISH_STATUS last='$PUBLISH_LAST')"
+fi
+
+export FAKE_BUILDER_EXIT="6"
+run_publisher --force
+unset FAKE_BUILDER_EXIT
+if [[ "$PUBLISH_STATUS" == "6" ]] && [[ "$PUBLISH_LAST" == "RESULT: blocked stage=build-snapshot" ]]; then
+    pass "a challenge during the build is blocked"
+else
+    fail "a challenge during the build is blocked (status=$PUBLISH_STATUS last='$PUBLISH_LAST')"
+fi
+
+# A real parser failure from the build (idx exits 1) stays loud.
+export FAKE_BUILDER_EXIT="1"
+run_publisher --force
+unset FAKE_BUILDER_EXIT
+if [[ "$PUBLISH_STATUS" == "1" ]] && [[ "$PUBLISH_LAST" == "RESULT: FAILED stage=build-snapshot (exit 1)" ]]; then
+    pass "a parser failure during the build is FAILED"
+else
+    fail "a parser failure during the build is FAILED (status=$PUBLISH_STATUS last='$PUBLISH_LAST')"
+fi
+
+if [[ "$(cat "$state/remote/assets/ownership-snapshot-manifest.json")" == "$manifest_before" ]]; then
+    pass "blocked and failed runs leave the published manifest alone"
+else
+    fail "blocked and failed runs leave the published manifest alone"
+fi
+
+# The real builder has to hand idx's exit status back to the publisher.
+real_builder_status() {
+    local status=0
+    FAKE_DISCOVER_JSON='[{"family":"above_one_percent","status":"supported","listing_page_url":"https://idx.test/","query_url":"https://idx.test/","pdf_url":"https://idx.test/a.xlsx","title":"t","publish_date":"2026-09-02","original_filename":"a.xlsx","format":"xlsx","as_of_date":"2026-08-31"}]' \
+        bash "$repo_root/scripts/build-latest-ownership-snapshot.sh" \
+        --idx-bin "$bin_dir/idx" --output-dir "$work/real-build" --history 0 >/dev/null 2>&1 || status=$?
+    printf '%s' "$status"
+}
+for case in "FAKE_DISCOVER_EXIT 6" "FAKE_IMPORT_EXIT 6" "FAKE_DISCOVER_EXIT 4" "FAKE_IMPORT_EXIT 1"; do
+    read -r var code <<<"$case"
+    export "$var=$code"
+    got="$(real_builder_status)"
+    unset "$var"
+    if [[ "$got" == "$code" ]]; then
+        pass "real builder keeps exit $code from $var"
+    else
+        fail "real builder keeps exit $code from $var (got $got)"
+    fi
+done
 
 # ===========================================================================
 # 10. auth/network errors never become a trustworthy up-to-date

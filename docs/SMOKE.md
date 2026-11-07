@@ -72,6 +72,8 @@ scripts/live-smoke.sh --dry-run
 - `ownership`: `discover`, then imports the newest supported report into a temp
   DB and lists `releases`. IDX sits behind Cloudflare and returns `403` to many
   datacenter IPs, including GitHub-hosted runners; run it from a network IDX accepts.
+  A case that gets a Cloudflare challenge (`CLOUDFLARECHALLENGE`) prints `CHALLENGED`
+  and counts as a failure, never as a pass.
 
 A case whose upstream refuses us (`UPSTREAMBLOCKED`, an HTTP 403) prints
 `BLOCKED (HTTP 403)` and counts as a failure, never as a pass.

@@ -147,7 +147,7 @@ WIB as the fallback.
 - Cloudflare rejects most TLS fingerprints (in October 2026 only
   `curl_safari184` passed), so the request uses curl-impersonate's profile
   fallback with a 30 s limit. A challenge page fails that profile, not the
-  parse.
+  parse; if no profile passes, the error is `CLOUDFLARECHALLENGE`.
 - Each session is cached whole (every stock) by date: 30 days once past,
   5 minutes for today. `Flow::foreign` walks weekdays without requesting
   weekends; offline, `--days` skips uncached sessions while a `--from/--to`
@@ -359,10 +359,23 @@ Only the above-1% XLSX is `supported`; the daily above-5% and investor-type work
 are listed as `unsupported`. Both URLs can be overridden for tests with
 `IDX_OWNERSHIP_ANNOUNCEMENT_API_URL` and `IDX_OWNERSHIP_DATA_PAGE_URL`.
 
-IDX sits behind Cloudflare, which accepts some curl-impersonate TLS profiles and
-rejects others per path (for example `curl_chrome142` gets 403 on the data page).
-IDX fetches therefore try several profiles until the response validates (JSON, page
-payload, `%PDF`, or `PK` zip magic). `IDX_CURL_IMPERSONATE_BIN` pins a single profile.
+IDX sits behind Cloudflare, which can accept some curl-impersonate TLS profiles and
+reject others, varying by path and over time. IDX fetches therefore try several
+profiles until the response validates (JSON, page payload, `%PDF`, or `PK` zip
+magic). `IDX_CURL_IMPERSONATE_BIN` pins a single profile.
+
+At times every profile gets a challenge (`cf-mitigated: challenge`, seen on
+2026-11-05), which only a browser can solve. curl reports that header on stderr
+through `--write-out`, because `--fail` drops the response. A profile that gets a
+challenge fails with `CLOUDFLARECHALLENGE` (exit 6): the remaining profiles still
+run once, but a URL with a challenge gets no second round. Other failures keep two
+rounds. `-v` logs which profile fetched each URL.
+
+Discovery that finds nothing reports `CLOUDFLARECHALLENGE` if a source was
+challenged, unless another source answered with something unparseable, which a retry
+cannot fix. By default a failed data page is only a warning when announcements
+returned results, and those can miss the newest reports;
+`ownership discover --require-data-page` makes it an error.
 
 ### Parser Pipeline
 ```
@@ -410,8 +423,8 @@ CLI flags > environment variables > config file > defaults
 - Exit codes by class: `0` success, `2` `INVALIDINPUT`/`CONFIGERROR` and clap usage
   errors, `3` `SYMBOLNOTFOUND`/`NOMARKETDATA`/`CACHEMISS`, `4` `HTTP`/`RATELIMITED`/
   `PROVIDERUNAVAILABLE`/`OFFLINE`/`AUTHERROR`/`UPSTREAMBLOCKED`, `5` `UNSUPPORTED`,
-  `1` everything else. `UPSTREAMBLOCKED` is an upstream refusing this client
-  outright (a CDN 403 page); retrying at once does not help.
+  `6` `CLOUDFLARECHALLENGE`, `1` everything else. `UPSTREAMBLOCKED` is an upstream
+  refusing this client outright (a CDN 403 page); retrying at once does not help.
 - A totally failed `stocks compare` emits one structured error in JSON mode; per-symbol warnings are retained for partial success, not printed ahead of a total-failure error.
 
 ## CLI Output and Offline Cache

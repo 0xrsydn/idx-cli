@@ -157,6 +157,7 @@
           fileset = lib.fileset.unions [
             ./scripts/publish-ownership-snapshot-test.sh
             ./scripts/publish-ownership-snapshot.sh
+            ./scripts/build-latest-ownership-snapshot.sh
             ./scripts/build-ownership-snapshot.sh
           ];
         };

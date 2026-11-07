@@ -1214,6 +1214,7 @@ Options:
       --limit <LIMIT>        Maximum number of discovered report URLs to print [default: 6]
       --no-color             Disable colored output
   -q, --quiet                Suppress non-essential output
+      --require-data-page    Fail if the IDX data page cannot be read, instead of warning and listing older announcements. The newest above-1% reports are only on that page
   -v, --verbose...           Increase verbosity (-v, -vv)
       --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
       --offline              Run without network requests

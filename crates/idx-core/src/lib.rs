@@ -30,6 +30,7 @@ pub mod runtime {
 
     static QUIET: AtomicBool = AtomicBool::new(false);
     static JSON: AtomicBool = AtomicBool::new(false);
+    static VERBOSE: AtomicBool = AtomicBool::new(false);
 
     type Sink = Box<dyn Fn(&str)>;
 
@@ -66,6 +67,10 @@ pub mod runtime {
         QUIET.load(Ordering::Relaxed)
     }
 
+    pub fn set_verbose(verbose: bool) {
+        VERBOSE.store(verbose, Ordering::Relaxed);
+    }
+
     /// In JSON mode diagnostics are JSON lines, so stderr stays
     /// machine-readable alongside a JSON error.
     pub fn set_json(json: bool) {
@@ -89,6 +94,13 @@ pub mod runtime {
 
     pub fn info(message: impl Display) {
         emit("info", message);
+    }
+
+    /// Detail worth keeping in a job's log but not worth showing by default.
+    pub fn verbose(message: impl Display) {
+        if VERBOSE.load(Ordering::Relaxed) {
+            emit("info", message);
+        }
     }
 
     pub fn warn(message: impl Display) {
