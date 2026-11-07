@@ -6,8 +6,10 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Utc, Weekday};
 
-use crate::api::types::{Interval, Ohlc, Period, Quote};
-use crate::api::{history_provider, history_source, idx_offset};
+use crate::api::types::{Interval, Intraday, Ohlc, OrderBook, Period, Quote};
+use crate::api::{
+    history_provider, history_source, idx_offset, intraday_provider, orderbook_provider, stockbit,
+};
 use crate::client::{CachePolicy, CacheSpec, Fetched, Idx, cached_fetch};
 use crate::config::{HistoryProviderKind, ProviderKind};
 use crate::error::IdxError;
@@ -34,6 +36,10 @@ impl Market<'_> {
     ) -> Result<Vec<Fetched<Quote>>, IdxError> {
         let idx = self.idx;
         let bucket = idx.bucket("quote");
+        let ttl_secs = match idx.provider.kind() {
+            ProviderKind::Stockbit => idx.config.quote_ttl.min(stockbit::CACHE_TTL_SECS),
+            _ => idx.config.quote_ttl,
+        };
         let session = latest_session(Utc::now());
         let mut quotes = Vec::with_capacity(symbols.len());
         for symbol in symbols {
@@ -43,7 +49,7 @@ impl Market<'_> {
                 CacheSpec {
                     bucket: &bucket,
                     key: &resolved,
-                    ttl_secs: idx.config.quote_ttl,
+                    ttl_secs,
                     subject: &resolved,
                     source: idx.provider.kind().as_str(),
                 },
@@ -60,12 +66,51 @@ impl Market<'_> {
         Ok(quotes)
     }
 
+    /// Today's session of one IDX symbol from Stockbit's public page,
+    /// whichever market provider is selected: the quote (bid/offer only while
+    /// the market is open) and the price per minute.
+    pub fn intraday(
+        &self,
+        symbol: &str,
+        policy: CachePolicy,
+    ) -> Result<Fetched<Intraday>, IdxError> {
+        let idx = self.idx;
+        let resolved = idx.resolve(symbol)?;
+        let provider = intraday_provider();
+        let mut day = cached_fetch(
+            &idx.cache,
+            CacheSpec {
+                bucket: "stockbit-intraday",
+                key: &resolved,
+                ttl_secs: idx.config.quote_ttl.min(stockbit::CACHE_TTL_SECS),
+                subject: &resolved,
+                source: stockbit::SOURCE,
+            },
+            policy,
+            || provider.intraday(&resolved),
+            Ok,
+        )?;
+        // Stockbit's page keeps the last session's chart up after the close,
+        // so a cached or lagging day reads as current unless it is marked.
+        mark_behind_session(&mut day.data.quote, latest_session(Utc::now()));
+        Ok(day)
+    }
+
     /// Resolves the history source for an optional `--history-provider`
-    /// override, without fetching.
-    pub fn history_source(&self, mode: Option<HistoryProviderKind>) -> HistorySource {
+    /// override and the window asked for, without fetching.
+    pub fn history_source(
+        &self,
+        mode: Option<HistoryProviderKind>,
+        period: &Period,
+        interval: &Interval,
+    ) -> HistorySource {
         let mode = mode.unwrap_or(self.idx.config.history_provider);
         let selected = self.idx.provider.kind();
-        let provider = history_source(selected, mode);
+        // Only `auto` under the stockbit provider looks for a session.
+        let session = mode == HistoryProviderKind::Auto
+            && selected == ProviderKind::Stockbit
+            && stockbit::has_session();
+        let provider = history_source(selected, mode, period, interval, session);
         HistorySource {
             provider,
             mode,
@@ -82,22 +127,72 @@ impl Market<'_> {
         policy: CachePolicy,
     ) -> Result<Fetched<Vec<Ohlc>>, IdxError> {
         let idx = self.idx;
-        let (provider_kind, provider) =
-            history_provider(idx.provider.kind(), source.mode, idx.config.verbose)?;
-        let bucket = format!("{}-history", provider_kind.as_str());
         let resolved = idx.resolve(symbol)?;
         let key = format!("{resolved}-{}-{}", period.as_str(), interval.as_str());
+        self.with_history_fallback(source, |source| {
+            let provider = history_provider(source.provider, idx.config.verbose);
+            let bucket = format!("{}-history", source.provider.as_str());
+            cached_fetch(
+                &idx.cache,
+                CacheSpec {
+                    bucket: &bucket,
+                    key: &key,
+                    ttl_secs: idx.config.quote_ttl,
+                    subject: &resolved,
+                    source: source.provider.as_str(),
+                },
+                policy,
+                || provider.history(&resolved, period, interval),
+                Ok,
+            )
+        })
+    }
+
+    /// Runs `fetch` on `source`; when `auto` picked Stockbit because a
+    /// session file exists and Stockbit then refuses that session, runs it
+    /// again on Yahoo instead of failing (`has_session` sees only the file).
+    pub(crate) fn with_history_fallback<T>(
+        &self,
+        source: HistorySource,
+        fetch: impl Fn(HistorySource) -> Result<Fetched<T>, IdxError>,
+    ) -> Result<Fetched<T>, IdxError> {
+        match fetch(source) {
+            Err(IdxError::AuthError(reason))
+                if source.mode == HistoryProviderKind::Auto
+                    && source.provider == ProviderKind::Stockbit =>
+            {
+                crate::runtime::warn(format!("{reason}; history falls back to yahoo meanwhile"));
+                fetch(HistorySource {
+                    provider: ProviderKind::Yahoo,
+                    is_fallback: self.idx.provider.kind() != ProviderKind::Yahoo,
+                    ..source
+                })
+            }
+            other => other,
+        }
+    }
+
+    /// The order book of one IDX stock from the user's Stockbit session,
+    /// whichever market provider is selected.
+    pub fn orderbook(
+        &self,
+        symbol: &str,
+        policy: CachePolicy,
+    ) -> Result<Fetched<OrderBook>, IdxError> {
+        let idx = self.idx;
+        let resolved = idx.resolve(symbol)?;
+        let provider = orderbook_provider();
         cached_fetch(
             &idx.cache,
             CacheSpec {
-                bucket: &bucket,
-                key: &key,
-                ttl_secs: idx.config.quote_ttl,
+                bucket: "stockbit-orderbook",
+                key: &resolved,
+                ttl_secs: idx.config.quote_ttl.min(stockbit::CACHE_TTL_SECS),
                 subject: &resolved,
-                source: provider_kind.as_str(),
+                source: stockbit::SOURCE,
             },
             policy,
-            || provider.history(&resolved, period, interval),
+            || provider.orderbook(&resolved),
             Ok,
         )
     }
@@ -380,6 +475,10 @@ mod tests {
             avg_volume: None,
             as_of: None,
             behind_session: false,
+            bid: None,
+            offer: None,
+            market_status: None,
+            session_note: None,
         }
     }
 

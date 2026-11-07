@@ -34,6 +34,9 @@ impl IdxConfig {
     pub fn load_with_cli(cli: &Cli) -> Result<Self, IdxError> {
         let mut core = CoreConfig::load()?;
         core.verbose = cli.verbose > 0;
+        if let Some(provider) = cli.provider {
+            core.provider = provider;
+        }
         let mut setting = OutputSetting::Auto;
         let mut no_color = false;
 

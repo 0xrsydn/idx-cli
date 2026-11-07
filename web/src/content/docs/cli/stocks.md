@@ -19,6 +19,61 @@ session, the table says so under it, and JSON sets `behind_session`: the
 provider may still show the previous close. `history` takes `--period` (`1d`
 to `5y`) and `--interval` (`1d`, `1wk`, `1mo`).
 
+## Today by the minute
+
+```bash
+idx stocks intraday BBCA
+idx stocks intraday ^JKSE
+idx -o json stocks intraday BBCA | jq '.points[-1]'
+```
+
+`intraday` shows today's session from Stockbit's public page, without a
+login: the quote, the best bid and offer while the market is open, a
+sparkline and the last five minutes. JSON gives every minute in `points`. It
+is delayed at least 10 minutes. A chart from before the latest session is
+noted under the header and sets `quote.behind_session`, as with quotes. See [Stockbit](/cli/stockbit/) for what it
+covers and the terms it comes with.
+
+## Order book (Stockbit login)
+
+```bash
+idx stocks orderbook BBCA
+idx stocks orderbook BBRI --depth 5
+```
+
+With your own Stockbit session (`idx stockbit login`), `orderbook` shows
+every bid and offer level with lots and queued orders, the session's OHLC,
+value and trades, and foreign buy, sell and net once Stockbit marks them
+current (not during trading, when they lag a day). Without one it answers
+`AUTHERROR`. See [Stockbit](/cli/stockbit/#with-your-stockbit-login).
+
+## Corporate actions (Stockbit login)
+
+```bash
+idx stocks actions BBCA                       # newest first
+idx stocks actions TLKM --kind dividend
+idx stocks calendar                           # today and the next 30 days
+idx stocks calendar --kind dividend,rights --to 2026-12-31
+```
+
+`actions` lists one stock's cash and stock dividends, bonus shares, rights
+issues, warrants, splits and reverse splits, shareholders' meetings, public
+exposes and tender offers (`--kind ipo` adds its IPO). `calendar` lists them
+across the market between `--from` and `--to` (at most 366 days), including
+what is announced ahead, plus rights trading, tender offers and IPO offers
+still open in that range, so an offer that began earlier still shows while
+you can act on it. An action's date is its cum date for dividends,
+bonuses, rights and splits: buy by then to be entitled. For the others it is
+the event's first day. When Stockbit gives no cum date, the action sits on
+its ex date, marked `(ex)` in the table, and JSON leaves `cum_date` out.
+Dividends per share keep their decimals (`Rp 3.8`); one not paid in Rupiah
+carries `currency` (e.g. `USD`). JSON's `kind` is the name `--kind` takes.
+
+Both need your Stockbit session and answer `AUTHERROR` without one. Stockbit
+serves one kind per request, 1 s apart, so a first call with every kind takes
+about ten seconds; answers are then cached for 6 hours. `--kind` asks for
+less.
+
 ## Company data
 
 | Command | What it shows |
@@ -142,6 +197,10 @@ idx stocks screen --filter high-dividend | jq -r '.[].symbol' | idx stocks compa
 
 MSN is the default for quotes, company data and screening; Yahoo serves
 price history. Indo Premier (IPOT) serves broker summaries and foreign flow
-(IDX's own site with `flow --source idx`), whichever provider is selected. Switch with `IDX_PROVIDER=msn|yahoo` and
-`IDX_HISTORY_PROVIDER=auto|yahoo|msn`, or the matching
-[config keys](/start/config/).
+(IDX's own site with `flow --source idx`), and Stockbit serves `intraday`
+and, with your login, `orderbook`, whichever provider is selected. Switch
+with `--provider msn|yahoo|stockbit` (or `IDX_PROVIDER`) and
+`IDX_HISTORY_PROVIDER=auto|yahoo|msn|stockbit`, or the matching
+[config keys](/start/config/). `--provider stockbit` serves quotes only, with
+the best bid/offer, live when you are logged in; see
+[Stockbit](/cli/stockbit/).

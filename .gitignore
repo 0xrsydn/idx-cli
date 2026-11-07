@@ -24,3 +24,6 @@ out.txt
 
 # Cloudflare CLI account cache
 .cloudflare/
+
+# macOS Finder metadata
+.DS_Store

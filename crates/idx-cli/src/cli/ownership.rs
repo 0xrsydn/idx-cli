@@ -13,10 +13,12 @@ use idx_core::error::IdxError;
 use idx_core::investor::{
     ConcentrationRank, HolderSource, ImportSource, Investor, parse_report_family,
 };
+use idx_core::movements::types::{ActionFilter, MovementQuery, MovementSource};
 use idx_core::ownership::graph;
 use idx_core::ownership::remote::DataPagePolicy;
 use idx_core::ownership::snapshot;
 use idx_core::ownership::types::{ChangeType, FlowSignal, HolderRow, OwnershipSource};
+use idx_core::{CachePolicy, Idx};
 
 #[derive(Debug, Args)]
 #[command(
@@ -73,6 +75,17 @@ pub enum OwnershipCommand {
         after_help = "Examples:\n  idx ownership releases\n  idx ownership changes --from 2026-08-31 --to 2026-09-30"
     )]
     Changes(ChangesArgs),
+    #[command(
+        about = "Insider and major holder buys and sells, as reported (Stockbit login)",
+        long_about = "Reported changes in holders' stakes from your own Stockbit session (`idx \
+stockbit login`), newest first: IDX insider disclosures (directors, commissioners and other \
+insiders, any size, with the trade price) and KSEI's changes of holders at 5% and above (Stockbit \
+estimates their price). One stock's, or the whole market's without SYMBOL. Each page is 50 rows \
+and one request; answers are cached for an hour.\n\nThese are filings, not signals: a share \
+plan shows as many insiders buying at one price, and a row appears days after the change.",
+        after_help = "Examples:\n  idx ownership movements BBCA\n  idx ownership movements --action sell --source ksei\n  idx ownership movements --from 2026-10-01 --to 2026-10-31 --pages 5\n  idx ownership movements --holder 1000004481   # one holder's history (HOLDER ID column)"
+    )]
+    Movements(MovementsArgs),
     /// Ownership network graph.
     Graph(GraphArgs),
     /// Manual entity resolution workflow.
@@ -173,6 +186,30 @@ pub struct ChangesArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct MovementsArgs {
+    /// Single ticker symbol (e.g. BBCA); omit for the whole market.
+    pub symbol: Option<String>,
+    /// First day, YYYY-MM-DD.
+    #[arg(long)]
+    pub from: Option<String>,
+    /// Last day, YYYY-MM-DD.
+    #[arg(long)]
+    pub to: Option<String>,
+    /// One holder's movements, by the id in the HOLDER ID column.
+    #[arg(long = "holder", value_name = "ID")]
+    pub holder_id: Option<String>,
+    /// Only this kind of movement.
+    #[arg(long, value_enum)]
+    pub action: Option<ActionFilter>,
+    /// Only IDX insider disclosures or KSEI 5% holder changes.
+    #[arg(long, value_enum)]
+    pub source: Option<MovementSource>,
+    /// Pages of 50 rows to read (1-10).
+    #[arg(long, default_value_t = 1)]
+    pub pages: u32,
+}
+
+#[derive(Debug, Args)]
 pub struct GraphArgs {
     /// Ticker code or entity name to start from.
     pub root: String,
@@ -213,7 +250,12 @@ pub enum ResolveCommand {
     },
 }
 
-pub fn handle(cmd: &OwnershipCommand, config: &IdxConfig) -> Result<(), IdxError> {
+pub fn handle(
+    cmd: &OwnershipCommand,
+    config: &IdxConfig,
+    offline: bool,
+    no_cache: bool,
+) -> Result<(), IdxError> {
     let investor = Investor::new(&config.core);
     let inv = &investor;
     match cmd {
@@ -227,6 +269,9 @@ pub fn handle(cmd: &OwnershipCommand, config: &IdxConfig) -> Result<(), IdxError
         OwnershipCommand::Concentration(args) => handle_concentration(inv, args, config),
         OwnershipCommand::Flow(args) => handle_flow(inv, args, config),
         OwnershipCommand::Changes(args) => handle_changes(inv, args, config),
+        OwnershipCommand::Movements(args) => {
+            handle_movements(args, config, CachePolicy::from_flags(offline, no_cache)?)
+        }
         OwnershipCommand::Graph(args) => handle_graph(inv, args, config),
         OwnershipCommand::Resolve(args) => handle_resolve(inv, args, config),
         OwnershipCommand::Releases => handle_releases(inv, config),
@@ -685,6 +730,38 @@ fn handle_changes(
 
     println!("{table}");
     Ok(())
+}
+
+fn handle_movements(
+    args: &MovementsArgs,
+    config: &IdxConfig,
+    policy: CachePolicy,
+) -> Result<(), IdxError> {
+    let mut query = MovementQuery::from_args(
+        args.symbol.as_deref(),
+        args.from.as_deref(),
+        args.to.as_deref(),
+        args.holder_id.as_deref(),
+        args.pages,
+    )?;
+    query.action = args.action;
+    query.source = args.source;
+    let idx = Idx::new(config.core.clone())?;
+    let list = idx.movements().list(&query, policy)?;
+    let symbol = match &query.symbol {
+        Some(symbol) => Some(idx_core::api::resolve_symbol(
+            symbol,
+            &config.core.exchange,
+        )?),
+        None => None,
+    };
+    crate::output::render_shareholder_movements(
+        symbol.as_deref(),
+        &list.data,
+        query.pages,
+        &config.output,
+        config.no_color,
+    )
 }
 
 fn handle_resolve(

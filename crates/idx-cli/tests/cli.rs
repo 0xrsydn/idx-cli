@@ -2589,6 +2589,177 @@ fn invalid_provider_env_honors_json_output() {
 }
 
 #[test]
+fn provider_flag_overrides_env() {
+    let quotes = run_success_json(
+        test_bin("provider-flag")
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args([
+                "-o",
+                "json",
+                "--provider",
+                "stockbit",
+                "stocks",
+                "quote",
+                "BBCA",
+            ]),
+    );
+    // Only Stockbit reports the market's state; MSN has a market cap.
+    assert_eq!(quotes[0]["market_status"], "close");
+    assert_eq!(quotes[0]["market_cap"], Value::Null);
+}
+
+#[test]
+fn stockbit_login_stores_a_private_session_and_logout_removes_it() {
+    let root = test_env_dir("stockbit-login");
+    let cookie = fs::read_to_string(fixture_path(
+        "stockbit_exodus_credential_storage_cookie_constructed.txt",
+    ))
+    .expect("cookie fixture");
+    let session = root.join("config/idx/stockbit-session.json");
+
+    let status = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stockbit", "login"])
+            .write_stdin(cookie.clone()),
+    );
+    assert_eq!(status["logged_in"], true);
+    assert_eq!(status["refresh"]["present"], true);
+    let stored = fs::read_to_string(&session).expect("session file");
+    assert!(stored.contains("\"refresh\""));
+    // Status shows expiries, never a token.
+    assert!(!serde_json::to_string(&status).unwrap().contains("eyJ"));
+    #[cfg(unix)]
+    assert_eq!(
+        fs::metadata(&session).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+
+    let book = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "orderbook", "BBCA"]),
+    );
+    assert_eq!(book["offers"][0]["shares"], 264_462_500);
+
+    let out = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stockbit", "logout"]),
+    );
+    assert_eq!(out["removed"], true);
+    assert!(!session.exists());
+    run_error_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            // The book fetched above is still cached for a few seconds.
+            .args(["-o", "json", "--no-cache", "stocks", "orderbook", "BBCA"]),
+        "AUTHERROR",
+    );
+
+    // Anything that is not a session is refused and stores nothing.
+    run_error_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stockbit", "login"])
+            .write_stdin("not a token"),
+        "INVALIDINPUT",
+    );
+    assert!(!session.exists());
+}
+
+/// A session file Stockbit no longer accepts does not break `auto` history:
+/// it falls back to Yahoo with a warning. An explicit Stockbit choice fails.
+#[test]
+fn auto_history_falls_back_to_yahoo_when_the_session_is_refused() {
+    for args in [
+        &["stocks", "history", "BBCA", "--period", "1mo"][..],
+        &["stocks", "technical", "BBCA"][..],
+    ] {
+        let root = test_env_dir(&format!("stockbit-refused-{}", args[1]));
+        let output = mock_bin_with_root(&root)
+            .env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .env("IDX_MOCK_STOCKBIT_STATUS", "401")
+            .args(["-o", "json", "--provider", "stockbit"])
+            .args(args)
+            .output()
+            .expect("run history");
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("falls back to yahoo"), "{stderr}");
+        serde_json::from_slice::<Value>(&output.stdout).expect("JSON on stdout");
+        let _ = fs::remove_dir_all(root);
+    }
+    let root = test_env_dir("stockbit-refused-explicit");
+    run_error_json(
+        mock_bin_with_root(&root)
+            .env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .env("IDX_MOCK_STOCKBIT_STATUS", "401")
+            .args([
+                "-o",
+                "json",
+                "--provider",
+                "stockbit",
+                "stocks",
+                "history",
+                "BBCA",
+            ])
+            .args(["--period", "1mo", "--history-provider", "stockbit"]),
+        "AUTHERROR",
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+/// A page after the first that fails keeps the rows read before it, says
+/// why, and is not cached; a query's pages are cached as one answer.
+#[test]
+fn movements_keep_the_pages_read_when_a_later_one_fails() {
+    let root = test_env_dir("movements-partial");
+    let run = |fail_page: Option<&str>| {
+        let mut cmd = mock_bin_with_root(&root);
+        cmd.env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .args(["-o", "json", "ownership", "movements", "--pages", "2"]);
+        if let Some(page) = fail_page {
+            cmd.env("IDX_MOCK_MOVEMENTS_FAIL_PAGE", page);
+        }
+        run_success_json(&mut cmd)
+    };
+    let partial = run(Some("2"));
+    assert_eq!(partial["movements"].as_array().unwrap().len(), 8);
+    assert_eq!(partial["more"], true);
+    assert!(partial["incomplete"].is_string(), "{partial}");
+    // Not cached: the next run reads both pages.
+    let full = run(None);
+    assert_eq!(full["movements"].as_array().unwrap().len(), 14);
+    assert!(full.get("incomplete").is_none());
+    // Cached as one answer: a failing page 2 now changes nothing.
+    assert_eq!(run(Some("2")), full);
+    let _ = fs::remove_dir_all(root);
+}
+
+/// A test session, signed by nobody, that expires in 2100.
+const FAKE_STOCKBIT_TOKEN: &str = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln";
+
+/// An agent on a headless box gets told how to log in, not "nothing pasted".
+#[test]
+fn stockbit_login_with_empty_stdin_says_how_to_log_in() {
+    let root = test_env_dir("stockbit-login-empty");
+    let output = bin_with_root(&root)
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["-o", "json", "stockbit", "login"])
+        .output()
+        .expect("run login");
+    assert!(!output.status.success());
+    let error: Value = serde_json::from_slice(&output.stderr).expect("JSON error");
+    assert_eq!(error["code"], "INVALIDINPUT");
+    let message = error["message"].as_str().unwrap();
+    for hint in ["idx stockbit login", "IDX_STOCKBIT_REFRESH_TOKEN"] {
+        assert!(message.contains(hint), "{message}");
+    }
+}
+
+#[test]
 fn invalid_quote_ttl_env_returns_non_zero() {
     test_bin("invalid-quote-ttl")
         .env("IDX_CACHE_QUOTE_TTL", "bogus")
@@ -3593,4 +3764,25 @@ fn bandar_never_reads_a_broker_summary_cached_in_the_old_shape() {
     ]));
     assert!(!table.contains("No trades."), "{table}");
     assert!(table.contains("big distribution"), "{table}");
+}
+
+/// `--kind` takes the names JSON carried before they matched it, so a kind
+/// copied from an older answer works here as it does over MCP.
+#[test]
+fn actions_kind_takes_the_old_json_names() {
+    let root = test_env_dir("actions-old-kinds");
+    let rows = run_success_json(
+        mock_bin_with_root(&root)
+            .env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .args(["-o", "json", "stocks", "actions", "BBCA", "--kind"])
+            .arg("stock_dividend,reverse_split,public_expose,tender_offer"),
+    );
+    let kinds: Vec<&str> = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["kind"].as_str().unwrap())
+        .collect();
+    assert!(kinds.contains(&"expose"), "{kinds:?}");
+    let _ = fs::remove_dir_all(root);
 }

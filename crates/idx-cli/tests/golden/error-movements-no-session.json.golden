@@ -1,0 +1,4 @@
+exit: 4
+--- stdout
+--- stderr
+{"code":"AUTHERROR","error":true,"message":"auth error: no Stockbit session; run `idx stockbit login` (or set IDX_STOCKBIT_REFRESH_TOKEN)"}

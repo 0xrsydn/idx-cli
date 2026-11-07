@@ -289,7 +289,11 @@
                 echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
                 sleep 2
               } | timeout 30 ${mcpPackage}/bin/idx-mcp > out.jsonl
-              jq -se 'map(select(.id == 2))[0].result.tools | length == 14' out.jsonl
+              # Count from the committed golden, minus the opt-in sync tool,
+              # so adding a tool updates one place.
+              count=$(jq '[.[] | select(.name != "ownership_sync")] | length' \
+                ${./crates/idx-mcp/tests/golden/tools.json})
+              jq -se "map(select(.id == 2))[0].result.tools | length == $count" out.jsonl
               touch "$out"
             '';
           # The website's generated pages match the CLI help and the MCP

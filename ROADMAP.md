@@ -4,16 +4,40 @@ Open work only. Shipped behavior is described in `README.md` and `docs/`;
 history lives in git.
 
 ## Stocks
-- `market summary`: IHSG index and market breadth
+- `market summary`: market breadth and an index overview (index levels alone
+  are already `stocks intraday ^JKSE` and `--provider stockbit stocks quote IHSG`)
 - `market movers`: top gainers, losers, and volume
 - `market sectors`: sector performance overview
 - `screen query "<EXPR>"`: filter stocks by expression
 - `screen presets` / `screen run <PRESET>`: built-in screener presets
   (graduate `screen` out of `stocks` only if these grow into a richer workflow)
 - Multi-period financial statements (today `financials` is single-period)
-- Order book (bid/offer depth): no free, login-free source exists. IDX sells
-  delayed depth to vendors and Stockbit's needs a user login. Revisit if a
-  permitted source appears; do not ship the closing best bid/offer as one.
+- Order book depth without a login: no free source exists (IDX sells delayed
+  depth to vendors); `stocks orderbook` needs the user's Stockbit login.
+- Shareholder movement follow-ups (`docs/STOCKBIT.md`): `ownership movements
+  --summary`, a per-symbol score (net value, distinct buyers, share-plan
+  flag), then an event study before calling any of it a signal; joining
+  holders to ownership entities by name. Corporate-action follow-ups:
+  ex-dates of splits, bonuses and rights noted in `stocks history`, and the
+  `stock_dividend` / `reversesplit` row shapes once Stockbit lists one.
+- Stockbit login follow-ups: hourly OHLCV from the session's `1w` chart (the
+  `1d` chart is per-minute closes only); confirming session 1 is
+  `STATE_NAME_SESSION_1` (session 2, `BREAK` and `MARKET_CLOSED` were
+  recorded on 2026-11-03), and when `has_foreign_bs` turns on with the day's
+  foreign figures; an
+  opt-in daily refresh so a session outlives the refresh token's week, once
+  it is known whether Stockbit caps a session's total life; and the sign-in
+  response (`/login/v6/*`, read over DevTools' `Fetch`) as a second signal
+  beside the `credentialStorage` cookie, should Stockbit rename or move it.
+- Google sign-in in idx's browser window: Google refused it on 2026-10-31,
+  most likely over `--remote-debugging-port`. First confirm by trying Google
+  in a plain window on a throwaway profile; if that works, sign in with no
+  debugging flag and reopen the profile with it, on a blank page, to read the
+  cookie.
+- Observe Stockbit's `market_hour.status` in the pre-open (08:45-09:00) and
+  the closing auction (15:50-16:00) before `--watch` or alerts build on it;
+  `open`, `break` and `close` are known, and the bid/offer gate hides the book
+  for anything but `open`.
 - Bandarmology follow-ups: a daily series (per-session readings and the
   cumulative top-N net) and a price-move phase (quiet accumulation, markup),
   calibration of the `top_concentration_v1` thresholds across more sessions,
@@ -32,7 +56,8 @@ history lives in git.
 - `watchlist`: named symbol sets usable by other commands
 - `alerts`: price alerts with a daemon
 - CSV/TSV output
-- Additional providers (Alpha Vantage, Twelve Data, IDX official)
+- Additional providers (Alpha Vantage, Twelve Data); IDX's own site serves
+  only `stocks flow --source idx` today
 
 ## Agent integration
 - JSON Schema export for command output
@@ -45,11 +70,16 @@ history lives in git.
 - `stocks flow --source idx` depends on IDX's Cloudflare passing a
   curl-impersonate profile (only `curl_safari184` in October 2026) and on the
   network; the default IPOT source rounds to one decimal.
+- Stockbit's terms call its data delayed at least 10 minutes and for
+  personal, non-commercial use (on 2026-10-23 the last trade was within a
+  minute of the clock); its CDN refuses some user agents with a 403
+  (`UPSTREAMBLOCKED`). The public page's best bid/offer sizes are not shown
+  yet; they are shares (equal to the session API's book on 2026-10-23).
 - Yahoo can return `429` from datacenter IPs; requests retry with backoff but
   can still fail.
 - `stocks technical` reports the SMA200 trend as unavailable when fewer than
   200 daily candles are returned.
-- MSN's `low-pe` screen returned no priced stocks on 2026-10-14 (upstream;
-  other filters work).
+- MSN's `low-pe` screen returns no priced stocks (`PARSEERROR`; still so on
+  2026-10-23, upstream; other filters work).
 - MSN history for IDX is price-only (`1mo`, `3mo`, `1y`); Yahoo stays the
   default OHLCV source.
