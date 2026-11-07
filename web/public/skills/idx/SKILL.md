@@ -11,7 +11,7 @@ description: Indonesian stock market (IDX) quotes, fundamentals, technicals, scr
 
 - Capture output: it is JSON whenever stdout is not a terminal. Parse it; don't scrape tables.
 - On failure stdout is empty and stderr is `{"error":true,"code":"...","message":"..."}`.
-  Exit `2` fix the input, `3` not found or no cached data, `4` provider unavailable (retry later), `5` unsupported.
+  Exit `2` fix the input, `3` not found or no cached data, `4` provider unavailable or blocked (retry later), `5` unsupported, `6` Cloudflare challenge from idx.co.id (retry later).
 - Tickers are IDX codes (`BBCA`); `.JK` is optional. `stocks quote` and `stocks compare` take several.
 - Ownership data is local. If an ownership command says the database is empty, run `idx ownership sync` once.
 - Ownership percentages are basis points: `5494` = 54.94%.
