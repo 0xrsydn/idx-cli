@@ -150,7 +150,7 @@ site. The site becomes the one place for user docs.
   `starlight-llms-txt` plugin.
 - Every page also served as `<page>.md`, and a "Copy as Markdown" button.
 - `/agents` covers the contract an agent relies on: JSON when piped, one
-  error object on stderr, exit codes `2`-`5`, symbols from stdin, the MCP
+  error object on stderr, exit codes `2`-`6`, symbols from stdin, the MCP
   envelope and its limits.
 - A downloadable skill file (`SKILL.md`) that teaches an agent to use the
   `idx` CLI directly, for harnesses where an MCP server isn't wanted.

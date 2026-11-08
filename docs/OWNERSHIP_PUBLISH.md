@@ -48,8 +48,10 @@ check needs no token.
 
 ## What It Does
 
-1. `idx -o json ownership discover --family above1 --limit 50` (newest supported
-   report first; XLSX from the Data Kepemilikan Saham page since June 2026)
+1. `idx -v -o json ownership discover --family above1 --limit 50 --require-data-page`
+   (newest supported report first; XLSX from the Data Kepemilikan Saham page since
+   June 2026, so a run that cannot read that page stops rather than miss the newest
+   report). `-v` logs which curl-impersonate profile fetched each URL.
 2. verifies the discovered report is the supported import path
 3. imports it plus `--history <n>` earlier months, oldest first, into an
    isolated temp DB
@@ -91,11 +93,23 @@ The publisher is idempotent and prints exactly one final line:
 | --- | --- | --- |
 | `RESULT: published <as-of>` | 0 | a newer snapshot, or larger history, was uploaded |
 | `RESULT: up-to-date <as-of>` | 0 | nothing to upload |
+| `RESULT: blocked stage=<stage>` | 6 | IDX answered with a Cloudflare challenge in `discover` or `build-snapshot`; nothing was uploaded |
 | `RESULT: FAILED stage=<stage> (exit N)` | N | failed in `arguments`, `build`, `preflight`, `discover`, `build-snapshot`, `stage-output`, `upload`, or `publish` |
 
 `idx-ownership-freshness` is the independent alarm: it exits 1 when the published
 `latest_as_of_date` is older than `--max-age-days` (default 40). The source lands
 2-3 days after month end, so 40 days only trips when publishing has stopped.
+
+`blocked` means retry on the next run, not that something broke. The source is
+monthly, so one run getting through per month is enough, and stale data is what
+should alert:
+
+| Result | Snapshot | Action |
+| --- | --- | --- |
+| `published` or `up-to-date` | fresh | none |
+| `blocked` | fresh | none; the next daily run retries |
+| `blocked` | stale | alert: retry, or import the file by hand |
+| `FAILED` | either | alert at once |
 
 ## History Coverage
 
@@ -135,16 +149,18 @@ on a self-hosted machine that IDX accepts:
 
 - `contrib/systemd/idx-ownership-snapshot-publish.service` and `.timer` run the
   packaged publisher daily at 06:00 UTC with `GH_TOKEN` from
-  `/etc/idx-ownership-snapshot.env`. Wire `OnFailure=` to a notification.
+  `/etc/idx-ownership-snapshot.env`. The service treats exit 6 (`blocked`) as success
+  and then runs the freshness check, so the unit fails on `FAILED` or on stale data.
+  An unreadable manifest also fails it. Wire `OnFailure=` to a notification.
 - On NixOS, add this repo as a flake input and use
   `inputs.idx-cli.packages.${system}.ownership-publisher`; `nix flake update idx-cli`
   picks up fixes.
 
 `.github/workflows/publish-ownership-snapshot.yml` is a manual
 (`workflow_dispatch`) fallback that runs the same packaged publisher with inputs
-passed as environment variables.
+passed as environment variables. There a `blocked` run shows as a failed job.
 
 Observed XLSX upload times (HTTP Last-Modified) were the 2nd-3rd of each month
 around 02:00-04:00 UTC; a daily idempotent run makes the exact day irrelevant.
-If the monthly source has not appeared yet, the run should fail loudly and retry
-later rather than publish stale data.
+If the monthly source has not appeared yet, the run should not publish stale data:
+it ends `up-to-date` until the new report is listed, and a later daily run picks it up.

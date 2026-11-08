@@ -1876,7 +1876,7 @@ _idx() {
             return 0
             ;;
         idx__ownership__discover)
-            opts="-o -q -v -h --family --limit --output --no-color --quiet --verbose --provider --offline --no-cache --help"
+            opts="-o -q -v -h --family --limit --require-data-page --output --no-color --quiet --verbose --provider --offline --no-cache --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

@@ -281,12 +281,24 @@ pub fn select_latest_ownership_reports(
     Ok(attachments)
 }
 
+/// Whether discovery may answer without the data page, the only place the
+/// newest above-1% reports are listed since June 2026.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DataPagePolicy {
+    /// Warn and return what the announcements list, which can miss the newest
+    /// reports.
+    BestEffort,
+    /// Fail with the data page's error, so old results cannot pass as current.
+    Required,
+}
+
 pub fn discover_idx_ownership_reports(
     family_filter: Option<OwnershipReportFamily>,
     limit: usize,
+    data_page: DataPagePolicy,
 ) -> Result<Vec<DiscoveredOwnershipPdf>, IdxError> {
     let mut discovered = Vec::new();
-    let mut errors = Vec::new();
+    let mut errors: Vec<IdxError> = Vec::new();
 
     for query in DISCOVERY_QUERIES
         .iter()
@@ -303,7 +315,7 @@ pub fn discover_idx_ownership_reports(
         .and_then(|page| select_latest_ownership_reports(&page, &query_url, query.family))
         {
             Ok(mut reports) => discovered.append(&mut reports),
-            Err(err) => errors.push(err.to_string()),
+            Err(err) => errors.push(err),
         }
     }
 
@@ -320,10 +332,10 @@ pub fn discover_idx_ownership_reports(
                 // The page loaded (it has its file list) but nothing parsed:
                 // the payload shape changed. Say so instead of silently
                 // falling back to announcement-only results.
-                page_error = Some(format!(
+                page_error = Some(IdxError::ParseError(format!(
                     "IDX share ownership data page {} loaded but no report entries could be parsed; the page layout may have changed",
                     share_ownership_page_url()
-                ));
+                )));
             }
             page_reports
                 .retain(|report| family_filter.is_none_or(|family| family == report.family));
@@ -343,7 +355,13 @@ pub fn discover_idx_ownership_reports(
             });
             discovered.extend(page_reports);
         }
-        Err(err) => page_error = Some(err.to_string()),
+        Err(err) => page_error = Some(err),
+    }
+
+    if data_page == DataPagePolicy::Required
+        && let Some(err) = page_error
+    {
+        return Err(err);
     }
 
     discovered.sort_by(|left, right| {
@@ -369,19 +387,48 @@ pub fn discover_idx_ownership_reports(
     errors.extend(page_error);
 
     if discovered.is_empty() {
-        let detail = if errors.is_empty() {
-            "no matching ownership reports found".to_string()
-        } else {
-            errors.join("; ")
-        };
-        return Err(IdxError::Http(format!(
-            "failed to discover IDX ownership reports from {} or {}: {detail}",
-            announcement_listing_url(),
-            share_ownership_page_url()
-        )));
+        return Err(discovery_failure(
+            &errors,
+            &announcement_listing_url(),
+            &share_ownership_page_url(),
+        ));
     }
 
     Ok(discovered)
+}
+
+/// The error for a discovery that found nothing. A challenge names the cause
+/// unless a source answered with something unparseable: a retry cannot fix that,
+/// so it stays a plain failure. Announcement misses do not hide a challenge.
+fn discovery_failure(errors: &[IdxError], listing_url: &str, page_url: &str) -> IdxError {
+    let challenged = errors
+        .iter()
+        .any(|err| matches!(err, IdxError::CloudflareChallenge(_)));
+    let unparseable = errors
+        .iter()
+        .any(|err| matches!(err, IdxError::ParseError(_)));
+
+    let detail = if errors.is_empty() {
+        "no matching ownership reports found".to_string()
+    } else {
+        errors
+            .iter()
+            .map(|err| match err {
+                IdxError::CloudflareChallenge(message) => message.clone(),
+                other => other.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+    let message = format!(
+        "failed to discover IDX ownership reports from {listing_url} or {page_url}: {detail}"
+    );
+
+    if challenged && !unparseable {
+        IdxError::CloudflareChallenge(message)
+    } else {
+        IdxError::Http(message)
+    }
 }
 
 pub fn download_idx_pdf(url: &str, target: &Path) -> Result<(), IdxError> {

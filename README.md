@@ -159,7 +159,9 @@ idx stocks screen --filter high-dividend | jq -r '.[].symbol' | idx stocks compa
 - `-` reads symbols from stdin for `stocks quote` and `stocks compare`
 - No color codes when output is not a terminal
 - Exit codes: `0` success, `2` invalid input or config, `3` not found or no
-  cached data, `4` upstream unavailable (retry later), `5` unsupported, `1` other
+  cached data, `4` upstream unavailable or blocked (retry later), `5` unsupported,
+  `6` Cloudflare challenge from idx.co.id (`CLOUDFLARECHALLENGE`, retry later),
+  `1` other
 - `idx completions <shell>` generates shell completions
 
 If you ran `idx config init` before v0.3, your config pins `output = "table"`;

@@ -34,6 +34,10 @@ pub enum IdxError {
     InvalidInput(String),
     #[error("no market data: {0}")]
     NoMarketData(String),
+    /// Cloudflare answered with a challenge only a browser can solve, on every
+    /// client tried. Nothing is wrong with the request, so a later run may pass.
+    #[error("cloudflare challenge: {0}")]
+    CloudflareChallenge(String),
     /// The upstream refused this client outright (e.g. a CDN's HTTP 403
     /// block page). Retrying does not help; the message says what might.
     #[error("upstream blocked: {0}")]
@@ -57,6 +61,7 @@ pub enum ErrorCode {
     PdfParseError,
     InvalidInput,
     NoMarketData,
+    CloudflareChallenge,
     UpstreamBlocked,
 }
 
@@ -85,6 +90,7 @@ impl IdxError {
             Self::PdfParseError(_) => ErrorCode::PdfParseError,
             Self::InvalidInput(_) => ErrorCode::InvalidInput,
             Self::NoMarketData(_) => ErrorCode::NoMarketData,
+            Self::CloudflareChallenge(_) => ErrorCode::CloudflareChallenge,
             Self::UpstreamBlocked(_) => ErrorCode::UpstreamBlocked,
         }
     }
@@ -102,6 +108,7 @@ impl IdxError {
             | ErrorCode::AuthError
             | ErrorCode::UpstreamBlocked => 4,
             ErrorCode::Unsupported => 5,
+            ErrorCode::CloudflareChallenge => 6,
             ErrorCode::Io
             | ErrorCode::ParseError
             | ErrorCode::DatabaseError

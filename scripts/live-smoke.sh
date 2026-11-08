@@ -181,6 +181,13 @@ run_case() {
     read -r -a args <<< "$cmd"
     run_bin new "$BIN_PATH" "$log" "${args[@]}"
     status=$?
+    # A challenge is neither a pass nor drift, and asking the old binary as well
+    # would only add requests while the site is challenging this client.
+    if grep -q 'CLOUDFLARECHALLENGE' "$log.stderr"; then
+        FAILURES+=("$name: CHALLENGED, Cloudflare answered with a challenge (see $log.stderr)")
+        echo "     CHALLENGED (Cloudflare)"
+        return
+    fi
     if [[ -n "$COMPARE_BIN" ]]; then
         run_bin old "$COMPARE_BIN" "$log.old" "${args[@]}"
         old_status=$?

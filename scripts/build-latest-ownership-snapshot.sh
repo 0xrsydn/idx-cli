@@ -171,7 +171,11 @@ MANIFEST_PATH="$OUTPUT_DIR/ownership-snapshot-manifest.json"
 DB_PATH="$XDG_DATA_HOME/idx/ownership.db"
 
 printf 'Discovering latest supported IDX/KSEI above-1%% report...\n'
-"$IDX_BIN" -o json ownership discover --family above1 --limit 50 > "$DISCOVERY_JSON"
+# -v logs which curl profile passed. --require-data-page: an announcement-only
+# answer can miss the newest report, so it must not be built as if current.
+# A Cloudflare challenge exits 6 here and on import; the publisher relies on that
+# status reaching it, so nothing below may catch these failures.
+"$IDX_BIN" -v -o json ownership discover --family above1 --limit 50 --require-data-page > "$DISCOVERY_JSON"
 
 # NUL-separated, so a field containing newlines (a report title) cannot
 # shift the fields after it. Written to a file: command substitution drops
@@ -230,12 +234,12 @@ if (( HISTORY > 0 )); then
     fi
     printf 'Importing %d earlier monthly report(s) for history...\n' "${#history_urls[@]}"
     for url in "${history_urls[@]}"; do
-        "$IDX_BIN" ownership import --url "$url"
+        "$IDX_BIN" -v ownership import --url "$url"
     done
 fi
 
 printf 'Importing discovered report into isolated DB...\n'
-"$IDX_BIN" ownership import --url "$DISCOVERED_PDF_URL"
+"$IDX_BIN" -v ownership import --url "$DISCOVERED_PDF_URL"
 
 printf 'Inspecting imported release metadata...\n'
 "$IDX_BIN" -o json ownership releases > "$RELEASES_JSON"
