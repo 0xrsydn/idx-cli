@@ -6,6 +6,7 @@ mod server;
 use std::process::ExitCode;
 
 use clap::Parser;
+use idx_core::api::stockbit::signin;
 use idx_core::config::CoreConfig;
 use rmcp::ServiceExt;
 
@@ -41,11 +42,42 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match running.waiting().await {
-        Ok(_) => ExitCode::SUCCESS,
-        Err(err) => {
-            eprintln!("error: {err}");
-            ExitCode::FAILURE
+    tokio::select! {
+        finished = running.waiting() => {
+            let _ = tokio::task::spawn_blocking(signin::shutdown).await;
+            match finished {
+                Ok(_) => ExitCode::SUCCESS,
+                Err(err) => {
+                    eprintln!("error: {err}");
+                    ExitCode::FAILURE
+                }
+            }
         }
+        () = terminated() => {
+            let _ = tokio::task::spawn_blocking(signin::shutdown).await;
+            // The stdin reader is a blocking thread the runtime would wait for.
+            std::process::exit(0);
+        }
+    }
+}
+
+/// Resolves when the process is told to stop.
+async fn terminated() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        match signal(SignalKind::terminate()) {
+            Ok(mut term) => tokio::select! {
+                _ = term.recv() => {}
+                _ = tokio::signal::ctrl_c() => {}
+            },
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
     }
 }

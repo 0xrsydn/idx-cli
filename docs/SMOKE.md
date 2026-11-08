@@ -13,6 +13,7 @@ offline with pinned tools:
 | `packaged-cli` | the wrapped Nix release binary emits JSON, generates completions, and returns a JSON `CACHEMISS` error with exit 3 offline |
 | `ownership-publisher`, `publisher-test` | packaged publisher entry point and its regression scenarios |
 | `install-script-sh`, `install-script-dash`, `shellcheck` | installer regressions and shell lint |
+| `changelog` | `CHANGELOG.md` and `changes/unreleased/` entries are well formed; `scripts/changelog.sh` folds and extracts them (`scripts/changelog-test.sh`) |
 
 `tests/cli.rs` is the behavioral suite: it runs the real `idx` binary against
 fixture-backed mock providers (`IDX_USE_MOCK_PROVIDER=1`) and covers output
@@ -42,12 +43,12 @@ contents. The native macOS installer job runs separately to exercise BSD tools.
 
 ## Live drift check
 
-Fixtures cannot tell when MSN, Yahoo, or IDX change their responses.
+Fixtures cannot tell when MSN, Yahoo, IPOT, IDX, or Stockbit change their responses.
 `scripts/live-smoke.sh` runs shipped commands against the real upstreams and
 validates each JSON output shape. It is opt-in and never part of the gate.
 
 ```bash
-nix develop --command scripts/live-smoke.sh                   # stocks + ownership
+nix develop --command scripts/live-smoke.sh                   # stocks + stockbit + ownership
 nix develop --command scripts/live-smoke.sh --group stocks --symbol BBRI
 nix develop --command scripts/live-smoke.sh --bin ./result/bin/idx
 nix develop --command scripts/live-smoke.sh --compare ./old/bin/idx  # A/B against an older build
@@ -58,9 +59,25 @@ scripts/live-smoke.sh --dry-run
   `flow` and `flow --source idx` on the new binary only, so an older `--compare` build that predates
   them is fine), plus `compare BUMI,ADRO,AIMS`,
   whose MSN key ratios contain non-finite values.
+- `stockbit`: `intraday` for the ticker and `^JKSE`, and
+  `--provider stockbit stocks quote`, on the new binary only. A run outside the
+  session sees `market_status: close` and no bid/offer. These run without a
+  Stockbit login: each side has its own config, and seeding it with a real
+  refresh token would rotate (and so retire) that token. When
+  `idx stockbit status` reports a session, `stocks orderbook`, `stocks actions`,
+  `stocks calendar` and `ownership movements` (market-wide, one page) also run, on the new binary with your real config
+  directory (the session file is shared under its lock, never copied; cache
+  and data stay isolated). Check the rest by hand:
+  `idx --provider stockbit stocks quote BBCA` and
+  `idx --provider stockbit stocks history BBCA --period 1y`.
 - `ownership`: `discover`, then imports the newest supported report into a temp
   DB and lists `releases`. IDX sits behind Cloudflare and returns `403` to many
   datacenter IPs, including GitHub-hosted runners; run it from a network IDX accepts.
+  A case that gets a Cloudflare challenge (`CLOUDFLARECHALLENGE`) prints `CHALLENGED`
+  and counts as a failure, never as a pass.
+
+A case whose upstream refuses us (`UPSTREAMBLOCKED`, an HTTP 403) prints
+`BLOCKED (HTTP 403)` and counts as a failure, never as a pass.
 
 `--compare <old-idx>` runs every case with both binaries back to back, each
 with its own config and cache, and fails on a different exit code, any added,

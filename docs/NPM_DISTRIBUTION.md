@@ -38,7 +38,7 @@ npx idx-cli --help
 ```
 
 The package version and the release tag must match. For example, package
-version `0.4.0` downloads assets from the `v0.4.0` GitHub Release.
+version `0.5.0` downloads assets from the `v0.5.0` GitHub Release.
 
 The postinstall script downloads `SHA256SUMS` from the same release and
 refuses to install a binary whose checksum does not match.
@@ -105,7 +105,7 @@ URLs must stay aligned with `scripts/install.js`.
 To attach binaries to a tag that already exists, run the workflow manually:
 
 ```bash
-gh workflow run release.yml -f tag=v0.4.0
+gh workflow run release.yml -f tag=v0.5.0
 ```
 
 Pull requests that touch the workflow or the installer run the build jobs
@@ -116,17 +116,22 @@ Release order:
 1. Bump the version together in `Cargo.toml` (workspace version and the
    `idx-core` dependency pin), `package.json`, and `npm/idx-mcp/package.json`.
    A version number can never be republished.
-2. Push the tag, or run the workflow for an existing tag.
-3. Publish the crates from the tagged commit, dependency first:
+2. In the same release PR, run `scripts/changelog.sh release X.Y.Z` (the date
+   defaults to today, UTC). It folds `changes/unreleased/` into a new
+   `CHANGELOG.md` section in the fixed section order, ends it with the
+   `**Full Changelog**` compare link, and deletes the entries. Add a
+   `changes/unreleased/summary.md` first for a one-line opener, such as an
+   upgrade note when a fix is urgent. Edit the section by hand if needed;
+   `scripts/changelog.sh notes X.Y.Z` prints it as GitHub will show it.
+3. Push the tag, or run the workflow for an existing tag. The workflow
+   attaches the binaries and sets the release notes to the tag's
+   `CHANGELOG.md` section; a tag whose `CHANGELOG.md` lacks its version keeps
+   the notes it has.
+4. Publish the crates from the tagged commit, dependency first:
    `cargo publish -p idx-core`, then `-p idx-cli` and `-p idx-mcp`.
-4. Confirm the release has all eight binaries plus `SHA256SUMS`, then write
-   its notes (`gh release edit vX.Y.Z --notes-file <file>`; the workflow
-   creates the release without them). Open with a one-line upgrade note when
-   a fix is urgent, then `## New Features`, `## Bug Fixes`, `## Improvements`
-   (and `## Testing` or `## Docs` when useful): one user-facing sentence per
-   item, ending with the PR or issue numbers, e.g. `(#46)`. Omit empty
-   sections, and end with
-   `**Full Changelog**: https://github.com/0xrsydn/idx-cli/compare/<previous>...<this>`.
-5. Run `npm publish` in the repo root and in `npm/idx-mcp/` from the tagged
+5. Confirm the release has all eight binaries plus `SHA256SUMS` and the notes.
+   To fix the notes later, edit `CHANGELOG.md` and run
+   `gh release edit vX.Y.Z --notes-file <(scripts/changelog.sh notes X.Y.Z)`.
+6. Run `npm publish` in the repo root and in `npm/idx-mcp/` from the tagged
    commit. The account has two-factor auth, so npm asks for a browser
    approval or `--otp=<code>`.

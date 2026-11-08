@@ -4,6 +4,8 @@ use std::net::TcpListener;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
 use assert_cmd::Command;
@@ -1110,6 +1112,427 @@ fn ownership_releases_uses_xdg_data_home_default_db_path() {
     );
 }
 
+/// Answers every request like Cloudflare's challenge and counts them. Without
+/// `mitigated` it is a plain 403 from the origin. Returns the URL and the count.
+fn spawn_403_server(mitigated: bool) -> (String, Arc<AtomicUsize>) {
+    let extra = if mitigated {
+        "cf-mitigated: challenge\r\n"
+    } else {
+        ""
+    };
+    let body = "<html><title>Just a moment...</title></html>";
+    spawn_counting_server(format!(
+        "HTTP/1.1 403 Forbidden\r\nServer: cloudflare\r\n{extra}Content-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    ))
+}
+
+/// Answers every request with `response`, counting them.
+fn spawn_counting_server(response: String) -> (String, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind local test server");
+    let addr = listener.local_addr().expect("local addr");
+    let hits = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&hits);
+
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut buf = [0u8; 2048];
+            let _ = stream.read(&mut buf);
+            counted.fetch_add(1, Ordering::SeqCst);
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+
+    (format!("http://{addr}"), hits)
+}
+
+fn discover_with(
+    name: &str,
+    announcements: &str,
+    page: &str,
+    extra: &[&str],
+) -> std::process::Output {
+    test_bin(name)
+        .env("IDX_CURL_IMPERSONATE_BIN", "curl")
+        .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", announcements)
+        .env("IDX_OWNERSHIP_DATA_PAGE_URL", page)
+        .args(["-o", "json", "ownership", "discover"])
+        .args(extra)
+        .output()
+        .expect("ownership discover output")
+}
+
+/// The one JSON error on stderr, after any diagnostic JSON lines.
+fn stderr_error(output: &std::process::Output) -> Value {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let line = stderr.lines().last().unwrap_or_default();
+    serde_json::from_str(line).unwrap_or_else(|_| panic!("stderr is not JSON: {stderr}"))
+}
+
+#[test]
+fn ownership_discover_names_a_cloudflare_challenge_after_one_round() {
+    let (announcements, announcement_hits) = spawn_403_server(true);
+    let (page, page_hits) = spawn_403_server(true);
+
+    let output = discover_with("ownership-discover-challenge", &announcements, &page, &[]);
+
+    assert_eq!(output.status.code(), Some(6));
+    assert!(output.stdout.is_empty());
+    let error = stderr_error(&output);
+    assert_eq!(error["code"], "CLOUDFLARECHALLENGE");
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap()
+            .contains("cf-mitigated: challenge"),
+        "{error}"
+    );
+    assert!(
+        !error["message"]
+            .as_str()
+            .unwrap()
+            .contains("idx-curl-probe"),
+        "{error}"
+    );
+    assert_eq!(announcement_hits.load(Ordering::SeqCst), 1);
+    assert_eq!(page_hits.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn ownership_discover_plain_403_stays_http_and_keeps_retrying() {
+    let (announcements, announcement_hits) = spawn_403_server(false);
+    let (page, page_hits) = spawn_403_server(false);
+
+    let output = discover_with("ownership-discover-plain-403", &announcements, &page, &[]);
+
+    assert_eq!(output.status.code(), Some(4));
+    assert!(output.stdout.is_empty());
+    assert_eq!(stderr_error(&output)["code"], "HTTP");
+    assert_eq!(announcement_hits.load(Ordering::SeqCst), 2);
+    assert_eq!(page_hits.load(Ordering::SeqCst), 2);
+}
+
+fn announcement_fixture_url() -> String {
+    let raw = r#"{
+      "Items": [{
+        "PublishDate": "2026-03-10T12:09:09",
+        "Title": "Pemegang Saham di atas 1% (KSEI)",
+        "AnnouncementType": "",
+        "Code": "Semua Emiten Saham",
+        "Attachments": [{
+          "PDFFilename": "above1.pdf",
+          "FullSavePath": "https://www.idx.co.id/StaticData/above1.pdf",
+          "IsAttachment": 1,
+          "OriginalFilename": "above1_lamp1.pdf"
+        }],
+        "PdfPath": ""
+      }],
+      "ItemCount": 1,
+      "PageSize": 10,
+      "PageNumber": 1,
+      "PageCount": 1
+    }"#;
+    spawn_single_response_server("application/json", raw)
+}
+
+#[test]
+fn ownership_discover_warns_on_a_challenged_data_page_by_default() {
+    let (page, _) = spawn_403_server(true);
+
+    let output = discover_with(
+        "ownership-discover-partial",
+        &announcement_fixture_url(),
+        &page,
+        &[],
+    );
+
+    assert!(output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("cf-mitigated: challenge"),
+        "{output:?}"
+    );
+}
+
+#[test]
+fn ownership_discover_require_data_page_fails_on_a_challenged_page() {
+    let (page, _) = spawn_403_server(true);
+
+    let output = discover_with(
+        "ownership-discover-require-challenge",
+        &announcement_fixture_url(),
+        &page,
+        &["--require-data-page"],
+    );
+
+    assert_eq!(output.status.code(), Some(6));
+    assert!(output.stdout.is_empty(), "{output:?}");
+    assert_eq!(stderr_error(&output)["code"], "CLOUDFLARECHALLENGE");
+}
+
+#[test]
+fn ownership_discover_require_data_page_keeps_other_page_failures_distinct() {
+    let unreachable = discover_with(
+        "ownership-discover-require-unreachable",
+        &announcement_fixture_url(),
+        UNREACHABLE_DATA_PAGE_URL,
+        &["--require-data-page"],
+    );
+    assert_eq!(unreachable.status.code(), Some(4));
+    assert!(unreachable.stdout.is_empty(), "{unreachable:?}");
+    assert_eq!(stderr_error(&unreachable)["code"], "HTTP");
+
+    // The page's validator looks for this word, so this loads but has no reports.
+    let empty_page = spawn_single_response_server("text/html", "Prospectus");
+    let unparsed = discover_with(
+        "ownership-discover-require-unparsed",
+        &announcement_fixture_url(),
+        &empty_page,
+        &["--require-data-page"],
+    );
+    assert_eq!(unparsed.status.code(), Some(1));
+    assert!(unparsed.stdout.is_empty(), "{unparsed:?}");
+    assert_eq!(stderr_error(&unparsed)["code"], "PARSEERROR");
+}
+
+#[test]
+fn ownership_discover_require_data_page_passes_with_the_page() {
+    let page = fs::read_to_string(fixture_path("idx_share_ownership_page_excerpt.html"))
+        .expect("read share ownership page fixture");
+    let page_url = spawn_single_response_server("text/html", page);
+
+    let output = discover_with(
+        "ownership-discover-require-ok",
+        "http://127.0.0.1:9/announcements",
+        &page_url,
+        &["--require-data-page", "--limit", "1"],
+    );
+
+    assert!(output.status.success(), "{output:?}");
+    let reports: Value = serde_json::from_slice(&output.stdout).expect("parse discover json");
+    assert_eq!(reports[0]["as_of_date"], "2026-08-31");
+}
+
+#[test]
+fn ownership_discover_logs_the_passing_profile_only_when_verbose() {
+    let page = fs::read_to_string(fixture_path("idx_share_ownership_page_excerpt.html"))
+        .expect("read share ownership page fixture");
+    let run = |name: &str, flags: &[&str]| {
+        test_bin(name)
+            .env("IDX_CURL_IMPERSONATE_BIN", "curl")
+            .env(
+                "IDX_OWNERSHIP_ANNOUNCEMENT_API_URL",
+                "http://127.0.0.1:9/announcements",
+            )
+            .env(
+                "IDX_OWNERSHIP_DATA_PAGE_URL",
+                spawn_single_response_server("text/html", page.clone()),
+            )
+            .args(flags)
+            .args(["-o", "json", "ownership", "discover", "--limit", "1"])
+            .output()
+            .expect("ownership discover output")
+    };
+
+    let verbose = run("ownership-discover-verbose", &["-v"]);
+    assert!(verbose.status.success(), "{verbose:?}");
+    assert!(
+        String::from_utf8_lossy(&verbose.stderr).contains("fetched with curl"),
+        "{verbose:?}"
+    );
+
+    let default = run("ownership-discover-not-verbose", &[]);
+    assert!(default.status.success(), "{default:?}");
+    assert!(
+        !String::from_utf8_lossy(&default.stderr).contains("fetched with"),
+        "{default:?}"
+    );
+}
+
+/// A directory holding only curl-impersonate profiles, which are real curl
+/// routed to a local port, so the code's own fallback list picks them up.
+#[cfg(unix)]
+fn fake_profiles(name: &str, profiles: &[(&str, &str)]) -> PathBuf {
+    let curl = std::env::split_paths(&std::env::var_os("PATH").expect("PATH"))
+        .map(|dir| dir.join("curl"))
+        .find(|path| path.is_file())
+        .expect("curl on PATH");
+    let dir = test_env_dir(name).join("profiles");
+    fs::create_dir_all(&dir).expect("create profile dir");
+    for (profile, server) in profiles {
+        let port = server.rsplit(':').next().expect("server port");
+        let path = dir.join(profile);
+        fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\nexec {} --connect-to ::127.0.0.1:{port} \"$@\"\n",
+                curl.display()
+            ),
+        )
+        .expect("write fake profile");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod fake profile");
+    }
+    dir
+}
+
+/// Discovery using the profile fallback list, not a pinned binary.
+#[cfg(unix)]
+fn discover_with_profiles(name: &str, profiles: &Path, flags: &[&str]) -> std::process::Output {
+    test_bin(name)
+        .env_remove("IDX_CURL_IMPERSONATE_BIN")
+        .env("PATH", profiles)
+        .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", "http://idx.test/api")
+        .env("IDX_OWNERSHIP_DATA_PAGE_URL", "http://idx.test/page")
+        .args(flags)
+        .args(["-o", "json", "ownership", "discover"])
+        .output()
+        .expect("ownership discover output")
+}
+
+#[cfg(unix)]
+#[test]
+fn challenged_profiles_get_one_round_per_url() {
+    let (server, hits) = spawn_403_server(true);
+    let profiles = fake_profiles(
+        "fallback-challenged",
+        &[("curl_chrome142", &server), ("curl_firefox144", &server)],
+    );
+
+    let output = discover_with_profiles("fallback-challenged-run", &profiles, &[]);
+
+    assert_eq!(output.status.code(), Some(6), "{output:?}");
+    assert_eq!(stderr_error(&output)["code"], "CLOUDFLARECHALLENGE");
+    // Two URLs, each tried once by each of two profiles.
+    assert_eq!(hits.load(Ordering::SeqCst), 4);
+}
+
+#[cfg(unix)]
+#[test]
+fn plain_403_profiles_keep_both_rounds() {
+    let (server, hits) = spawn_403_server(false);
+    let profiles = fake_profiles(
+        "fallback-plain-403",
+        &[("curl_chrome142", &server), ("curl_firefox144", &server)],
+    );
+
+    let output = discover_with_profiles("fallback-plain-403-run", &profiles, &[]);
+
+    assert_eq!(output.status.code(), Some(4), "{output:?}");
+    assert_eq!(stderr_error(&output)["code"], "HTTP");
+    // Two URLs, two profiles, two rounds.
+    assert_eq!(hits.load(Ordering::SeqCst), 8);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_profile_can_pass_after_another_is_challenged_and_is_logged() {
+    let (challenged, _) = spawn_403_server(true);
+    let page = fs::read_to_string(fixture_path("idx_share_ownership_page_excerpt.html"))
+        .expect("read share ownership page fixture");
+    let (passing, _) = spawn_counting_server(format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
+        page.len()
+    ));
+    let profiles = fake_profiles(
+        "fallback-passes",
+        &[
+            ("curl_chrome142", &challenged),
+            ("curl_firefox144", &passing),
+        ],
+    );
+
+    let output = discover_with_profiles("fallback-passes-run", &profiles, &["-v"]);
+
+    assert!(output.status.success(), "{output:?}");
+    let reports: Value = serde_json::from_slice(&output.stdout).expect("parse discover json");
+    assert_eq!(reports[0]["as_of_date"], "2026-08-31");
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("IDX share ownership data page discovery: fetched with curl_firefox144"),
+        "{output:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_challenge_outranks_a_later_profile_failing() {
+    let (challenged, _) = spawn_403_server(true);
+    let profiles = fake_profiles(
+        "fallback-later-failure",
+        &[
+            ("curl_chrome142", &challenged),
+            ("curl_firefox144", UNREACHABLE_DATA_PAGE_PORT),
+        ],
+    );
+
+    let output = discover_with_profiles("fallback-later-failure-run", &profiles, &[]);
+
+    assert_eq!(output.status.code(), Some(6), "{output:?}");
+    assert_eq!(stderr_error(&output)["code"], "CLOUDFLARECHALLENGE");
+}
+
+#[test]
+fn ownership_discover_keeps_the_challenge_past_an_announcement_miss() {
+    let announcements = spawn_single_response_server("application/json", r#"{"Items":[]}"#);
+    let (page, _) = spawn_403_server(true);
+
+    let output = discover_with("discover-miss-and-challenge", &announcements, &page, &[]);
+
+    assert_eq!(output.status.code(), Some(6), "{output:?}");
+    assert_eq!(stderr_error(&output)["code"], "CLOUDFLARECHALLENGE");
+}
+
+#[test]
+fn ownership_discover_does_not_blame_a_challenge_for_a_changed_page() {
+    let (announcements, _) = spawn_403_server(true);
+    // The page's validator looks for this word, so this loads but has no reports.
+    let page = spawn_single_response_server("text/html", "Prospectus");
+
+    let output = discover_with("discover-challenge-and-parse", &announcements, &page, &[]);
+
+    assert_eq!(output.status.code(), Some(4), "{output:?}");
+    assert_eq!(stderr_error(&output)["code"], "HTTP");
+}
+
+/// idx.co.id download URLs always go through curl, so a wrapper points real curl
+/// at the local server, keeping this off the live network.
+#[cfg(unix)]
+#[test]
+fn ownership_import_url_names_a_cloudflare_challenge() {
+    let (server, hits) = spawn_403_server(true);
+    let port = server.rsplit(':').next().expect("server port");
+    let root = test_env_dir("ownership-import-challenge");
+    let wrapper = root.join("curl-wrapper");
+    fs::write(
+        &wrapper,
+        format!("#!/bin/sh\nexec curl --connect-to ::127.0.0.1:{port} \"$@\"\n"),
+    )
+    .expect("write curl wrapper");
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).expect("chmod curl wrapper");
+
+    let output = bin_with_root(&root)
+        .env("IDX_CURL_IMPERSONATE_BIN", &wrapper)
+        .args([
+            "-o",
+            "json",
+            "ownership",
+            "import",
+            "--url",
+            "http://www.idx.co.id/Media/fixture/peng-2026-09-00024-satu-persen.xlsx",
+        ])
+        .output()
+        .expect("ownership import output");
+
+    assert_eq!(output.status.code(), Some(6), "{output:?}");
+    assert!(output.stdout.is_empty());
+    assert_eq!(stderr_error(&output)["code"], "CLOUDFLARECHALLENGE");
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
+
+/// A fake profile routed here fails to connect (nothing listens on port 9).
+#[cfg(unix)]
+const UNREACHABLE_DATA_PAGE_PORT: &str = "http://127.0.0.1:9";
+
 /// Keeps discovery tests off the live IDX data page (nothing listens on port 9).
 const UNREACHABLE_DATA_PAGE_URL: &str = "http://127.0.0.1:9/data-kepemilikan-saham/";
 
@@ -2166,6 +2589,177 @@ fn invalid_provider_env_honors_json_output() {
 }
 
 #[test]
+fn provider_flag_overrides_env() {
+    let quotes = run_success_json(
+        test_bin("provider-flag")
+            .env("IDX_PROVIDER", "msn")
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args([
+                "-o",
+                "json",
+                "--provider",
+                "stockbit",
+                "stocks",
+                "quote",
+                "BBCA",
+            ]),
+    );
+    // Only Stockbit reports the market's state; MSN has a market cap.
+    assert_eq!(quotes[0]["market_status"], "close");
+    assert_eq!(quotes[0]["market_cap"], Value::Null);
+}
+
+#[test]
+fn stockbit_login_stores_a_private_session_and_logout_removes_it() {
+    let root = test_env_dir("stockbit-login");
+    let cookie = fs::read_to_string(fixture_path(
+        "stockbit_exodus_credential_storage_cookie_constructed.txt",
+    ))
+    .expect("cookie fixture");
+    let session = root.join("config/idx/stockbit-session.json");
+
+    let status = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stockbit", "login"])
+            .write_stdin(cookie.clone()),
+    );
+    assert_eq!(status["logged_in"], true);
+    assert_eq!(status["refresh"]["present"], true);
+    let stored = fs::read_to_string(&session).expect("session file");
+    assert!(stored.contains("\"refresh\""));
+    // Status shows expiries, never a token.
+    assert!(!serde_json::to_string(&status).unwrap().contains("eyJ"));
+    #[cfg(unix)]
+    assert_eq!(
+        fs::metadata(&session).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+
+    let book = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stocks", "orderbook", "BBCA"]),
+    );
+    assert_eq!(book["offers"][0]["shares"], 264_462_500);
+
+    let out = run_success_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stockbit", "logout"]),
+    );
+    assert_eq!(out["removed"], true);
+    assert!(!session.exists());
+    run_error_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            // The book fetched above is still cached for a few seconds.
+            .args(["-o", "json", "--no-cache", "stocks", "orderbook", "BBCA"]),
+        "AUTHERROR",
+    );
+
+    // Anything that is not a session is refused and stores nothing.
+    run_error_json(
+        bin_with_root(&root)
+            .env("IDX_USE_MOCK_PROVIDER", "1")
+            .args(["-o", "json", "stockbit", "login"])
+            .write_stdin("not a token"),
+        "INVALIDINPUT",
+    );
+    assert!(!session.exists());
+}
+
+/// A session file Stockbit no longer accepts does not break `auto` history:
+/// it falls back to Yahoo with a warning. An explicit Stockbit choice fails.
+#[test]
+fn auto_history_falls_back_to_yahoo_when_the_session_is_refused() {
+    for args in [
+        &["stocks", "history", "BBCA", "--period", "1mo"][..],
+        &["stocks", "technical", "BBCA"][..],
+    ] {
+        let root = test_env_dir(&format!("stockbit-refused-{}", args[1]));
+        let output = mock_bin_with_root(&root)
+            .env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .env("IDX_MOCK_STOCKBIT_STATUS", "401")
+            .args(["-o", "json", "--provider", "stockbit"])
+            .args(args)
+            .output()
+            .expect("run history");
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("falls back to yahoo"), "{stderr}");
+        serde_json::from_slice::<Value>(&output.stdout).expect("JSON on stdout");
+        let _ = fs::remove_dir_all(root);
+    }
+    let root = test_env_dir("stockbit-refused-explicit");
+    run_error_json(
+        mock_bin_with_root(&root)
+            .env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .env("IDX_MOCK_STOCKBIT_STATUS", "401")
+            .args([
+                "-o",
+                "json",
+                "--provider",
+                "stockbit",
+                "stocks",
+                "history",
+                "BBCA",
+            ])
+            .args(["--period", "1mo", "--history-provider", "stockbit"]),
+        "AUTHERROR",
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+/// A page after the first that fails keeps the rows read before it, says
+/// why, and is not cached; a query's pages are cached as one answer.
+#[test]
+fn movements_keep_the_pages_read_when_a_later_one_fails() {
+    let root = test_env_dir("movements-partial");
+    let run = |fail_page: Option<&str>| {
+        let mut cmd = mock_bin_with_root(&root);
+        cmd.env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .args(["-o", "json", "ownership", "movements", "--pages", "2"]);
+        if let Some(page) = fail_page {
+            cmd.env("IDX_MOCK_MOVEMENTS_FAIL_PAGE", page);
+        }
+        run_success_json(&mut cmd)
+    };
+    let partial = run(Some("2"));
+    assert_eq!(partial["movements"].as_array().unwrap().len(), 8);
+    assert_eq!(partial["more"], true);
+    assert!(partial["incomplete"].is_string(), "{partial}");
+    // Not cached: the next run reads both pages.
+    let full = run(None);
+    assert_eq!(full["movements"].as_array().unwrap().len(), 14);
+    assert!(full.get("incomplete").is_none());
+    // Cached as one answer: a failing page 2 now changes nothing.
+    assert_eq!(run(Some("2")), full);
+    let _ = fs::remove_dir_all(root);
+}
+
+/// A test session, signed by nobody, that expires in 2100.
+const FAKE_STOCKBIT_TOKEN: &str = "eyJhbGciOiJub25lIn0.eyJleHAiOiA0MTAyNDQ0ODAwLCAibm90ZSI6ICJ0ZXN0IHRva2VuLCBzaWduZWQgYnkgbm9ib2R5In0.c2ln";
+
+/// An agent on a headless box gets told how to log in, not "nothing pasted".
+#[test]
+fn stockbit_login_with_empty_stdin_says_how_to_log_in() {
+    let root = test_env_dir("stockbit-login-empty");
+    let output = bin_with_root(&root)
+        .env("IDX_USE_MOCK_PROVIDER", "1")
+        .args(["-o", "json", "stockbit", "login"])
+        .output()
+        .expect("run login");
+    assert!(!output.status.success());
+    let error: Value = serde_json::from_slice(&output.stderr).expect("JSON error");
+    assert_eq!(error["code"], "INVALIDINPUT");
+    let message = error["message"].as_str().unwrap();
+    for hint in ["idx stockbit login", "IDX_STOCKBIT_REFRESH_TOKEN"] {
+        assert!(message.contains(hint), "{message}");
+    }
+}
+
+#[test]
 fn invalid_quote_ttl_env_returns_non_zero() {
     test_bin("invalid-quote-ttl")
         .env("IDX_CACHE_QUOTE_TTL", "bogus")
@@ -3170,4 +3764,25 @@ fn bandar_never_reads_a_broker_summary_cached_in_the_old_shape() {
     ]));
     assert!(!table.contains("No trades."), "{table}");
     assert!(table.contains("big distribution"), "{table}");
+}
+
+/// `--kind` takes the names JSON carried before they matched it, so a kind
+/// copied from an older answer works here as it does over MCP.
+#[test]
+fn actions_kind_takes_the_old_json_names() {
+    let root = test_env_dir("actions-old-kinds");
+    let rows = run_success_json(
+        mock_bin_with_root(&root)
+            .env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .args(["-o", "json", "stocks", "actions", "BBCA", "--kind"])
+            .arg("stock_dividend,reverse_split,public_expose,tender_offer"),
+    );
+    let kinds: Vec<&str> = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["kind"].as_str().unwrap())
+        .collect();
+    assert!(kinds.contains(&"expose"), "{kinds:?}");
+    let _ = fs::remove_dir_all(root);
 }

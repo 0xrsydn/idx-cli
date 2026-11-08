@@ -32,8 +32,9 @@ stdout is not a terminal, and with `--no-color`.
 | `0` | success | |
 | `2` | invalid input or config | fix the command |
 | `3` | not found, no data, or no cached data offline | check the ticker or name; go online |
-| `4` | upstream unavailable | retry later |
+| `4` | upstream unavailable or blocked | retry later; for `UPSTREAMBLOCKED`, wait or change network |
 | `5` | unsupported | use another command or provider |
+| `6` | Cloudflare challenge (`CLOUDFLARECHALLENGE`), on commands that read idx.co.id | retry later, or from another network |
 | `1` | anything else | read the message |
 
 ## Pipes

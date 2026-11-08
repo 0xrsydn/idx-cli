@@ -23,7 +23,12 @@ artifact is missing, and a retry repairs the publication.
 The last line is always one of:
   RESULT: published <as-of>
   RESULT: up-to-date <as-of>
+  RESULT: blocked stage=<stage>
   RESULT: FAILED stage=<stage> (exit <code>)
+
+A Cloudflare challenge from IDX is "blocked", exit 6: nothing is wrong with the
+run, so retry on the next schedule and alert on stale data instead. Every other
+failure is FAILED.
 
 Options:
   --idx-bin <path>       idx binary to use (default: ./target/debug/idx)
@@ -64,6 +69,14 @@ fail() {
     printf '%s\n' "$*" >&2
     printf 'RESULT: FAILED stage=%s (exit %s)\n' "$STAGE" "$status" >&2
     exit "$status"
+}
+
+# idx's exit status for a Cloudflare challenge.
+BLOCKED_STATUS=6
+
+blocked() {
+    printf 'RESULT: blocked stage=%s\n' "$STAGE" >&2
+    exit "$BLOCKED_STATUS"
 }
 
 # Unexpected command failures (set -e). errtrace is deliberately off: with
@@ -291,8 +304,14 @@ remote_asset_sha256() {
 # asked for more history than the source has does not rebuild forever.
 # Returns non-zero when discovery is unusable; callers then build.
 compute_requested_coverage() {
-    local json latest available wanted
-    if ! json="$("$IDX_BIN" -o json ownership discover --family above1 --limit 50 2>/dev/null)"; then
+    local json latest available wanted status=0
+    # --require-data-page: the newest reports are only on the data page, so
+    # without it a failed page would read as "up-to-date" against older results.
+    json="$("$IDX_BIN" -v -o json ownership discover --family above1 --limit 50 --require-data-page)" || status=$?
+    if (( status == BLOCKED_STATUS )); then
+        blocked
+    fi
+    if (( status != 0 )); then
         return 1
     fi
 
@@ -410,7 +429,14 @@ if [[ "$KEEP_WORKDIR" == "1" ]]; then
 fi
 
 printf 'Preparing latest ownership snapshot artifacts...\n'
-"$BUILDER" "${build_args[@]}"
+build_status=0
+"$BUILDER" "${build_args[@]}" || build_status=$?
+if (( build_status == BLOCKED_STATUS )); then
+    blocked
+fi
+if (( build_status != 0 )); then
+    fail "$build_status" "snapshot build failed"
+fi
 
 STAGED_MANIFEST_PATH="$PUBLISH_WORKDIR/ownership-snapshot-manifest.json"
 if [[ ! -f "$STAGED_MANIFEST_PATH" ]]; then

@@ -41,10 +41,10 @@ jobs:
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
             asset: linux-arm64
-          - os: macos-14
+          - os: macos-15
             target: aarch64-apple-darwin
             asset: darwin-arm64
-          - os: macos-14
+          - os: macos-15
             target: x86_64-apple-darwin
             asset: darwin-x64
 
@@ -100,11 +100,14 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Check out install script
+      - name: Check out install script and changelog
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          sparse-checkout: install.sh
+          sparse-checkout: |
+            install.sh
+            CHANGELOG.md
+            scripts/changelog.sh
           sparse-checkout-cone-mode: false
           path: src
 
@@ -136,3 +139,22 @@ jobs:
             idx-mcp-darwin-x64
             SHA256SUMS
             src/install.sh
+
+      # The notes are the tag's CHANGELOG.md section. A tag from before
+      # CHANGELOG.md (or without its version in it) keeps the notes it has.
+      - name: Read release notes from CHANGELOG.md
+        id: notes
+        env:
+          CHANGELOG_ROOT: src
+        run: |
+          if [ -f src/scripts/changelog.sh ] && bash src/scripts/changelog.sh notes "$RELEASE_TAG" > notes.md; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::${RELEASE_TAG} has no CHANGELOG.md section at that tag; release notes left unchanged"
+          fi
+
+      - name: Publish release notes
+        if: steps.notes.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md

@@ -25,6 +25,7 @@ fn run() -> Result<(), IdxError> {
         Err(err) => return Err(argument_error(err)),
     };
     runtime::set_quiet(cli.quiet);
+    runtime::set_verbose(cli.verbose > 0);
     let config = match IdxConfig::load_with_cli(&cli) {
         Ok(config) => config,
         Err(err) => {
@@ -73,9 +74,17 @@ fn run() -> Result<(), IdxError> {
                 return Err(err);
             }
         }
+        Commands::Stockbit(cmd) => {
+            if let Err(err) = cli::stockbit::handle(cmd, &config.output) {
+                emit_error(&err, &config.output);
+                return Err(err);
+            }
+        }
         #[cfg(feature = "ownership")]
         Commands::Ownership(cmd) => {
-            if let Err(err) = cli::ownership::handle(&cmd.command, &config) {
+            if let Err(err) =
+                cli::ownership::handle(&cmd.command, &config, cli.offline, cli.no_cache)
+            {
                 emit_error(&err, &config.output);
                 return Err(err);
             }

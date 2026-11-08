@@ -2,9 +2,11 @@ pub mod cache;
 pub mod config;
 #[cfg(feature = "ownership")]
 pub mod ownership;
+pub mod stockbit;
 pub mod stocks;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use idx_core::config::ProviderKind;
 
 use crate::output::OutputSetting;
 
@@ -39,6 +41,13 @@ pub struct Cli {
     pub quiet: bool,
     #[arg(short, long, global = true, action = clap::ArgAction::Count, help = "Increase verbosity (-v, -vv)")]
     pub verbose: u8,
+    #[arg(
+        long,
+        value_enum,
+        global = true,
+        help = "Market data provider [default: general.provider, else msn]"
+    )]
+    pub provider: Option<ProviderKind>,
     #[arg(long, global = true, help = "Run without network requests")]
     pub offline: bool,
     #[arg(long, global = true, help = "Bypass local cache")]
@@ -61,6 +70,8 @@ pub enum Commands {
     #[cfg(feature = "ownership")]
     #[command(about = "Ownership intelligence (bootstrap with `ownership sync`)")]
     Ownership(ownership::OwnershipCmd),
+    #[command(about = "Your Stockbit session (opt-in: order book, live quotes)")]
+    Stockbit(stockbit::StockbitCmd),
     #[command(about = "Generate shell completions")]
     Completions { shell: Shell },
     #[command(about = "Show idx-cli version")]

@@ -33,8 +33,10 @@ Docs:
 - `docs/OWNERSHIP_SYNC.md` / `docs/OWNERSHIP_PUBLISH.md`: snapshot consumer contract / maintainer publishing
 - `docs/SMOKE.md`: Nix checks, test layout, and the live drift check
 - `docs/DESIGN.md`: idx-core / idx-mcp design and parity gates
+- `docs/STOCKBIT.md`: Stockbit session endpoints and the design of features on them
 - `docs/IDX_NEWS.md`: news sources research (IDX disclosures, Google News, Yahoo) and a proposed publisher design
 - `ROADMAP.md`: open work
+- `CHANGELOG.md` / `changes/README.md`: released changes / how a PR adds its entry
 
 ## Rules
 1. Keep data access provider-driven; no ad hoc fetches in `cli/`.
@@ -49,6 +51,9 @@ Docs:
 7. Output parity is a contract: never edit golden files to make a change pass.
    After changing CLI behavior, run the live check and report its summary;
    report IDX `403`s explicitly rather than counting them as passes.
+8. A PR that changes what users or agents see adds
+   `changes/unreleased/<branch-name>.md` (format in `changes/README.md`);
+   `Output Changes` lists any change to JSON, MCP results or error codes.
 
 ## Verify
 ```bash
