@@ -9,6 +9,58 @@ Changes that are merged but not yet released live in
 [`changes/unreleased/`](changes/unreleased/), one file per pull request, and are
 folded in here at release time. See [`changes/README.md`](changes/README.md).
 
+## [0.5.0] - 2026-11-09
+
+Stockbit data: intraday and quotes without a login, and with your own Stockbit session the order book, daily history, corporate actions and shareholder movements. **Upgrade from 0.4.0** to import IDX's ownership register from October 2026 on. Scripts that retry on exit 4 for idx.co.id should also handle the new exit 6, a Cloudflare challenge.
+
+### New Features
+
+- `idx stocks intraday` and the MCP tool `get_intraday` show today's session by the minute from Stockbit's public page, for stocks and the `IHSG` and `LQ45` indices: the quote, the best bid and offer while the market is open, and a sparkline. No login is needed. (#73)
+- `--provider stockbit` (or `IDX_PROVIDER=stockbit`, or `general.provider`) serves quotes from Stockbit, with bid, offer and market status. History stays on Yahoo, and the MSN-only commands answer `UNSUPPORTED`. (#73)
+- `idx stockbit login`, `status` and `logout` sign in with your own Stockbit account. On a desktop, idx opens a browser window on Stockbit's sign-in page; over SSH or with `--no-browser`, a page on 127.0.0.1 takes the session from your own browser. idx never sees your password, stores the session with mode 0600, and refreshes it under a lock so concurrent processes never spend it twice. (#74)
+- `idx stocks orderbook` and `get_orderbook` show a stock's order book: the depth ladder, OHLC, value, trades and foreign flow, and whether the book is live. (#74)
+- With a session, `--provider stockbit` quotes come from Stockbit's session API, and price history from 5 days to 1 year uses Stockbit's daily charts (`--history-provider stockbit`, or `auto` under the stockbit provider). If Stockbit refuses the session, `auto` falls back to Yahoo with a warning. (#74)
+- MCP: `stockbit_login` starts a sign-in and answers at once, and `stockbit_status` reports it: `sign_in.state` (waiting, signed_in or failed), plus `sign_in.warning` while it waits, for example when Stockbit refuses the session. (#74)
+- `idx stocks actions` and `get_corporate_actions` list one stock's corporate actions from your Stockbit session, newest first: cash and stock dividends, bonus shares, rights issues, warrants, splits and reverse splits, shareholders' meetings, public exposes and tender offers. `--kind` picks kinds, and `--kind ipo` adds the stock's IPO. (#78)
+- `idx stocks calendar` and `get_corporate_calendar` list the market's actions dated in a range, oldest first: by default today and the next 30 days, at most 366 days. Rights trading, tender offers and IPO offers still open in the range are listed too, so an offer that began earlier shows while you can act on it. (#78)
+- An action's `date` is its cum date where there is an entitlement (dividends, bonuses, rights, splits), else the event's first day. Where Stockbit gives only an ex date, the table marks it `(ex)`. Dividends paid in another currency carry `currency`. (#78)
+- `idx ownership movements` and `get_shareholder_movements` list reported changes in insiders' and major holders' stakes from your Stockbit session, newest first. `IDX` rows are insider disclosures with the trade price; `KSEI` rows are holders at 5% and above, with a price Stockbit estimates. Stockbit filters by date, holder, action and source, and `--pages` reads up to 10 pages of 50 rows. If a later page fails, you get the rows read before it, with `incomplete` saying why. (#80)
+- `ownership discover --require-data-page` fails when the IDX data page can't be read, instead of warning and listing older announcements. The ownership publisher uses it. (#84)
+
+### Bug Fixes
+
+- `ownership import` reads IDX's above-1% register from October 2026 on, which adds a `CONTROLLER_OR_AFFILIATE` column; 0.4.0 rejects these files with `PARSEERROR`. Any other unknown column is still rejected. (#79)
+- The ownership publisher no longer reports `RESULT: up-to-date` when only the IDX data page failed and the newest report was missing; it rebuilds and fails loudly instead. (#84)
+
+### Improvements
+
+- CI and the release build macOS binaries on `macos-15` runners, since GitHub retired `macos-14`. (#75)
+- idx reads Stockbit's session API only on the endpoints it uses. The same API places orders and withdraws cash; any other path fails inside idx before a request leaves your machine. (#78)
+- The `ownership` commands honour `--offline` and `--no-cache`; only `movements` uses them. (#80)
+- The stale-cache warning names the failure that caused it, for example `network failed (provider unavailable), serving stale cache for BBCA.JK`. (#81)
+- A Cloudflare challenge from idx.co.id ends after one round of browser profiles instead of two, since no profile can solve it, and `-v` logs which profile fetched each IDX URL. (#84)
+
+### Output Changes
+
+- New error code `UPSTREAMBLOCKED` (exit 4): a site's CDN refused idx, so the request is not retried. (#73)
+- Under the stockbit provider, quotes carry `market_status` (`open` or `close`), `bid` and `offer` (while the market is open) and `session_note`. MSN and Yahoo output is unchanged. (#73, #74)
+- `stocks intraday` marks a chart from before the latest session with `behind_session`, as quotes do. (#73)
+- MCP answers and errors carry `warnings` when idx worked around something the CLI warns about on stderr: history that fell back to Yahoo, a stale cache entry and the failure behind it, or a shareholder movements query cut short. (#81)
+- **Breaking:** a Cloudflare challenge from idx.co.id now fails with the new error code `CLOUDFLARECHALLENGE` and exit status 6, instead of `HTTP` and exit 4. This affects `ownership discover`, `ownership import --url` and `stocks flow --source idx`; a script that checks for exactly 4 needs updating. (#84)
+- The ownership publisher ends a challenged run with `RESULT: blocked stage=<stage>` and exit 6; every other failure stays `RESULT: FAILED`. (#84)
+
+### Docs
+
+- `CHANGELOG.md` records every release since 0.2.0, and each release's GitHub notes come from it. (#82)
+
+### Notes
+
+- Stockbit's terms allow personal, non-commercial use, and its data is delayed at least 10 minutes. idx sends at most one request a second across all its processes. See the [Stockbit page](https://idx.rasyidanaf.com/cli/stockbit/). (#73)
+- New dependency in idx-core: `base64` 0.22. (#74)
+- Google sign-in does not work in idx's browser window; sign in with your password there, or use the local page (`idx stockbit login --no-browser`). (#74)
+
+**Full Changelog**: https://github.com/0xrsydn/idx-cli/compare/v0.4.0...v0.5.0
+
 ## [0.4.0] - 2026-10-19
 
 Broker summaries, bandarmology and foreign flow, from public data with no login or key.

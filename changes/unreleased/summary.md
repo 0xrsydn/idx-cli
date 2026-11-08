@@ -1,1 +1,0 @@
-Stockbit data: intraday and quotes without a login, and with your own Stockbit session the order book, daily history, corporate actions and shareholder movements. **Upgrade from 0.4.0** to import IDX's ownership register from October 2026 on.
