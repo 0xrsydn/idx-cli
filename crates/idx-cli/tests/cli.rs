@@ -1962,6 +1962,74 @@ fn ownership_import_file_xlsx_supports_ticker_and_releases() {
     assert_eq!(releases[0]["row_count"].as_u64(), Some(17));
 }
 
+/// A report fetched by other means (a browser when IDX refuses curl) keeps its
+/// provenance: `--source-url` is recorded as an import by `--url` would.
+#[test]
+fn ownership_import_file_with_source_url_records_provenance() {
+    let root = test_env_dir("ownership-import-source-url");
+    let db_path = root.join("ownership.db");
+    let xlsx_path = root.join("peng-2026-08-00017-satu-persen.xlsx");
+    fs::write(
+        &xlsx_path,
+        include_bytes!("../../idx-core/tests/fixtures/ksei_above1_20260831_excerpt.xlsx"),
+    )
+    .expect("write xlsx fixture");
+    bin_with_root(&root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            db_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let xlsx = xlsx_path.to_str().unwrap();
+    let url = "https://www.idx.co.id/Media/fahlw1o2/peng-2026-08-00017-satu-persen.xlsx";
+
+    for args in [
+        // a URL of another format than the file
+        vec![
+            "--file",
+            xlsx,
+            "--source-url",
+            "https://www.idx.co.id/Media/x/r.pdf",
+        ],
+        // not http(s)
+        vec!["--file", xlsx, "--source-url", "/tmp/peng.xlsx"],
+        // nothing to attach it to
+        vec!["--url", url, "--source-url", url],
+    ] {
+        let mut cmd = bin_with_root(&root);
+        cmd.args(["-o", "json", "ownership", "import"]).args(&args);
+        run_error_json(&mut cmd, "INVALIDINPUT");
+    }
+    let releases =
+        run_success_json(bin_with_root(&root).args(["-o", "json", "ownership", "releases"]));
+    assert_eq!(
+        releases.as_array().unwrap().len(),
+        0,
+        "a refused import wrote"
+    );
+
+    let imported = run_success_json(bin_with_root(&root).args([
+        "-o",
+        "json",
+        "ownership",
+        "import",
+        "--file",
+        xlsx,
+        "--source-url",
+        url,
+    ]));
+    assert_eq!(imported["action"], "imported");
+    assert_eq!(imported["source_url"], url);
+    let releases =
+        run_success_json(bin_with_root(&root).args(["-o", "json", "ownership", "releases"]));
+    assert_eq!(releases[0]["source_url"], url);
+    assert_eq!(releases[0]["as_of_date"], "2026-08-31");
+    assert_eq!(releases[0]["row_count"].as_u64(), Some(17));
+}
+
 /// IDX added a CONTROLLER_OR_AFFILIATE column to the register from October
 /// 2026; it imports alongside an earlier 12-column month.
 #[test]

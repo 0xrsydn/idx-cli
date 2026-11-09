@@ -1252,17 +1252,20 @@ Options:
       --no-color
           Disable colored output
 
-      --fetch-bing <FETCH_BING>
-          Fetch Bing institutional data for these symbols
-
   -q, --quiet
           Suppress non-essential output
 
-      --force
-          Re-import even if the release SHA-256 has already been seen
+      --source-url <SOURCE_URL>
+          With --file: the XLSX or PDF URL the file was downloaded from, recorded as the release's source_url as --url would
+
+      --fetch-bing <FETCH_BING>
+          Fetch Bing institutional data for these symbols
 
   -v, --verbose...
           Increase verbosity (-v, -vv)
+
+      --force
+          Re-import even if the release SHA-256 has already been seen
 
       --provider <PROVIDER>
           Market data provider [default: general.provider, else msn]
@@ -1281,6 +1284,7 @@ Options:
 Examples:
   idx ownership import --url <pdf-url-from-discover>
   idx ownership import --file /path/to/peng-2026-08-00017-satu-persen.xlsx
+  idx ownership import --file peng-2026-10-00029-satu-persen.xlsx --source-url <its-xlsx-url>
   idx ownership import --file /path/to/ksei.pdf
   idx ownership import --file /path/to/BalanceposEfek20260227.zip
 ```
