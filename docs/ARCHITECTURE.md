@@ -374,6 +374,12 @@ reject others, varying by path and over time. IDX fetches therefore try several
 profiles until the response validates (JSON, the file list's `items`, `%PDF`, or
 `PK` zip magic). `IDX_CURL_IMPERSONATE_BIN` pins a single profile.
 
+Requests never set a User-Agent: each profile sends its own browser's, which
+matches its TLS fingerprint and client hints. A fixed one on every profile was
+itself a reason for challenges: on 2026-11-10 `curl_chrome131` passed 5 times out
+of 5 with its own User-Agent and once out of 5 with idx's old Chrome/122 one.
+`curl_impersonate::run_owned_with_fallback` asserts this in debug builds.
+
 At times every profile gets a challenge (`cf-mitigated: challenge`, seen on
 2026-11-05), which only a browser can solve. curl reports that header on stderr
 through `--write-out`, because `--fail` drops the response. A profile that gets a
