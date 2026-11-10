@@ -93,6 +93,9 @@ idx ownership import --file peng-2026-10-00029-satu-persen.xlsx \
   --source-url https://www.idx.co.id/Media/wlef2nvt/peng-2026-10-00029-satu-persen.xlsx
 ```
 
+A report already imported is skipped and keeps the `source_url` it has; the
+result shows that one. Add `--force` to re-import it with the new address.
+
 ## Entity names
 
 The register spells some investors differently from month to month.

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::NaiveDate;
 use directories::ProjectDirs;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::config::get_config_value;
 use crate::error::IdxError;
@@ -378,17 +378,28 @@ pub fn write_ksei_release(
     }
 }
 
-/// Check if a release with this SHA-256 already exists.
-pub fn release_exists(conn: &Connection, sha256: &str) -> Result<bool, IdxError> {
-    let exists: i64 = conn
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM ownership_releases WHERE sha256 = ?1)",
-            params![sha256],
-            |row| row.get(0),
-        )
-        .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
+/// The release imported from the file with this SHA-256, if any.
+pub fn find_release(conn: &Connection, sha256: &str) -> Result<Option<OwnershipRelease>, IdxError> {
+    conn.query_row(
+        "SELECT id, source_url, sha256, as_of_date, row_count, imported_at
+         FROM ownership_releases WHERE sha256 = ?1",
+        params![sha256],
+        release_from_row,
+    )
+    .optional()
+    .map_err(|e| IdxError::DatabaseError(e.to_string()))
+}
 
-    Ok(exists == 1)
+fn release_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OwnershipRelease> {
+    Ok(OwnershipRelease {
+        id: row.get(0)?,
+        source_url: row.get(1)?,
+        sha256: row.get(2)?,
+        as_of_date: parse_iso_date(&row.get::<_, String>(3)?)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+        row_count: row.get::<_, i64>(4)? as usize,
+        imported_at: row.get(5)?,
+    })
 }
 
 /// Get combined KSEI + Bing holdings for a ticker.
@@ -808,17 +819,7 @@ pub fn query_releases(conn: &Connection) -> Result<Vec<OwnershipRelease>, IdxErr
         .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
     let rows = stmt
-        .query_map([], |row| {
-            Ok(OwnershipRelease {
-                id: row.get(0)?,
-                source_url: row.get(1)?,
-                sha256: row.get(2)?,
-                as_of_date: parse_iso_date(&row.get::<_, String>(3)?)
-                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                row_count: row.get::<_, i64>(4)? as usize,
-                imported_at: row.get(5)?,
-            })
-        })
+        .query_map([], release_from_row)
         .map_err(|e| IdxError::DatabaseError(e.to_string()))?;
 
     let mut out = Vec::new();
@@ -1419,10 +1420,9 @@ mod tests {
 
     use crate::error::IdxError;
     use crate::ownership::db::{
-        compute_concentration, ensure_schema, get_ticker_id, insert_bing_holdings,
+        compute_concentration, ensure_schema, find_release, get_ticker_id, insert_bing_holdings,
         insert_ksei_holdings, insert_release, query_changes, query_concentration,
-        query_cross_holders, query_ticker_holdings, release_exists, upsert_ticker,
-        write_ksei_release,
+        query_cross_holders, query_ticker_holdings, upsert_ticker, write_ksei_release,
     };
     use crate::ownership::types::{
         BingHolding, ChangeType, FlowSignal, KseiHolding, Locality, OwnershipRelease,
@@ -1686,9 +1686,9 @@ mod tests {
     }
 
     #[test]
-    fn test_release_exists_before_and_after_insert() {
+    fn test_find_release_before_and_after_insert() {
         let conn = setup();
-        assert!(!release_exists(&conn, "abc").unwrap());
+        assert!(find_release(&conn, "abc").unwrap().is_none());
 
         let release = OwnershipRelease {
             id: 0,
@@ -1698,9 +1698,17 @@ mod tests {
             row_count: 10,
             imported_at: 1_700_000_000,
         };
-        let _ = insert_release(&conn, &release).unwrap();
+        let id = insert_release(&conn, &release).unwrap();
 
-        assert!(release_exists(&conn, "abc").unwrap());
+        let found = find_release(&conn, "abc")
+            .unwrap()
+            .expect("inserted release");
+        assert_eq!(found.id, id);
+        assert_eq!(
+            found.source_url.as_deref(),
+            Some("https://example.com/r.pdf")
+        );
+        assert_eq!(found.as_of_date, release.as_of_date);
     }
 
     #[test]

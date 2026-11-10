@@ -317,7 +317,8 @@ impl Investor {
     /// `source_url`, and records that URL as the release's `source_url`, as an
     /// import by URL would. For a report fetched by other means, such as a
     /// browser when IDX refuses curl. The URL must be http(s) and name the same
-    /// format as the file.
+    /// format as the file. A release already imported keeps its stored
+    /// `source_url` (the result reports that one) unless `force` re-imports it.
     pub fn import_file_from(
         &self,
         path: &Path,
@@ -334,14 +335,16 @@ impl Investor {
         let conn = self.open_db()?;
 
         let sha256 = sha256_file(&input.path)?;
-        if !force && db::release_exists(&conn, &sha256)? {
+        // A skipped import reports the release as stored: a `source_url`
+        // passed now is not recorded without `force`.
+        if !force && let Some(existing) = db::find_release(&conn, &sha256)? {
             return Ok(ImportResult {
                 action: "skipped_existing",
                 inserted_rows: 0,
                 ticker_count: 0,
                 as_of_date: None,
                 sha256,
-                source_url: input.source_url,
+                source_url: existing.source_url,
             });
         }
 
