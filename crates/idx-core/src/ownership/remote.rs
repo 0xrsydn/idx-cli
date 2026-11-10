@@ -15,7 +15,11 @@ const IDX_ANNOUNCEMENT_PAGE_SIZE: usize = 10;
 /// Since June 2026 the monthly above-1% list (XLSX) is published only here.
 pub const IDX_SHARE_OWNERSHIP_PAGE_URL: &str =
     "https://www.idx.co.id/id/perusahaan-tercatat/data-kepemilikan-saham/";
-const IDX_SHARE_OWNERSHIP_PAGE_ENV: &str = "IDX_OWNERSHIP_DATA_PAGE_URL";
+/// The JSON file list that page's own script loads. Without a `year`
+/// parameter it returns every year in one response.
+const IDX_SHARE_OWNERSHIP_LIST_URL: &str =
+    "https://www.idx.co.id/primary/list/id/perusahaan-tercatat/data-kepemilikan-saham";
+const IDX_SHARE_OWNERSHIP_LIST_ENV: &str = "IDX_OWNERSHIP_DATA_LIST_URL";
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -163,10 +167,17 @@ pub fn announcement_listing_url() -> String {
 }
 
 pub fn share_ownership_page_url() -> String {
-    std::env::var(IDX_SHARE_OWNERSHIP_PAGE_ENV)
+    IDX_SHARE_OWNERSHIP_PAGE_URL.to_string()
+}
+
+/// The data page's file list request, all years at once.
+pub fn share_ownership_list_url() -> String {
+    let base = std::env::var(IDX_SHARE_OWNERSHIP_LIST_ENV)
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| IDX_SHARE_OWNERSHIP_PAGE_URL.to_string())
+        .unwrap_or_else(|| IDX_SHARE_OWNERSHIP_LIST_URL.to_string());
+    let separator = if base.contains('?') { '&' } else { '?' };
+    format!("{base}{separator}lang=id&start=0&length=9999")
 }
 
 pub fn announcement_api_url() -> String {
@@ -308,7 +319,7 @@ pub fn discover_idx_ownership_reports(
         match fetch_text(
             "IDX ownership announcement discovery",
             &query_url,
-            &json_headers(),
+            &json_headers(&announcement_listing_url()),
             &validate_json_payload,
         )
         .and_then(|raw| parse_announcement_page(&raw))
@@ -320,41 +331,17 @@ pub fn discover_idx_ownership_reports(
     }
 
     let mut page_error = None;
+    let list_url = share_ownership_list_url();
     match fetch_text(
         "IDX share ownership data page discovery",
-        &share_ownership_page_url(),
-        &page_headers(),
-        &validate_share_ownership_page,
-    ) {
-        Ok(html) => {
-            let mut page_reports = parse_share_ownership_page(&html, &share_ownership_page_url());
-            if page_reports.is_empty() {
-                // The page loaded (it has its file list) but nothing parsed:
-                // the payload shape changed. Say so instead of silently
-                // falling back to announcement-only results.
-                page_error = Some(IdxError::ParseError(format!(
-                    "IDX share ownership data page {} loaded but no report entries could be parsed; the page layout may have changed",
-                    share_ownership_page_url()
-                )));
-            }
-            page_reports
-                .retain(|report| family_filter.is_none_or(|family| family == report.family));
-            // Keep the full above-1% history (snapshot backfill needs it), but
-            // only the newest entry of the unsupported daily/breakdown series.
-            page_reports.sort_by(|left, right| right.publish_date.cmp(&left.publish_date));
-            let mut seen_unsupported = Vec::new();
-            page_reports.retain(|report| {
-                if report.family == OwnershipReportFamily::AboveOnePercent {
-                    return true;
-                }
-                if seen_unsupported.contains(&report.family) {
-                    return false;
-                }
-                seen_unsupported.push(report.family);
-                true
-            });
-            discovered.extend(page_reports);
-        }
+        &list_url,
+        &json_headers(&share_ownership_page_url()),
+        &validate_share_ownership_list,
+    )
+    .and_then(|raw| parse_share_ownership_list(&raw, &list_url))
+    .and_then(|reports| require_page_reports(reports, &list_url))
+    {
+        Ok(page_reports) => discovered.extend(select_page_reports(page_reports, family_filter)),
         Err(err) => page_error = Some(err),
     }
 
@@ -364,18 +351,7 @@ pub fn discover_idx_ownership_reports(
         return Err(err);
     }
 
-    discovered.sort_by(|left, right| {
-        right
-            .publish_date
-            .cmp(&left.publish_date)
-            .then_with(|| left.status.sort_rank().cmp(&right.status.sort_rank()))
-            .then_with(|| right.is_attachment.cmp(&left.is_attachment))
-            .then_with(|| left.original_filename.cmp(&right.original_filename))
-    });
-
-    if limit < discovered.len() {
-        discovered.truncate(limit);
-    }
+    sort_and_limit(&mut discovered, limit);
 
     if !discovered.is_empty()
         && let Some(err) = &page_error
@@ -390,11 +366,87 @@ pub fn discover_idx_ownership_reports(
         return Err(discovery_failure(
             &errors,
             &announcement_listing_url(),
-            &share_ownership_page_url(),
+            &list_url,
         ));
     }
 
     Ok(discovered)
+}
+
+/// Discovery from data page file lists saved earlier, such as by a browser
+/// when IDX challenges curl. Same output as a live `--require-data-page`
+/// discovery of that list, without the announcement API or any network.
+pub fn discover_from_share_ownership_lists(
+    lists: &[String],
+    family_filter: Option<OwnershipReportFamily>,
+    limit: usize,
+) -> Result<Vec<DiscoveredOwnershipPdf>, IdxError> {
+    let list_url = share_ownership_list_url();
+    let mut reports = Vec::new();
+    for raw in lists {
+        reports.extend(parse_share_ownership_list(raw, &list_url)?);
+    }
+    // The same file saved twice is one report.
+    let mut seen = std::collections::HashSet::new();
+    reports.retain(|report| seen.insert(report.pdf_url.clone()));
+    let reports = require_page_reports(reports, &list_url)?;
+
+    let mut discovered = select_page_reports(reports, family_filter);
+    sort_and_limit(&mut discovered, limit);
+    if discovered.is_empty() {
+        return Err(IdxError::Http(format!(
+            "no matching ownership reports found in the IDX share ownership file list {list_url}"
+        )));
+    }
+    Ok(discovered)
+}
+
+/// A list that loaded but yielded no reports means its shape changed: say so
+/// instead of silently falling back to announcement-only results.
+fn require_page_reports(
+    reports: Vec<DiscoveredOwnershipPdf>,
+    list_url: &str,
+) -> Result<Vec<DiscoveredOwnershipPdf>, IdxError> {
+    if reports.is_empty() {
+        return Err(IdxError::ParseError(format!(
+            "IDX share ownership file list {list_url} loaded but no report entries could be parsed; its format may have changed"
+        )));
+    }
+    Ok(reports)
+}
+
+/// Keep the full above-1% history (snapshot backfill needs it), but only the
+/// newest entry of the unsupported daily/breakdown series.
+fn select_page_reports(
+    mut reports: Vec<DiscoveredOwnershipPdf>,
+    family_filter: Option<OwnershipReportFamily>,
+) -> Vec<DiscoveredOwnershipPdf> {
+    reports.retain(|report| family_filter.is_none_or(|family| family == report.family));
+    reports.sort_by(|left, right| right.publish_date.cmp(&left.publish_date));
+    let mut seen_unsupported = Vec::new();
+    reports.retain(|report| {
+        if report.family == OwnershipReportFamily::AboveOnePercent {
+            return true;
+        }
+        if seen_unsupported.contains(&report.family) {
+            return false;
+        }
+        seen_unsupported.push(report.family);
+        true
+    });
+    reports
+}
+
+fn sort_and_limit(discovered: &mut Vec<DiscoveredOwnershipPdf>, limit: usize) {
+    discovered.sort_by(|left, right| {
+        right
+            .publish_date
+            .cmp(&left.publish_date)
+            .then_with(|| left.status.sort_rank().cmp(&right.status.sort_rank()))
+            .then_with(|| right.is_attachment.cmp(&left.is_attachment))
+            .then_with(|| left.original_filename.cmp(&right.original_filename))
+    });
+    discovered.truncate(limit);
 }
 
 /// The error for a discovery that found nothing. A challenge names the cause
@@ -491,12 +543,12 @@ fn validate_json_payload(bytes: &[u8]) -> Result<(), IdxError> {
     Ok(())
 }
 
-fn validate_share_ownership_page(bytes: &[u8]) -> Result<(), IdxError> {
-    if contains_bytes(bytes, b"Prospectus") {
+fn validate_share_ownership_list(bytes: &[u8]) -> Result<(), IdxError> {
+    if !looks_like_html(bytes) && contains_bytes(bytes, b"\"items\"") {
         return Ok(());
     }
     Err(IdxError::Http(
-        "IDX share ownership data page did not contain its file list (likely a Cloudflare challenge)".to_string(),
+        "IDX share ownership file list did not come back as its JSON (likely a Cloudflare challenge)".to_string(),
     ))
 }
 
@@ -516,89 +568,48 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
         .any(|window| window == needle)
 }
 
-/// Parse the Data Kepemilikan Saham page. The page is server-rendered by
-/// Nuxt and embeds its file list as JS object literals such as
-/// `{Description:"Pemegang Saham di Atas 1% per 31 Agustus 2026",
-///   Prospectus:"https:\u002F\u002Fwww.idx.co.id\u002FMedia\u002F...xlsx",...}`.
-pub fn parse_share_ownership_page(html: &str, page_url: &str) -> Vec<DiscoveredOwnershipPdf> {
-    let mut reports = Vec::new();
-    let mut rest = html;
-
-    while let Some(start) = find_js_key(rest, "Description") {
-        let (description, after_description) = match read_js_string(&rest[start..]) {
-            Some(value) => value,
-            None => {
-                rest = &rest[start..];
-                continue;
-            }
-        };
-        let object_tail = &rest[start + after_description..];
-        // The URL belongs to the same object literal, so it must come before
-        // the next Description key.
-        let window_end = find_js_key(object_tail, "Description").unwrap_or(object_tail.len());
-        let window = &object_tail[..window_end];
-        rest = object_tail;
-
-        let Some(url_start) = find_js_key(window, "Prospectus") else {
-            continue;
-        };
-        let Some((url, _)) = read_js_string(&window[url_start..]) else {
-            continue;
-        };
-        if let Some(report) = classify_page_entry(description.trim(), url.trim(), page_url) {
-            reports.push(report);
-        }
-    }
-
-    reports
+#[derive(Debug, Deserialize)]
+struct ShareOwnershipList {
+    items: Vec<ShareOwnershipListItem>,
 }
 
-/// Offset just past `Key:` / `"Key":` (the opening quote of the value).
-fn find_js_key(haystack: &str, key: &str) -> Option<usize> {
-    let bare = format!("{key}:\"");
-    let quoted = format!("\"{key}\":\"");
-    [bare, quoted]
+#[derive(Debug, Deserialize)]
+struct ShareOwnershipListItem {
+    #[serde(rename = "Description", default)]
+    description: Option<String>,
+    #[serde(rename = "Prospectus", default)]
+    prospectus: Option<String>,
+}
+
+/// Parse the Data Kepemilikan Saham file list, the JSON the page's own script
+/// loads: `{"items":[{"Description":"Pemegang Saham di Atas 1% per 31 Agustus
+/// 2026","Prospectus":"https://www.idx.co.id/Media/.../...xlsx","ListingDate":
+/// "2026-08-31T12:00:00"}],"meta":{...}}`. The as-of date comes from the
+/// description; entries without a file URL or a date are skipped.
+pub fn parse_share_ownership_list(
+    raw: &str,
+    list_url: &str,
+) -> Result<Vec<DiscoveredOwnershipPdf>, IdxError> {
+    let list: ShareOwnershipList = serde_json::from_str(raw.trim()).map_err(|e| {
+        IdxError::ParseError(format!(
+            "failed to parse the IDX share ownership file list as JSON: {e}"
+        ))
+    })?;
+    Ok(list
+        .items
         .iter()
-        .filter_map(|needle| {
-            haystack
-                .find(needle.as_str())
-                .map(|index| index + needle.len() - 1)
+        .filter_map(|item| {
+            let description = item.description.as_deref()?.trim();
+            let url = item.prospectus.as_deref()?.trim();
+            classify_page_entry(description, url, list_url)
         })
-        .min()
-}
-
-/// Read a JS/JSON string literal starting at the opening quote. Returns the
-/// decoded value and the byte offset just past the closing quote.
-fn read_js_string(input: &str) -> Option<(String, usize)> {
-    let mut chars = input.char_indices();
-    if chars.next()?.1 != '"' {
-        return None;
-    }
-    let mut value = String::new();
-    while let Some((index, ch)) = chars.next() {
-        match ch {
-            '"' => return Some((value, index + 1)),
-            '\\' => match chars.next()?.1 {
-                'u' => {
-                    let hex: String = (0..4)
-                        .filter_map(|_| chars.next().map(|(_, c)| c))
-                        .collect();
-                    value.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
-                }
-                'n' => value.push('\n'),
-                't' => value.push('\t'),
-                other => value.push(other),
-            },
-            _ => value.push(ch),
-        }
-    }
-    None
+        .collect())
 }
 
 fn classify_page_entry(
     description: &str,
     url: &str,
-    page_url: &str,
+    list_url: &str,
 ) -> Option<DiscoveredOwnershipPdf> {
     let upper = description.to_uppercase();
     let family = if upper.contains("DI ATAS 1%") || upper.contains("ABOVE 1%") {
@@ -637,8 +648,8 @@ fn classify_page_entry(
     Some(DiscoveredOwnershipPdf {
         family,
         status,
-        listing_page_url: page_url.to_string(),
-        query_url: page_url.to_string(),
+        listing_page_url: share_ownership_page_url(),
+        query_url: list_url.to_string(),
         pdf_url: url.to_string(),
         title: description.to_string(),
         publish_date: as_of_date.clone(),
@@ -744,7 +755,8 @@ fn fetch_bytes(
     Ok(output.stdout)
 }
 
-fn json_headers() -> Vec<(String, String)> {
+/// Headers for an IDX JSON request made from the page at `referer`.
+fn json_headers(referer: &str) -> Vec<(String, String)> {
     vec![
         ("User-Agent".to_string(), USER_AGENT.to_string()),
         (
@@ -755,21 +767,7 @@ fn json_headers() -> Vec<(String, String)> {
             "Accept-Language".to_string(),
             "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7".to_string(),
         ),
-        ("Referer".to_string(), announcement_listing_url()),
-    ]
-}
-
-fn page_headers() -> Vec<(String, String)> {
-    vec![
-        ("User-Agent".to_string(), USER_AGENT.to_string()),
-        (
-            "Accept".to_string(),
-            "text/html,application/xhtml+xml,*/*;q=0.8".to_string(),
-        ),
-        (
-            "Accept-Language".to_string(),
-            "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7".to_string(),
-        ),
+        ("Referer".to_string(), referer.to_string()),
     ]
 }
 
@@ -892,10 +890,11 @@ fn percent_encode(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        AnnouncementPage, IDX_ANNOUNCEMENT_LISTING_URL, OwnershipReportFamily,
-        OwnershipReportStatus, build_announcement_query_url, parse_announcement_page,
-        parse_indonesian_as_of_date, parse_share_ownership_page, select_latest_ownership_reports,
-        validate_pdf_payload, validate_share_ownership_page, validate_xlsx_payload,
+        AnnouncementPage, IDX_ANNOUNCEMENT_LISTING_URL, IDX_SHARE_OWNERSHIP_PAGE_URL,
+        OwnershipReportFamily, OwnershipReportStatus, build_announcement_query_url,
+        discover_from_share_ownership_lists, parse_announcement_page, parse_indonesian_as_of_date,
+        parse_share_ownership_list, select_latest_ownership_reports, share_ownership_list_url,
+        validate_pdf_payload, validate_share_ownership_list, validate_xlsx_payload,
     };
     use crate::error::IdxError;
 
@@ -1156,14 +1155,16 @@ mod tests {
         assert!(err.to_string().contains("PDF/direct attachment"));
     }
 
+    /// Trimmed from the live list on 2026-11-10: every family, a 2025 entry,
+    /// and descriptions with the trailing whitespace and newlines IDX sends.
+    const LIST_FIXTURE: &str =
+        include_str!("../../tests/fixtures/idx_share_ownership_list_excerpt.json");
+
     #[test]
-    fn parses_share_ownership_page_entries() {
-        let page_url = "https://www.idx.co.id/id/perusahaan-tercatat/data-kepemilikan-saham/";
-        let reports = parse_share_ownership_page(
-            include_str!("../../tests/fixtures/idx_share_ownership_page_excerpt.html"),
-            page_url,
-        );
-        assert_eq!(reports.len(), 7);
+    fn parses_share_ownership_list_entries() {
+        let list_url = share_ownership_list_url();
+        let reports = parse_share_ownership_list(LIST_FIXTURE, &list_url).expect("parse list");
+        assert_eq!(reports.len(), 9);
 
         let above1: Vec<_> = reports
             .iter()
@@ -1173,51 +1174,62 @@ mod tests {
         assert!(
             above1
                 .iter()
-                .all(|r| r.status == OwnershipReportStatus::Supported)
-        );
-        assert!(above1.iter().all(|r| r.format == "xlsx"));
-
-        let august = above1
-            .iter()
-            .find(|r| r.as_of_date.as_deref() == Some("2026-08-31"))
-            .expect("August above-1% entry");
-        assert_eq!(
-            august.pdf_url,
-            "https://www.idx.co.id/Media/fahlw1o2/peng-2026-08-00017-satu-persen.xlsx"
-        );
-        assert_eq!(august.publish_date, "2026-08-31");
-        assert_eq!(august.listing_page_url, page_url);
-        assert_eq!(
-            august.original_filename.as_deref(),
-            Some("peng-2026-08-00017-satu-persen.xlsx")
+                .all(|r| r.status == OwnershipReportStatus::Supported && r.format == "xlsx")
         );
 
-        let above5 = reports
+        let october = above1
             .iter()
-            .filter(|r| r.family == OwnershipReportFamily::AboveFivePercent)
-            .count();
-        let breakdown = reports
-            .iter()
-            .filter(|r| r.family == OwnershipReportFamily::InvestorTypeBreakdown)
-            .count();
-        assert_eq!((above5, breakdown), (2, 2));
+            .find(|r| r.as_of_date.as_deref() == Some("2026-10-30"))
+            .expect("October above-1% entry");
+        assert_eq!(
+            october.pdf_url,
+            "https://www.idx.co.id/Media/wlef2nvt/peng-2026-10-00029-satu-persen.xlsx"
+        );
+        assert_eq!(october.publish_date, "2026-10-30");
+        assert_eq!(
+            october.title,
+            "Pemegang Saham di Atas 1% per 30 Oktober 2026"
+        );
+        assert_eq!(october.listing_page_url, IDX_SHARE_OWNERSHIP_PAGE_URL);
+        assert_eq!(october.query_url, list_url);
+        assert_eq!(
+            october.original_filename.as_deref(),
+            Some("peng-2026-10-00029-satu-persen.xlsx")
+        );
+
+        let count = |family| reports.iter().filter(|r| r.family == family).count();
+        assert_eq!(count(OwnershipReportFamily::AboveFivePercent), 2);
+        assert_eq!(count(OwnershipReportFamily::InvestorTypeBreakdown), 4);
         assert!(
             reports
                 .iter()
                 .filter(|r| r.family != OwnershipReportFamily::AboveOnePercent)
                 .all(|r| r.status == OwnershipReportStatus::Unsupported)
         );
+        // IDX pads some descriptions with spaces and a newline.
+        assert!(reports.iter().all(|r| r.title == r.title.trim()));
+        let may = reports
+            .iter()
+            .find(|r| {
+                r.pdf_url
+                    .ends_with("peng-2026-05-29-00001-lima-persen.xlsx")
+            })
+            .expect("May above-5% entry");
+        assert_eq!(may.as_of_date.as_deref(), Some("2026-05-29"));
     }
 
     #[test]
-    fn share_ownership_page_handles_query_strings_and_dateless_entries() {
-        let html = r#"{Description:"Pemegang Saham di Atas 1% per 31 Agustus 2026",Prospectus:"https://www.idx.co.id/Media/x/peng-satu-persen.xlsx?download=1",ListingDate:r},{Description:"Pemegang Saham di Atas 1%",Prospectus:"https://www.idx.co.id/Media/y/no-date.xlsx",ListingDate:r}"#;
-        let reports = parse_share_ownership_page(html, "p");
-        assert_eq!(
-            reports.len(),
-            1,
-            "dateless entry skipped, query-string entry kept"
-        );
+    fn share_ownership_list_skips_entries_without_a_file_or_date() {
+        let raw = r#"{"items":[
+            {"Description":"Pemegang Saham di Atas 1% per 31 Agustus 2026","Prospectus":"https://www.idx.co.id/Media/x/peng-satu-persen.xlsx?download=1","ListingDate":"2026-08-31T12:00:00"},
+            {"Description":"Pemegang Saham di Atas 1%","Prospectus":"https://www.idx.co.id/Media/y/no-date.xlsx","ListingDate":"2026-08-31T12:00:00"},
+            {"Description":"Pemegang Saham di Atas 1% per 30 September 2026","Prospectus":null,"ListingDate":"2026-09-30T12:00:00"},
+            {"Description":"Pemegang Saham di Atas 1% per 30 Oktober 2026","ListingDate":"2026-10-30T12:00:00"},
+            {"Description":null,"Prospectus":"https://www.idx.co.id/Media/z/peng-satu-persen.xlsx"},
+            {"Description":"Laporan Lain per 31 Agustus 2026","Prospectus":"https://www.idx.co.id/Media/w/other.xlsx"}
+        ],"meta":{}}"#;
+        let reports = parse_share_ownership_list(raw, "l").expect("parse list");
+        assert_eq!(reports.len(), 1, "{reports:?}");
         assert_eq!(reports[0].format, "xlsx");
         assert_eq!(reports[0].status, OwnershipReportStatus::Supported);
         assert_eq!(
@@ -1228,9 +1240,63 @@ mod tests {
     }
 
     #[test]
-    fn share_ownership_page_without_payload_yields_nothing() {
-        assert!(parse_share_ownership_page("<html>Just a moment...</html>", "p").is_empty());
-        assert!(validate_share_ownership_page(b"<html>Just a moment...</html>").is_err());
+    fn share_ownership_list_rejects_challenges_and_other_shapes() {
+        let challenge = b"<!DOCTYPE html><title>Just a moment...</title>";
+        assert!(validate_share_ownership_list(challenge).is_err());
+        assert!(validate_share_ownership_list(b"{\"message\":\"nope\"}").is_err());
+        assert!(validate_share_ownership_list(b"{\"items\":[]}").is_ok());
+
+        let err = parse_share_ownership_list("{\"rows\":[]}", "l").expect_err("no items key");
+        assert!(matches!(err, IdxError::ParseError(_)), "{err:?}");
+        assert!(
+            parse_share_ownership_list("{\"items\":[]}", "l")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn discovers_from_saved_lists_like_a_live_run() {
+        let lists = vec![LIST_FIXTURE.to_string(), LIST_FIXTURE.to_string()];
+        let reports = discover_from_share_ownership_lists(&lists, None, 50).expect("discover");
+        // The same list saved twice adds nothing; every above-1% month stays,
+        // the unsupported series keep only their newest entry.
+        assert_eq!(reports.len(), 5, "{reports:?}");
+        assert_eq!(reports[0].as_of_date.as_deref(), Some("2026-11-09"));
+        assert_eq!(reports[0].family, OwnershipReportFamily::AboveFivePercent);
+
+        let above1 = discover_from_share_ownership_lists(
+            &lists,
+            Some(OwnershipReportFamily::AboveOnePercent),
+            2,
+        )
+        .expect("discover above1");
+        let dates: Vec<_> = above1.iter().map(|r| r.as_of_date.as_deref()).collect();
+        assert_eq!(dates, [Some("2026-10-30"), Some("2026-09-30")]);
+        assert!(
+            above1
+                .iter()
+                .all(|r| r.query_url == share_ownership_list_url())
+        );
+    }
+
+    #[test]
+    fn discovery_from_saved_lists_fails_without_reports() {
+        let empty = vec!["{\"items\":[]}".to_string()];
+        let err = discover_from_share_ownership_lists(&empty, None, 6).expect_err("empty list");
+        assert!(matches!(err, IdxError::ParseError(_)), "{err:?}");
+
+        let only_above5 = vec![
+            r#"{"items":[{"Description":"Pemegang Saham di Atas 5% per 9 November 2026","Prospectus":"https://www.idx.co.id/Media/a/b-lima-persen.xlsx"}]}"#
+                .to_string(),
+        ];
+        let err = discover_from_share_ownership_lists(
+            &only_above5,
+            Some(OwnershipReportFamily::AboveOnePercent),
+            6,
+        )
+        .expect_err("no above-1% entry");
+        assert!(matches!(err, IdxError::Http(_)), "{err:?}");
     }
 
     #[test]

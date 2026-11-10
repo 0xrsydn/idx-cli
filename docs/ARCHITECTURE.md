@@ -352,17 +352,27 @@ Unlike the `stocks` module (live-fetch), ownership is **import-then-query**:
 `idx ownership discover` merges two IDX sources:
 - the announcement API (`GetAllAnnouncement`) for the legacy PDF announcements
 - the Data Kepemilikan Saham page (`/id/perusahaan-tercatat/data-kepemilikan-saham/`),
-  whose server-rendered Nuxt payload lists every XLSX with a description such as
-  `Pemegang Saham di Atas 1% per 31 Agustus 2026`; the as-of date comes from that text
+  read through the JSON file list its own script loads,
+  `/primary/list/id/perusahaan-tercatat/data-kepemilikan-saham?lang=id&start=0&length=9999`.
+  Without a `year` parameter that one response covers every year. Each item is
+  `{Description, Prospectus, ListingDate}`: `Prospectus` is the file URL, and the
+  as-of date comes from the description, such as
+  `Pemegang Saham di Atas 1% per 31 Agustus 2026`. IDX pads some descriptions with
+  spaces and a newline. A report's `listing_page_url` is the page; its `query_url`
+  is the list request
 
 Only the above-1% XLSX is `supported`; the daily above-5% and investor-type workbooks
-are listed as `unsupported`. Both URLs can be overridden for tests with
-`IDX_OWNERSHIP_ANNOUNCEMENT_API_URL` and `IDX_OWNERSHIP_DATA_PAGE_URL`.
+are listed as `unsupported`. Both sources can be overridden for tests with
+`IDX_OWNERSHIP_ANNOUNCEMENT_API_URL` and `IDX_OWNERSHIP_DATA_LIST_URL`.
+
+`discover --list-file <json>` parses lists saved earlier, such as by a browser when
+IDX challenges curl, and fetches nothing, announcements included. Its output equals
+a live `--require-data-page` discovery of the same list.
 
 IDX sits behind Cloudflare, which can accept some curl-impersonate TLS profiles and
 reject others, varying by path and over time. IDX fetches therefore try several
-profiles until the response validates (JSON, page payload, `%PDF`, or `PK` zip
-magic). `IDX_CURL_IMPERSONATE_BIN` pins a single profile.
+profiles until the response validates (JSON, the file list's `items`, `%PDF`, or
+`PK` zip magic). `IDX_CURL_IMPERSONATE_BIN` pins a single profile.
 
 At times every profile gets a challenge (`cf-mitigated: challenge`, seen on
 2026-11-05), which only a browser can solve. curl reports that header on stderr
