@@ -2011,6 +2011,7 @@ fn ownership_import_file_with_source_url_records_provenance() {
         "a refused import wrote"
     );
 
+    // Imported first without a URL, as the hand-built 2026-10-30 release was.
     let imported = run_success_json(bin_with_root(&root).args([
         "-o",
         "json",
@@ -2018,16 +2019,40 @@ fn ownership_import_file_with_source_url_records_provenance() {
         "import",
         "--file",
         xlsx,
-        "--source-url",
-        url,
     ]));
     assert_eq!(imported["action"], "imported");
-    assert_eq!(imported["source_url"], url);
+    assert!(imported["source_url"].is_null());
+
+    let import_with_url = |force: bool| {
+        let mut cmd = bin_with_root(&root);
+        cmd.args(["-o", "json", "ownership", "import", "--file", xlsx])
+            .args(["--source-url", url]);
+        if force {
+            cmd.arg("--force");
+        }
+        run_success_json(&mut cmd)
+    };
     let releases =
-        run_success_json(bin_with_root(&root).args(["-o", "json", "ownership", "releases"]));
+        || run_success_json(bin_with_root(&root).args(["-o", "json", "ownership", "releases"]));
+
+    // Skipped: the result reports the release as stored, not the URL passed.
+    let skipped = import_with_url(false);
+    assert_eq!(skipped["action"], "skipped_existing");
+    assert!(skipped["source_url"].is_null(), "{skipped}");
+    assert!(releases()[0]["source_url"].is_null());
+
+    // --force records it.
+    let reimported = import_with_url(true);
+    assert_eq!(reimported["action"], "reimported");
+    assert_eq!(reimported["source_url"], url);
+    let releases = releases();
+    assert_eq!(releases.as_array().unwrap().len(), 1);
     assert_eq!(releases[0]["source_url"], url);
     assert_eq!(releases[0]["as_of_date"], "2026-08-31");
     assert_eq!(releases[0]["row_count"].as_u64(), Some(17));
+
+    // Skipped again: now the stored URL.
+    assert_eq!(import_with_url(false)["source_url"], url);
 }
 
 /// IDX added a CONTROLLER_OR_AFFILIATE column to the register from October
