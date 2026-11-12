@@ -1,0 +1,55 @@
+{
+  "items": [
+    {
+      "Description": "Pemegang Saham di Atas 5% per 9 November 2026",
+      "Prospectus": "https://www.idx.co.id/Media/xdul2vyp/peng-2026-11-09-00113-lima-persen.xlsx",
+      "ListingDate": "2026-11-09T12:00:00"
+    },
+    {
+      "Description": "Data Kepemilikan Saham Perusahaan Tercatat per Tipe Investor per 30 Oktober 2026",
+      "Prospectus": "https://www.idx.co.id/Media/jv2jkbtd/peng-2026-10-00027-tipe.xlsx",
+      "ListingDate": "2026-10-30T12:00:00"
+    },
+    {
+      "Description": "Data Kepemilikan Saham Perusahaan Tercatat Berdasarkan Klasifikasi Investor per 30 Oktober 2026",
+      "Prospectus": "https://www.idx.co.id/Media/5dxpntd5/peng-2026-10-00028-klasifikasi.xlsx",
+      "ListingDate": "2026-10-30T12:00:00"
+    },
+    {
+      "Description": "Pemegang Saham di Atas 1% per 30 Oktober 2026",
+      "Prospectus": "https://www.idx.co.id/Media/wlef2nvt/peng-2026-10-00029-satu-persen.xlsx",
+      "ListingDate": "2026-10-30T12:00:00"
+    },
+    {
+      "Description": "Pemegang Saham di Atas 1% per 30 September 2026",
+      "Prospectus": "https://www.idx.co.id/Media/yqjhhsee/peng-2026-09-00024-satu-persen.xlsx",
+      "ListingDate": "2026-09-30T12:00:00"
+    },
+    {
+      "Description": "Pemegang Saham di Atas 1% per 31 Agustus 2026",
+      "Prospectus": "https://www.idx.co.id/Media/fahlw1o2/peng-2026-08-00023-satu-persen.xlsx",
+      "ListingDate": "2026-08-31T12:00:00"
+    },
+    {
+      "Description": "Data Kepemilikan Saham Perusahaan Tercatat per Tipe Investor per 29 Mei 2026  \n",
+      "Prospectus": "https://www.idx.co.id/Media/uvlhrjjj/peng-05-00010-tipe.xlsx",
+      "ListingDate": "2026-05-29T12:00:00"
+    },
+    {
+      "Description": "Pemegang Saham di Atas 5% per 29 Mei 2026\n",
+      "Prospectus": "https://www.idx.co.id/Media/n5qkwat2/peng-2026-05-29-00001-lima-persen.xlsx",
+      "ListingDate": "2026-05-29T12:00:00"
+    },
+    {
+      "Description": "Data Kepemilikan Saham Perusahaan Tercatat per Tipe Investor per 30 Desember 2025 ",
+      "Prospectus": "https://www.idx.co.id/Media/dnkd1ldv/peng-12-00005-tipe.xlsx",
+      "ListingDate": "2025-12-30T12:00:00"
+    }
+  ],
+  "meta": {
+    "startIndex": 0,
+    "pageSize": 9999,
+    "pageTotal": 1,
+    "search": ""
+  }
+}

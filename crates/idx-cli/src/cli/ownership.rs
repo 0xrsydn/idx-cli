@@ -35,13 +35,13 @@ pub struct OwnershipCmd {
 pub enum OwnershipCommand {
     #[command(
         about = "Discover the latest IDX-hosted ownership report URLs",
-        after_help = "Examples:\n  idx ownership discover --limit 1\n  idx ownership discover --family all --limit 6\n\nUse this when no snapshot manifest is available and you need a direct XLSX or PDF URL for `idx ownership import --url`."
+        after_help = "Examples:\n  idx ownership discover --limit 1\n  idx ownership discover --family all --limit 6\n  idx ownership discover --list-file list.json   # IDX's file list, saved from a browser\n\nUse this when no snapshot manifest is available and you need a direct XLSX or PDF URL for `idx ownership import --url`."
     )]
     Discover(DiscoverArgs),
     #[command(
         about = "Import ownership data directly from source files",
         long_about = "Import ownership data directly from source files.\n\nPrefer `idx ownership sync` for normal bootstrap/update flows. Use `import` when you need a direct PDF import from IDX discovery output, a local PDF, or a local KSEI archive fallback file.",
-        after_help = "Examples:\n  idx ownership import --url <pdf-url-from-discover>\n  idx ownership import --file /path/to/peng-2026-08-00017-satu-persen.xlsx\n  idx ownership import --file /path/to/ksei.pdf\n  idx ownership import --file /path/to/BalanceposEfek20260227.zip"
+        after_help = "Examples:\n  idx ownership import --url <pdf-url-from-discover>\n  idx ownership import --file /path/to/peng-2026-08-00017-satu-persen.xlsx\n  idx ownership import --file peng-2026-10-00029-satu-persen.xlsx --source-url <its-xlsx-url>\n  idx ownership import --file /path/to/ksei.pdf\n  idx ownership import --file /path/to/BalanceposEfek20260227.zip"
     )]
     Import(ImportArgs),
     #[command(
@@ -105,6 +105,9 @@ pub struct DiscoverArgs {
     /// Fail if the IDX data page cannot be read, instead of warning and listing older announcements. The newest above-1% reports are only on that page.
     #[arg(long)]
     pub require_data_page: bool,
+    /// Read the IDX data page's file list from this saved JSON instead of fetching anything; repeatable. For when IDX challenges curl: open https://www.idx.co.id/primary/list/id/perusahaan-tercatat/data-kepemilikan-saham?lang=id&start=0&length=9999 in a browser and save it.
+    #[arg(long, value_name = "FILE")]
+    pub list_file: Vec<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -115,6 +118,9 @@ pub struct ImportArgs {
     /// Path to a local ownership file: above-1% XLSX or PDF (primary), ZIP/TXT archive (fallback).
     #[arg(long)]
     pub file: Option<PathBuf>,
+    /// With --file: the XLSX or PDF URL the file was downloaded from, recorded as the release's source_url as --url would.
+    #[arg(long)]
+    pub source_url: Option<String>,
     /// Fetch Bing institutional data for these symbols.
     #[arg(long, value_delimiter = ',')]
     pub fetch_bing: Option<Vec<String>>,
@@ -338,7 +344,11 @@ fn handle_discover(
     } else {
         DataPagePolicy::BestEffort
     };
-    let reports = investor.discover(family, args.limit, data_page)?;
+    let reports = if args.list_file.is_empty() {
+        investor.discover(family, args.limit, data_page)?
+    } else {
+        investor.discover_from_list_files(&args.list_file, family, args.limit)?
+    };
 
     if config.output.is_json() {
         return json::print_json(&reports);
@@ -868,6 +878,12 @@ fn handle_import(
         ));
     }
 
+    if args.source_url.is_some() && args.file.is_none() {
+        return Err(IdxError::InvalidInput(
+            "--source-url needs --file".to_string(),
+        ));
+    }
+
     if args.fetch_bing.as_ref().is_some_and(|symbols| {
         symbols
             .iter()
@@ -885,7 +901,12 @@ fn handle_import(
         // An empty --fetch-bing list has nothing to import.
         (None, None) => return Ok(()),
     };
-    let result = investor.import(&source, args.force)?;
+    let result = match (&source, &args.source_url) {
+        (ImportSource::File(path), Some(source_url)) => {
+            investor.import_file_from(path, source_url, args.force)?
+        }
+        _ => investor.import(&source, args.force)?,
+    };
 
     if config.output.is_json() {
         return json::print_json(&result);
