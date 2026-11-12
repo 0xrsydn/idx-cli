@@ -35,7 +35,7 @@ pub struct OwnershipCmd {
 pub enum OwnershipCommand {
     #[command(
         about = "Discover the latest IDX-hosted ownership report URLs",
-        after_help = "Examples:\n  idx ownership discover --limit 1\n  idx ownership discover --family all --limit 6\n\nUse this when no snapshot manifest is available and you need a direct XLSX or PDF URL for `idx ownership import --url`."
+        after_help = "Examples:\n  idx ownership discover --limit 1\n  idx ownership discover --family all --limit 6\n  idx ownership discover --list-file list.json   # IDX's file list, saved from a browser\n\nUse this when no snapshot manifest is available and you need a direct XLSX or PDF URL for `idx ownership import --url`."
     )]
     Discover(DiscoverArgs),
     #[command(
@@ -105,6 +105,9 @@ pub struct DiscoverArgs {
     /// Fail if the IDX data page cannot be read, instead of warning and listing older announcements. The newest above-1% reports are only on that page.
     #[arg(long)]
     pub require_data_page: bool,
+    /// Read the IDX data page's file list from this saved JSON instead of fetching anything; repeatable. For when IDX challenges curl: open https://www.idx.co.id/primary/list/id/perusahaan-tercatat/data-kepemilikan-saham?lang=id&start=0&length=9999 in a browser and save it.
+    #[arg(long, value_name = "FILE")]
+    pub list_file: Vec<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -341,7 +344,11 @@ fn handle_discover(
     } else {
         DataPagePolicy::BestEffort
     };
-    let reports = investor.discover(family, args.limit, data_page)?;
+    let reports = if args.list_file.is_empty() {
+        investor.discover(family, args.limit, data_page)?
+    } else {
+        investor.discover_from_list_files(&args.list_file, family, args.limit)?
+    };
 
     if config.output.is_json() {
         return json::print_json(&reports);

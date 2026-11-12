@@ -271,6 +271,28 @@ impl Investor {
         remote::discover_idx_ownership_reports(family, limit, data_page)
     }
 
+    /// Lists the reports in IDX data page file lists saved earlier, such as
+    /// by a browser when IDX challenges curl. Reads only `paths`: no network.
+    pub fn discover_from_list_files(
+        &self,
+        paths: &[PathBuf],
+        family: Option<OwnershipReportFamily>,
+        limit: usize,
+    ) -> Result<Vec<DiscoveredOwnershipPdf>, IdxError> {
+        let lists = paths
+            .iter()
+            .map(|path| {
+                fs::read_to_string(path).map_err(|e| {
+                    IdxError::Io(format!(
+                        "failed to read IDX file list {}: {e}",
+                        path.display()
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        remote::discover_from_share_ownership_lists(&lists, family, limit)
+    }
+
     /// Installs or refreshes the maintained snapshot. `manifest` overrides
     /// the configured manifest location.
     pub fn sync(
