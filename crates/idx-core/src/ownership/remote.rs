@@ -20,7 +20,6 @@ pub const IDX_SHARE_OWNERSHIP_PAGE_URL: &str =
 const IDX_SHARE_OWNERSHIP_LIST_URL: &str =
     "https://www.idx.co.id/primary/list/id/perusahaan-tercatat/data-kepemilikan-saham";
 const IDX_SHARE_OWNERSHIP_LIST_ENV: &str = "IDX_OWNERSHIP_DATA_LIST_URL";
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AnnouncementPage {
@@ -757,10 +756,10 @@ fn fetch_bytes(
     Ok(output.stdout)
 }
 
-/// Headers for an IDX JSON request made from the page at `referer`.
+/// Headers for an IDX JSON request made from the page at `referer`. No
+/// User-Agent: each curl-impersonate profile sends its own browser's.
 fn json_headers(referer: &str) -> Vec<(String, String)> {
     vec![
-        ("User-Agent".to_string(), USER_AGENT.to_string()),
         (
             "Accept".to_string(),
             "application/json,text/plain,*/*".to_string(),
@@ -775,7 +774,6 @@ fn json_headers(referer: &str) -> Vec<(String, String)> {
 
 fn xlsx_headers() -> Vec<(String, String)> {
     vec![
-        ("User-Agent".to_string(), USER_AGENT.to_string()),
         (
             "Accept".to_string(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream,*/*;q=0.8".to_string(),
@@ -790,7 +788,6 @@ fn xlsx_headers() -> Vec<(String, String)> {
 
 fn pdf_headers() -> Vec<(String, String)> {
     vec![
-        ("User-Agent".to_string(), USER_AGENT.to_string()),
         (
             "Accept".to_string(),
             "application/pdf,application/octet-stream,*/*;q=0.8".to_string(),
