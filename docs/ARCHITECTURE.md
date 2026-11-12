@@ -359,7 +359,7 @@ Unlike the `stocks` module (live-fetch), ownership is **import-then-query**:
   as-of date comes from the description, such as
   `Pemegang Saham di Atas 1% per 31 Agustus 2026`. IDX pads some descriptions with
   spaces and a newline. A report's `listing_page_url` is the page; its `query_url`
-  is the list request
+  is the list request.
 
 Only the above-1% XLSX is `supported`; the daily above-5% and investor-type workbooks
 are listed as `unsupported`. Both sources can be overridden for tests with
