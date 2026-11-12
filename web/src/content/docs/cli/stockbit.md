@@ -1,13 +1,14 @@
 ---
 title: Stockbit
-description: Today's session by the minute and quotes with best bid/offer from Stockbit's public page, plus the order book and live quotes with your own Stockbit login. Both opt-in.
+description: Today's session by the minute and quotes with best bid/offer from Stockbit's public page, plus the order book, corporate actions, insider trades, live quotes and daily history with your own Stockbit login. Both opt-in.
 ---
 
 [Stockbit](https://stockbit.com)'s public symbol page carries a quote, the
 best bid and offer, and today's price for every minute of the session. idx
 reads that page directly. It needs no Stockbit account, no login and no
 helper tools. With your own Stockbit account, idx can also read the order
-book and live quotes; see [With your Stockbit login](#with-your-stockbit-login).
+book, corporate actions, insider and major holder trades, live quotes and
+daily history; see [With your Stockbit login](#with-your-stockbit-login).
 
 ```bash
 idx stocks intraday BBCA                     # today's session, by the minute
@@ -71,7 +72,7 @@ Opt-in, and only with your own account. idx then talks to Stockbit's own API
 (`exodus.stockbit.com`) with your session's tokens.
 
 ```bash
-idx stockbit login                    # paste the credentialStorage cookie
+idx stockbit login                    # sign in on Stockbit's page in a browser window
 idx stockbit status                   # logged in? when do the tokens expire?
 idx stocks orderbook BBCA             # depth, queued orders, foreign flow
 idx stocks orderbook BBRI --depth 5
