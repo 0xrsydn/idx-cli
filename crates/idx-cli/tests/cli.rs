@@ -1668,6 +1668,24 @@ fn ownership_discover_list_file_errors() {
     assert_eq!(not_json.status.code(), Some(1), "{not_json:?}");
     assert!(not_json.stdout.is_empty());
     assert_eq!(stderr_error(&not_json)["code"], "PARSEERROR");
+
+    // A list that parses but has no report in the family: nothing matched,
+    // not a network failure.
+    let only_above5 = root.join("above5.json");
+    fs::write(
+        &only_above5,
+        r#"{"items":[{"Description":"Pemegang Saham di Atas 5% per 9 November 2026","Prospectus":"https://www.idx.co.id/Media/a/b-lima-persen.xlsx"}]}"#,
+    )
+    .expect("write above-5% list");
+    let no_match = test_bin("ownership-discover-list-no-match")
+        .args(["-o", "json", "ownership", "discover", "--family", "above1"])
+        .arg("--list-file")
+        .arg(&only_above5)
+        .output()
+        .expect("ownership discover output");
+    assert_eq!(no_match.status.code(), Some(3), "{no_match:?}");
+    assert!(no_match.stdout.is_empty());
+    assert_eq!(stderr_error(&no_match)["code"], "NOMARKETDATA");
 }
 
 #[test]

@@ -393,8 +393,10 @@ pub fn discover_from_share_ownership_lists(
     let mut discovered = select_page_reports(reports, family_filter);
     sort_and_limit(&mut discovered, limit);
     if discovered.is_empty() {
-        return Err(IdxError::Http(format!(
-            "no matching ownership reports found in the IDX share ownership file list {list_url}"
+        // The list parsed but holds no report of this family: nothing was
+        // fetched, so this is "nothing matched" (exit 3), not a network error.
+        return Err(IdxError::NoMarketData(format!(
+            "no matching ownership reports found in the saved IDX share ownership file list {list_url}"
         )));
     }
     Ok(discovered)
@@ -1293,7 +1295,8 @@ mod tests {
             6,
         )
         .expect_err("no above-1% entry");
-        assert!(matches!(err, IdxError::Http(_)), "{err:?}");
+        assert!(matches!(err, IdxError::NoMarketData(_)), "{err:?}");
+        assert_eq!(err.exit_code(), 3);
     }
 
     #[test]
