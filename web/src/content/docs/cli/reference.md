@@ -1215,6 +1215,7 @@ Options:
       --no-color             Disable colored output
   -q, --quiet                Suppress non-essential output
       --require-data-page    Fail if the IDX data page cannot be read, instead of warning and listing older announcements. The newest above-1% reports are only on that page
+      --list-file <FILE>     Read the IDX data page's file list from this saved JSON instead of fetching anything; repeatable. For when IDX challenges curl: open https://www.idx.co.id/primary/list/id/perusahaan-tercatat/data-kepemilikan-saham?lang=id&start=0&length=9999 in a browser and save it
   -v, --verbose...           Increase verbosity (-v, -vv)
       --provider <PROVIDER>  Market data provider [default: general.provider, else msn] [possible values: yahoo, msn, stockbit]
       --offline              Run without network requests
@@ -1224,6 +1225,7 @@ Options:
 Examples:
   idx ownership discover --limit 1
   idx ownership discover --family all --limit 6
+  idx ownership discover --list-file list.json   # IDX's file list, saved from a browser
 
 Use this when no snapshot manifest is available and you need a direct XLSX or PDF URL for `idx ownership import --url`.
 ```
@@ -1252,17 +1254,20 @@ Options:
       --no-color
           Disable colored output
 
-      --fetch-bing <FETCH_BING>
-          Fetch Bing institutional data for these symbols
-
   -q, --quiet
           Suppress non-essential output
 
-      --force
-          Re-import even if the release SHA-256 has already been seen
+      --source-url <SOURCE_URL>
+          With --file: the XLSX or PDF URL the file was downloaded from, recorded as the release's source_url as --url would
+
+      --fetch-bing <FETCH_BING>
+          Fetch Bing institutional data for these symbols
 
   -v, --verbose...
           Increase verbosity (-v, -vv)
+
+      --force
+          Re-import even if the release SHA-256 has already been seen
 
       --provider <PROVIDER>
           Market data provider [default: general.provider, else msn]
@@ -1281,6 +1286,7 @@ Options:
 Examples:
   idx ownership import --url <pdf-url-from-discover>
   idx ownership import --file /path/to/peng-2026-08-00017-satu-persen.xlsx
+  idx ownership import --file peng-2026-10-00029-satu-persen.xlsx --source-url <its-xlsx-url>
   idx ownership import --file /path/to/ksei.pdf
   idx ownership import --file /path/to/BalanceposEfek20260227.zip
 ```

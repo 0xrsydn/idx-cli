@@ -271,6 +271,28 @@ impl Investor {
         remote::discover_idx_ownership_reports(family, limit, data_page)
     }
 
+    /// Lists the reports in IDX data page file lists saved earlier, such as
+    /// by a browser when IDX challenges curl. Reads only `paths`: no network.
+    pub fn discover_from_list_files(
+        &self,
+        paths: &[PathBuf],
+        family: Option<OwnershipReportFamily>,
+        limit: usize,
+    ) -> Result<Vec<DiscoveredOwnershipPdf>, IdxError> {
+        let lists = paths
+            .iter()
+            .map(|path| {
+                fs::read_to_string(path).map_err(|e| {
+                    IdxError::Io(format!(
+                        "failed to read IDX file list {}: {e}",
+                        path.display()
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        remote::discover_from_share_ownership_lists(&lists, family, limit)
+    }
+
     /// Installs or refreshes the maintained snapshot. `manifest` overrides
     /// the configured manifest location.
     pub fn sync(
@@ -288,18 +310,41 @@ impl Investor {
         // Validate and download first (unchanged error order), then lock
         // only around the database writes.
         let input = self.resolve_import_input(source)?;
+        self.import_input(input, force)
+    }
+
+    /// Imports a local XLSX or PDF report that was downloaded from
+    /// `source_url`, and records that URL as the release's `source_url`, as an
+    /// import by URL would. For a report fetched by other means, such as a
+    /// browser when IDX refuses curl. The URL must be http(s) and name the same
+    /// format as the file. A release already imported keeps its stored
+    /// `source_url` (the result reports that one) unless `force` re-imports it.
+    pub fn import_file_from(
+        &self,
+        path: &Path,
+        source_url: &str,
+        force: bool,
+    ) -> Result<ImportResult, IdxError> {
+        let mut input = self.resolve_import_input(&ImportSource::File(path.to_path_buf()))?;
+        input.source_url = Some(validate_source_url(source_url, input.format)?);
+        self.import_input(input, force)
+    }
+
+    fn import_input(&self, input: ImportInput, force: bool) -> Result<ImportResult, IdxError> {
         let _lock = self.write_lock()?;
         let conn = self.open_db()?;
 
         let sha256 = sha256_file(&input.path)?;
-        if !force && db::release_exists(&conn, &sha256)? {
+        // A skipped import reports the release as stored: a `source_url`
+        // passed now is not recorded without `force`.
+        if !force && let Some(existing) = db::find_release(&conn, &sha256)? {
             return Ok(ImportResult {
                 action: "skipped_existing",
                 inserted_rows: 0,
                 ticker_count: 0,
                 as_of_date: None,
                 sha256,
-                source_url: input.source_url,
+                source_url: existing.source_url,
             });
         }
 
@@ -701,6 +746,34 @@ fn validate_import_url(url: &str) -> Result<ImportFormat, IdxError> {
     ))
 }
 
+/// The trimmed `url` when it can be the origin of a local file in `format`:
+/// http(s), and an XLSX or PDF URL of that same format.
+fn validate_source_url(url: &str, format: ImportFormat) -> Result<String, IdxError> {
+    let trimmed = url.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+        return Err(IdxError::InvalidInput(
+            "--source-url must be an http(s) URL".to_string(),
+        ));
+    }
+    let url_format = match format {
+        ImportFormat::Archive => {
+            return Err(IdxError::InvalidInput(
+                "--source-url applies to XLSX and PDF reports only".to_string(),
+            ));
+        }
+        _ => validate_import_url(trimmed).map_err(|_| {
+            IdxError::InvalidInput("--source-url must be a direct XLSX or PDF URL".to_string())
+        })?,
+    };
+    if url_format != format {
+        return Err(IdxError::InvalidInput(
+            "--source-url names a different format than --file".to_string(),
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
 /// Above ureq's 10 MiB default: the monthly holder-register PDF can grow past it.
 const REMOTE_REPORT_LIMIT_BYTES: u64 = 256 * 1024 * 1024;
 
@@ -788,6 +861,7 @@ fn sha256_file(path: &Path) -> Result<String, IdxError> {
 #[cfg(test)]
 mod tests {
     use super::{ConcentrationRank, HolderSource, parse_report_family};
+    use crate::error::IdxError;
     use crate::ownership::remote::OwnershipReportFamily;
 
     #[test]
@@ -812,6 +886,34 @@ mod tests {
             Some(OwnershipReportFamily::AboveOnePercent)
         );
         assert!(parse_report_family("above10").is_err());
+    }
+
+    #[test]
+    fn test_validate_source_url_matches_file_format() {
+        let xlsx = "https://www.idx.co.id/Media/x/peng-2026-10-00029-satu-persen.xlsx";
+        assert_eq!(
+            super::validate_source_url(&format!("  {xlsx} "), super::ImportFormat::Xlsx).unwrap(),
+            xlsx
+        );
+        assert!(
+            super::validate_source_url("https://x.test/r.PDF?download=1", super::ImportFormat::Pdf)
+                .is_ok()
+        );
+        for (url, format) in [
+            ("https://x.test/r.pdf", super::ImportFormat::Xlsx),
+            ("ftp://x.test/r.xlsx", super::ImportFormat::Xlsx),
+            ("/local/r.xlsx", super::ImportFormat::Xlsx),
+            ("https://x.test/page/", super::ImportFormat::Xlsx),
+            ("https://x.test/a.zip", super::ImportFormat::Archive),
+        ] {
+            assert!(
+                matches!(
+                    super::validate_source_url(url, format),
+                    Err(IdxError::InvalidInput(_))
+                ),
+                "{url} accepted for {format:?}"
+            );
+        }
     }
 }
 

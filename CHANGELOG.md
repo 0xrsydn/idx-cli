@@ -9,6 +9,38 @@ Changes that are merged but not yet released live in
 [`changes/unreleased/`](changes/unreleased/), one file per pull request, and are
 folded in here at release time. See [`changes/README.md`](changes/README.md).
 
+## [0.5.1] - 2026-11-12
+
+Getting ownership reports from IDX when its Cloudflare challenges curl. idx no longer sends a fixed browser User-Agent over curl-impersonate's own, which drew most of the challenges. When a challenge still blocks curl, `ownership discover --list-file` finds a report in IDX's list saved from a browser, and `import --file --source-url` imports the downloaded file with its address. Scripts that read `query_url` from `ownership discover` JSON should note it is now IDX's list request.
+
+### New Features
+
+- `ownership import --file` takes `--source-url`, the address a report was downloaded from, and records it as the release's `source_url` as an import by `--url` would, so a report fetched in a browser when IDX refuses curl keeps its provenance. (#85)
+- `ownership discover --list-file <json>` reads IDX's report list saved from a browser, contacting nothing, so when IDX refuses curl you can still find a report and import it with `import --file --source-url`. (#86)
+
+### Bug Fixes
+
+- `ownership discover`, `ownership import --url` and `stocks flow --source idx` no longer send a fixed browser User-Agent over every curl-impersonate profile, which did not match the profile's fingerprint and drew Cloudflare challenges from IDX; each profile now sends its own. (#87)
+
+### Improvements
+
+- `ownership discover` reads IDX's report list from the JSON its data page loads, one small request covering every year, instead of picking it out of the page's HTML, which breaks when IDX changes the page. (#86)
+
+### Output Changes
+
+- When `ownership import` skips a release that is already imported, its `source_url` is the one stored with that release, no longer the `--url` or `--source-url` just passed; `--force` re-imports it to record a new one. (#85)
+- In `ownership discover` JSON, a data page report's `query_url` is now the list request (`https://www.idx.co.id/primary/list/id/perusahaan-tercatat/data-kepemilikan-saham?lang=id&start=0&length=9999`) instead of the page address; `listing_page_url` is still the page. A snapshot published from it records the same in `source.query_url`. (#86)
+
+### Docs
+
+- The website's home page, About page and Stockbit page now cover 0.5's Stockbit features (order book, corporate actions, insider trades, live quotes and daily history), list Stockbit and Indo Premier among the data sources, and count idx-mcp's 21 tools. (#88)
+
+### Notes
+
+- The test override `IDX_OWNERSHIP_DATA_PAGE_URL` is replaced by `IDX_OWNERSHIP_DATA_LIST_URL`, the address of the list. (#86)
+
+**Full Changelog**: https://github.com/0xrsydn/idx-cli/compare/v0.5.0...v0.5.1
+
 ## [0.5.0] - 2026-11-09
 
 Stockbit data: intraday and quotes without a login, and with your own Stockbit session the order book, daily history, corporate actions and shareholder movements. **Upgrade from 0.4.0** to import IDX's ownership register from October 2026 on. Scripts that retry on exit 4 for idx.co.id should also handle the new exit 6, a Cloudflare challenge.

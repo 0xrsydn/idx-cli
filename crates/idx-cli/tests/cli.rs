@@ -1156,7 +1156,7 @@ fn discover_with(
     test_bin(name)
         .env("IDX_CURL_IMPERSONATE_BIN", "curl")
         .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", announcements)
-        .env("IDX_OWNERSHIP_DATA_PAGE_URL", page)
+        .env("IDX_OWNERSHIP_DATA_LIST_URL", page)
         .args(["-o", "json", "ownership", "discover"])
         .args(extra)
         .output()
@@ -1275,15 +1275,15 @@ fn ownership_discover_require_data_page_keeps_other_page_failures_distinct() {
     let unreachable = discover_with(
         "ownership-discover-require-unreachable",
         &announcement_fixture_url(),
-        UNREACHABLE_DATA_PAGE_URL,
+        UNREACHABLE_DATA_LIST_URL,
         &["--require-data-page"],
     );
     assert_eq!(unreachable.status.code(), Some(4));
     assert!(unreachable.stdout.is_empty(), "{unreachable:?}");
     assert_eq!(stderr_error(&unreachable)["code"], "HTTP");
 
-    // The page's validator looks for this word, so this loads but has no reports.
-    let empty_page = spawn_single_response_server("text/html", "Prospectus");
+    // A well-formed list with no reports: it loads but parses to nothing.
+    let empty_page = spawn_single_response_server("application/json", r#"{"items":[]}"#);
     let unparsed = discover_with(
         "ownership-discover-require-unparsed",
         &announcement_fixture_url(),
@@ -1297,9 +1297,9 @@ fn ownership_discover_require_data_page_keeps_other_page_failures_distinct() {
 
 #[test]
 fn ownership_discover_require_data_page_passes_with_the_page() {
-    let page = fs::read_to_string(fixture_path("idx_share_ownership_page_excerpt.html"))
-        .expect("read share ownership page fixture");
-    let page_url = spawn_single_response_server("text/html", page);
+    let page = fs::read_to_string(fixture_path("idx_share_ownership_list_excerpt.json"))
+        .expect("read share ownership list fixture");
+    let page_url = spawn_single_response_server("application/json", page);
 
     let output = discover_with(
         "ownership-discover-require-ok",
@@ -1310,13 +1310,13 @@ fn ownership_discover_require_data_page_passes_with_the_page() {
 
     assert!(output.status.success(), "{output:?}");
     let reports: Value = serde_json::from_slice(&output.stdout).expect("parse discover json");
-    assert_eq!(reports[0]["as_of_date"], "2026-08-31");
+    assert_eq!(reports[0]["as_of_date"], "2026-10-30");
 }
 
 #[test]
 fn ownership_discover_logs_the_passing_profile_only_when_verbose() {
-    let page = fs::read_to_string(fixture_path("idx_share_ownership_page_excerpt.html"))
-        .expect("read share ownership page fixture");
+    let page = fs::read_to_string(fixture_path("idx_share_ownership_list_excerpt.json"))
+        .expect("read share ownership list fixture");
     let run = |name: &str, flags: &[&str]| {
         test_bin(name)
             .env("IDX_CURL_IMPERSONATE_BIN", "curl")
@@ -1325,8 +1325,8 @@ fn ownership_discover_logs_the_passing_profile_only_when_verbose() {
                 "http://127.0.0.1:9/announcements",
             )
             .env(
-                "IDX_OWNERSHIP_DATA_PAGE_URL",
-                spawn_single_response_server("text/html", page.clone()),
+                "IDX_OWNERSHIP_DATA_LIST_URL",
+                spawn_single_response_server("application/json", page.clone()),
             )
             .args(flags)
             .args(["-o", "json", "ownership", "discover", "--limit", "1"])
@@ -1382,7 +1382,7 @@ fn discover_with_profiles(name: &str, profiles: &Path, flags: &[&str]) -> std::p
         .env_remove("IDX_CURL_IMPERSONATE_BIN")
         .env("PATH", profiles)
         .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", "http://idx.test/api")
-        .env("IDX_OWNERSHIP_DATA_PAGE_URL", "http://idx.test/page")
+        .env("IDX_OWNERSHIP_DATA_LIST_URL", "http://idx.test/list")
         .args(flags)
         .args(["-o", "json", "ownership", "discover"])
         .output()
@@ -1427,10 +1427,10 @@ fn plain_403_profiles_keep_both_rounds() {
 #[test]
 fn a_profile_can_pass_after_another_is_challenged_and_is_logged() {
     let (challenged, _) = spawn_403_server(true);
-    let page = fs::read_to_string(fixture_path("idx_share_ownership_page_excerpt.html"))
-        .expect("read share ownership page fixture");
+    let page = fs::read_to_string(fixture_path("idx_share_ownership_list_excerpt.json"))
+        .expect("read share ownership list fixture");
     let (passing, _) = spawn_counting_server(format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
         page.len()
     ));
     let profiles = fake_profiles(
@@ -1445,7 +1445,7 @@ fn a_profile_can_pass_after_another_is_challenged_and_is_logged() {
 
     assert!(output.status.success(), "{output:?}");
     let reports: Value = serde_json::from_slice(&output.stdout).expect("parse discover json");
-    assert_eq!(reports[0]["as_of_date"], "2026-08-31");
+    assert_eq!(reports[0]["as_of_date"], "2026-10-30");
     assert!(
         String::from_utf8_lossy(&output.stderr)
             .contains("IDX share ownership data page discovery: fetched with curl_firefox144"),
@@ -1485,8 +1485,8 @@ fn ownership_discover_keeps_the_challenge_past_an_announcement_miss() {
 #[test]
 fn ownership_discover_does_not_blame_a_challenge_for_a_changed_page() {
     let (announcements, _) = spawn_403_server(true);
-    // The page's validator looks for this word, so this loads but has no reports.
-    let page = spawn_single_response_server("text/html", "Prospectus");
+    // A well-formed list with no reports: it loads but parses to nothing.
+    let page = spawn_single_response_server("application/json", r#"{"items":[]}"#);
 
     let output = discover_with("discover-challenge-and-parse", &announcements, &page, &[]);
 
@@ -1533,14 +1533,14 @@ fn ownership_import_url_names_a_cloudflare_challenge() {
 #[cfg(unix)]
 const UNREACHABLE_DATA_PAGE_PORT: &str = "http://127.0.0.1:9";
 
-/// Keeps discovery tests off the live IDX data page (nothing listens on port 9).
-const UNREACHABLE_DATA_PAGE_URL: &str = "http://127.0.0.1:9/data-kepemilikan-saham/";
+/// Keeps discovery tests off the live IDX file list (nothing listens on port 9).
+const UNREACHABLE_DATA_LIST_URL: &str = "http://127.0.0.1:9/primary/list/";
 
 #[test]
-fn ownership_discover_finds_xlsx_on_share_ownership_page() {
-    let page = fs::read_to_string(fixture_path("idx_share_ownership_page_excerpt.html"))
-        .expect("read share ownership page fixture");
-    let page_url = spawn_single_response_server("text/html", page);
+fn ownership_discover_finds_xlsx_in_the_data_page_list() {
+    let page = fs::read_to_string(fixture_path("idx_share_ownership_list_excerpt.json"))
+        .expect("read share ownership list fixture");
+    let page_url = spawn_single_response_server("application/json", page);
 
     let output = test_bin("ownership-discover-data-page")
         .env("IDX_CURL_IMPERSONATE_BIN", "curl")
@@ -1548,7 +1548,7 @@ fn ownership_discover_finds_xlsx_on_share_ownership_page() {
             "IDX_OWNERSHIP_ANNOUNCEMENT_API_URL",
             "http://127.0.0.1:9/announcements",
         )
-        .env("IDX_OWNERSHIP_DATA_PAGE_URL", &page_url)
+        .env("IDX_OWNERSHIP_DATA_LIST_URL", &page_url)
         .args(["-o", "json", "ownership", "discover", "--limit", "1"])
         .output()
         .expect("ownership discover json output");
@@ -1563,11 +1563,129 @@ fn ownership_discover_finds_xlsx_on_share_ownership_page() {
     assert_eq!(latest["family"], "above_one_percent");
     assert_eq!(latest["status"], "supported");
     assert_eq!(latest["format"], "xlsx");
-    assert_eq!(latest["as_of_date"], "2026-08-31");
+    assert_eq!(latest["as_of_date"], "2026-10-30");
     assert_eq!(
         latest["pdf_url"],
-        "https://www.idx.co.id/Media/fahlw1o2/peng-2026-08-00017-satu-persen.xlsx"
+        "https://www.idx.co.id/Media/wlef2nvt/peng-2026-10-00029-satu-persen.xlsx"
     );
+    // Provenance names the page people visit; the query is the list behind it.
+    assert_eq!(
+        latest["listing_page_url"],
+        "https://www.idx.co.id/id/perusahaan-tercatat/data-kepemilikan-saham/"
+    );
+    assert!(
+        latest["query_url"]
+            .as_str()
+            .unwrap()
+            .ends_with("?lang=id&start=0&length=9999"),
+        "{latest}"
+    );
+}
+
+/// `--list-file` gives what a live `--require-data-page` discovery of the same
+/// list gives, and contacts nothing: both IDX sources here count their hits.
+#[test]
+fn ownership_discover_reads_a_saved_list_without_the_network() {
+    let list = fs::read_to_string(fixture_path("idx_share_ownership_list_excerpt.json"))
+        .expect("read share ownership list fixture");
+    let root = test_env_dir("ownership-discover-list-file");
+    let saved = root.join("list.json");
+    fs::write(&saved, &list).expect("write saved list");
+
+    let run = |name: &str, list_url: &str, announcements: &str, extra: &[&str]| {
+        test_bin(name)
+            .env("IDX_CURL_IMPERSONATE_BIN", "curl")
+            .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", announcements)
+            .env("IDX_OWNERSHIP_DATA_LIST_URL", list_url)
+            .args(["-o", "json", "ownership", "discover", "--limit", "50"])
+            .args(extra)
+            .output()
+            .expect("ownership discover output")
+    };
+
+    let (list_server, list_hits) = spawn_counting_server(format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{list}",
+        list.len()
+    ));
+    let live = run(
+        "ownership-discover-list-live",
+        &list_server,
+        "http://127.0.0.1:9/announcements",
+        &["--require-data-page"],
+    );
+    assert!(live.status.success(), "{live:?}");
+    assert_eq!(list_hits.load(Ordering::SeqCst), 1);
+
+    let (announcement_server, announcement_hits) = spawn_403_server(true);
+    let saved_arg = saved.to_str().expect("utf-8 path");
+    let offline = run(
+        "ownership-discover-list-offline",
+        &list_server,
+        &announcement_server,
+        &["--list-file", saved_arg],
+    );
+    assert!(offline.status.success(), "{offline:?}");
+    assert_eq!(
+        list_hits.load(Ordering::SeqCst),
+        1,
+        "the saved list is not refetched"
+    );
+    assert_eq!(announcement_hits.load(Ordering::SeqCst), 0);
+
+    let live: Value = serde_json::from_slice(&live.stdout).expect("parse live json");
+    let offline: Value = serde_json::from_slice(&offline.stdout).expect("parse offline json");
+    assert_eq!(offline, live);
+    let dates: Vec<_> = offline
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|report| report["as_of_date"].as_str().unwrap())
+        .collect();
+    assert_eq!(dates, ["2026-10-30", "2026-09-30", "2026-08-31"]);
+}
+
+#[test]
+fn ownership_discover_list_file_errors() {
+    let root = test_env_dir("ownership-discover-list-file-errors");
+    let discover = |name: &str, file: &Path| {
+        test_bin(name)
+            .args(["-o", "json", "ownership", "discover", "--list-file"])
+            .arg(file)
+            .output()
+            .expect("ownership discover output")
+    };
+
+    let missing = discover("ownership-discover-list-missing", &root.join("absent.json"));
+    assert_eq!(missing.status.code(), Some(1), "{missing:?}");
+    assert!(missing.stdout.is_empty());
+    assert_eq!(stderr_error(&missing)["code"], "IO");
+
+    // What a browser saves when Cloudflare answers instead of IDX.
+    let challenge = root.join("challenge.json");
+    fs::write(&challenge, "<!DOCTYPE html><title>Just a moment...</title>")
+        .expect("write challenge page");
+    let not_json = discover("ownership-discover-list-challenge", &challenge);
+    assert_eq!(not_json.status.code(), Some(1), "{not_json:?}");
+    assert!(not_json.stdout.is_empty());
+    assert_eq!(stderr_error(&not_json)["code"], "PARSEERROR");
+
+    // A list that parses but has no report in the family: nothing matched,
+    // not a network failure.
+    let only_above5 = root.join("above5.json");
+    fs::write(
+        &only_above5,
+        r#"{"items":[{"Description":"Pemegang Saham di Atas 5% per 9 November 2026","Prospectus":"https://www.idx.co.id/Media/a/b-lima-persen.xlsx"}]}"#,
+    )
+    .expect("write above-5% list");
+    let no_match = test_bin("ownership-discover-list-no-match")
+        .args(["-o", "json", "ownership", "discover", "--family", "above1"])
+        .arg("--list-file")
+        .arg(&only_above5)
+        .output()
+        .expect("ownership discover output");
+    assert_eq!(no_match.status.code(), Some(3), "{no_match:?}");
+    assert!(no_match.stdout.is_empty());
+    assert_eq!(stderr_error(&no_match)["code"], "NOMARKETDATA");
 }
 
 #[test]
@@ -1579,7 +1697,7 @@ fn ownership_discover_lists_fixture_candidates() {
     test_bin("ownership-discover")
         .env("IDX_CURL_IMPERSONATE_BIN", "curl")
         .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
-        .env("IDX_OWNERSHIP_DATA_PAGE_URL", UNREACHABLE_DATA_PAGE_URL)
+        .env("IDX_OWNERSHIP_DATA_LIST_URL", UNREACHABLE_DATA_LIST_URL)
         .env(
             "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
             "http://127.0.0.1/pengumuman",
@@ -1639,7 +1757,7 @@ fn ownership_discover_supports_above1_family() {
     test_bin("ownership-discover-above1")
         .env("IDX_CURL_IMPERSONATE_BIN", "curl")
         .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
-        .env("IDX_OWNERSHIP_DATA_PAGE_URL", UNREACHABLE_DATA_PAGE_URL)
+        .env("IDX_OWNERSHIP_DATA_LIST_URL", UNREACHABLE_DATA_LIST_URL)
         .env(
             "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
             "http://127.0.0.1/pengumuman",
@@ -1700,7 +1818,7 @@ fn ownership_discover_defaults_to_above1_and_prefers_supported_attachment() {
     let output = test_bin("ownership-discover-default")
         .env("IDX_CURL_IMPERSONATE_BIN", "curl")
         .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
-        .env("IDX_OWNERSHIP_DATA_PAGE_URL", UNREACHABLE_DATA_PAGE_URL)
+        .env("IDX_OWNERSHIP_DATA_LIST_URL", UNREACHABLE_DATA_LIST_URL)
         .env(
             "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
             "http://127.0.0.1/pengumuman",
@@ -1756,7 +1874,7 @@ fn ownership_discover_json_includes_status() {
         test_bin("ownership-discover-json-status")
             .env("IDX_CURL_IMPERSONATE_BIN", "curl")
             .env("IDX_OWNERSHIP_ANNOUNCEMENT_API_URL", &json_url)
-            .env("IDX_OWNERSHIP_DATA_PAGE_URL", UNREACHABLE_DATA_PAGE_URL)
+            .env("IDX_OWNERSHIP_DATA_LIST_URL", UNREACHABLE_DATA_LIST_URL)
             .env(
                 "IDX_OWNERSHIP_ANNOUNCEMENT_PAGE_URL",
                 "http://127.0.0.1/pengumuman",
@@ -1960,6 +2078,99 @@ fn ownership_import_file_xlsx_supports_ticker_and_releases() {
     assert_eq!(releases.as_array().unwrap().len(), 1);
     assert_eq!(releases[0]["as_of_date"], "2026-08-31");
     assert_eq!(releases[0]["row_count"].as_u64(), Some(17));
+}
+
+/// A report fetched by other means (a browser when IDX refuses curl) keeps its
+/// provenance: `--source-url` is recorded as an import by `--url` would.
+#[test]
+fn ownership_import_file_with_source_url_records_provenance() {
+    let root = test_env_dir("ownership-import-source-url");
+    let db_path = root.join("ownership.db");
+    let xlsx_path = root.join("peng-2026-08-00017-satu-persen.xlsx");
+    fs::write(
+        &xlsx_path,
+        include_bytes!("../../idx-core/tests/fixtures/ksei_above1_20260831_excerpt.xlsx"),
+    )
+    .expect("write xlsx fixture");
+    bin_with_root(&root)
+        .args([
+            "config",
+            "set",
+            "ownership.db_path",
+            db_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let xlsx = xlsx_path.to_str().unwrap();
+    let url = "https://www.idx.co.id/Media/fahlw1o2/peng-2026-08-00017-satu-persen.xlsx";
+
+    for args in [
+        // a URL of another format than the file
+        vec![
+            "--file",
+            xlsx,
+            "--source-url",
+            "https://www.idx.co.id/Media/x/r.pdf",
+        ],
+        // not http(s)
+        vec!["--file", xlsx, "--source-url", "/tmp/peng.xlsx"],
+        // nothing to attach it to
+        vec!["--url", url, "--source-url", url],
+    ] {
+        let mut cmd = bin_with_root(&root);
+        cmd.args(["-o", "json", "ownership", "import"]).args(&args);
+        run_error_json(&mut cmd, "INVALIDINPUT");
+    }
+    let releases =
+        run_success_json(bin_with_root(&root).args(["-o", "json", "ownership", "releases"]));
+    assert_eq!(
+        releases.as_array().unwrap().len(),
+        0,
+        "a refused import wrote"
+    );
+
+    // Imported first without a URL, as the hand-built 2026-10-30 release was.
+    let imported = run_success_json(bin_with_root(&root).args([
+        "-o",
+        "json",
+        "ownership",
+        "import",
+        "--file",
+        xlsx,
+    ]));
+    assert_eq!(imported["action"], "imported");
+    assert!(imported["source_url"].is_null());
+
+    let import_with_url = |force: bool| {
+        let mut cmd = bin_with_root(&root);
+        cmd.args(["-o", "json", "ownership", "import", "--file", xlsx])
+            .args(["--source-url", url]);
+        if force {
+            cmd.arg("--force");
+        }
+        run_success_json(&mut cmd)
+    };
+    let releases =
+        || run_success_json(bin_with_root(&root).args(["-o", "json", "ownership", "releases"]));
+
+    // Skipped: the result reports the release as stored, not the URL passed.
+    let skipped = import_with_url(false);
+    assert_eq!(skipped["action"], "skipped_existing");
+    assert!(skipped["source_url"].is_null(), "{skipped}");
+    assert!(releases()[0]["source_url"].is_null());
+
+    // --force records it.
+    let reimported = import_with_url(true);
+    assert_eq!(reimported["action"], "reimported");
+    assert_eq!(reimported["source_url"], url);
+    let releases = releases();
+    assert_eq!(releases.as_array().unwrap().len(), 1);
+    assert_eq!(releases[0]["source_url"], url);
+    assert_eq!(releases[0]["as_of_date"], "2026-08-31");
+    assert_eq!(releases[0]["row_count"].as_u64(), Some(17));
+
+    // Skipped again: now the stored URL.
+    assert_eq!(import_with_url(false)["source_url"], url);
 }
 
 /// IDX added a CONTROLLER_OR_AFFILIATE column to the register from October

@@ -79,6 +79,23 @@ idx ownership import --file report.xlsx    # or a local XLSX, PDF, ZIP or TXT
 Since June 2026 IDX publishes the register as XLSX; earlier months were PDF
 announcements, which need `mutool`. See [helper tools](/start/install/#helper-tools).
 
+When IDX refuses curl, use your browser for both steps. To discover, open
+IDX's file list,
+<https://www.idx.co.id/primary/list/id/perusahaan-tercatat/data-kepemilikan-saham?lang=id&start=0&length=9999>,
+save it, and pass it with `--list-file`; idx reads the file and contacts
+nothing. Then download the report and pass its address with `--source-url`, so
+`ownership releases` shows where the release came from, as an import by
+`--url` would:
+
+```bash
+idx ownership discover --list-file list.json
+idx ownership import --file peng-2026-10-00029-satu-persen.xlsx \
+  --source-url https://www.idx.co.id/Media/wlef2nvt/peng-2026-10-00029-satu-persen.xlsx
+```
+
+A report already imported is skipped and keeps the `source_url` it has; the
+result shows that one. Add `--force` to re-import it with the new address.
+
 ## Entity names
 
 The register spells some investors differently from month to month.

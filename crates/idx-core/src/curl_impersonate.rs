@@ -103,11 +103,20 @@ fn split_probe(stderr: &[u8]) -> (Option<ResponseProbe>, Vec<u8>) {
 /// the response body. `IDX_CURL_IMPERSONATE_BIN`, when set, is the only
 /// profile used. Returns the first accepted output, or an error: a Cloudflare
 /// challenge from any profile, otherwise the last error.
+///
+/// `args` must not set a User-Agent. Each profile sends its own browser's,
+/// matching its TLS fingerprint and client hints; another one makes the
+/// request look forged. On 2026-11-10 IDX passed `curl_chrome131` 5 times out
+/// of 5 with its own User-Agent and once out of 5 with a fixed Chrome/122 one.
 pub fn run_owned_with_fallback(
     stage: &str,
     args: &[String],
     accept: &dyn Fn(&[u8]) -> Result<(), IdxError>,
 ) -> Result<Output, IdxError> {
+    debug_assert!(
+        !args.iter().any(|arg| sets_user_agent(arg)),
+        "{stage}: curl-impersonate profiles send their own User-Agent"
+    );
     let profiles: Vec<String> = match std::env::var(OVERRIDE_ENV) {
         Ok(value) if !value.trim().is_empty() => vec![value.trim().to_string()],
         _ => FALLBACK_PROFILES
@@ -124,6 +133,12 @@ pub fn run_owned_with_fallback(
     }
 
     run_profiles(stage, &profiles, args, accept)
+}
+
+fn sets_user_agent(arg: &str) -> bool {
+    arg.trim_start()
+        .get(..11)
+        .is_some_and(|name| name.eq_ignore_ascii_case("user-agent:"))
 }
 
 /// A challenge can differ by profile, so one round tries them all, but a repeat
@@ -262,6 +277,15 @@ fn run_binary_limited(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognizes_a_user_agent_header() {
+        assert!(sets_user_agent("User-Agent: Mozilla/5.0"));
+        assert!(sets_user_agent("user-agent:x"));
+        assert!(!sets_user_agent("Accept: application/json"));
+        assert!(!sets_user_agent("--header"));
+        assert!(!sets_user_agent("https://www.idx.co.id/user-agent:"));
+    }
 
     #[test]
     fn output_past_the_limit_fails_at_once_behind_a_profile_wrapper() {
