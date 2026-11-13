@@ -49,7 +49,18 @@ impl YahooClient {
         }
     }
 
+    /// Yahoo's name for a resolved symbol. An index has no exchange suffix
+    /// there (`^JKSE`, not the `^JKSE.JK` idx resolves it to), and its caret
+    /// is escaped for the URL path.
+    fn yahoo_symbol(symbol: &str) -> String {
+        match symbol.strip_prefix('^') {
+            Some(index) => format!("%5E{}", index.strip_suffix(".JK").unwrap_or(index)),
+            None => symbol.to_string(),
+        }
+    }
+
     fn chart_url(symbol: &str, period: &Period, interval: &Interval) -> String {
+        let symbol = Self::yahoo_symbol(symbol);
         format!(
             "{BASE_URL}/v8/finance/chart/{symbol}?range={}&interval={}",
             period.as_str(),
@@ -58,6 +69,7 @@ impl YahooClient {
     }
 
     fn quote_summary_url(symbol: &str, crumb: &str) -> String {
+        let symbol = Self::yahoo_symbol(symbol);
         format!(
             "{BASE_URL}/v10/finance/quoteSummary/{symbol}?modules=summaryDetail,defaultKeyStatistics,financialData,assetProfile,incomeStatementHistory&crumb={crumb}"
         )
@@ -311,6 +323,14 @@ impl Drop for YahooClient {
 mod tests {
     use super::YahooClient;
     use std::time::Duration;
+
+    /// Yahoo lists an index without the exchange suffix idx resolves it to.
+    #[test]
+    fn index_tickers_drop_the_exchange_suffix() {
+        assert_eq!(YahooClient::yahoo_symbol("^JKSE.JK"), "%5EJKSE");
+        assert_eq!(YahooClient::yahoo_symbol("^GSPC"), "%5EGSPC");
+        assert_eq!(YahooClient::yahoo_symbol("BBCA.JK"), "BBCA.JK");
+    }
 
     #[test]
     fn parses_crumb_body_trimmed() {
