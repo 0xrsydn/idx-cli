@@ -198,7 +198,7 @@ pub struct MovementsArgs {
     /// First day, YYYY-MM-DD.
     #[arg(long)]
     pub from: Option<String>,
-    /// Last day, YYYY-MM-DD.
+    /// Last day, YYYY-MM-DD; with --from, at most 365 days after it.
     #[arg(long)]
     pub to: Option<String>,
     /// One holder's movements, by the id in the HOLDER ID column.

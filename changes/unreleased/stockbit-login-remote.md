@@ -7,6 +7,7 @@
 - `idx stockbit login` on a machine with no display now says how to reach its page from another machine (the `ssh -L` forward, or the paste), which it only did over SSH. (#0)
 - The `ssh -L` forward that `idx stockbit login` and `stockbit_login` suggest names this host when `HOSTNAME` is not exported, where it said `<this host>`. (#0)
 - `stocks actions SYM --kind ipo` and `get_corporate_actions` with `ipo` list only that stock's IPO, where they listed the market's recent IPOs under its name. (#0)
+- `ownership movements` and `get_shareholder_movements` refuse a `from`..`to` range over 365 days with `INVALIDINPUT`, where Stockbit's `HTTP 400: INVALID_PARAMETER` came through. (#0)
 
 ### Output Changes
 

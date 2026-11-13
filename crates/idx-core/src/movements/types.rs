@@ -197,6 +197,10 @@ pub struct MovementPage {
 /// Most pages one query reads (500 rows).
 pub const MAX_PAGES: u32 = 10;
 
+/// Longest `from`..`to` Stockbit answers; a day more is `HTTP 400:
+/// INVALID_PARAMETER` (checked 2026-11-13). One bound alone has no limit.
+pub const MAX_RANGE_DAYS: i64 = 365;
+
 /// What to list. `symbol` is resolved (`BBCA.JK`) once it reaches a
 /// provider; `None` is the whole market.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -213,7 +217,7 @@ pub struct MovementQuery {
 
 impl MovementQuery {
     /// Validates user input: dates as YYYY-MM-DD with `from` not after
-    /// `to`, a numeric holder id, and 1 to `MAX_PAGES` pages.
+    /// `to` and at most `MAX_RANGE_DAYS` before it, a numeric holder id, and 1 to `MAX_PAGES` pages.
     pub fn from_args(
         symbol: Option<&str>,
         from: Option<&str>,
@@ -233,6 +237,14 @@ impl MovementQuery {
         {
             return Err(IdxError::InvalidInput(format!(
                 "to ({to}) is before from ({from})"
+            )));
+        }
+        if let (Some(from), Some(to)) = (from, to)
+            && (to - from).num_days() > MAX_RANGE_DAYS
+        {
+            return Err(IdxError::InvalidInput(format!(
+                "from {from} to {to} is more than {MAX_RANGE_DAYS} days, the longest range \
+                 Stockbit answers; narrow it, or give only one of the two"
             )));
         }
         let holder_id = holder_id.map(str::trim).filter(|id| !id.is_empty());
@@ -311,6 +323,7 @@ mod tests {
         for (from, to, holder, pages) in [
             (Some("01-10-2026"), None, None, 1),
             (Some("2026-10-02"), Some("2026-10-01"), None, 1),
+            (Some("2025-11-12"), Some("2026-11-13"), None, 1),
             (None, None, Some("RUDI"), 1),
             (None, None, Some("1&page=9"), 1),
             (None, None, None, 0),
@@ -321,6 +334,18 @@ mod tests {
                 "{from:?} {to:?} {holder:?} {pages}"
             );
         }
+    }
+
+    /// Stockbit answers a year between the two dates and refuses a day more.
+    #[test]
+    fn query_takes_a_year_between_its_dates() {
+        let year = MovementQuery::from_args(None, Some("2025-11-13"), Some("2026-11-13"), None, 1);
+        assert!(year.is_ok());
+        let err = MovementQuery::from_args(None, Some("2025-11-12"), Some("2026-11-13"), None, 1)
+            .unwrap_err();
+        assert!(err.to_string().contains("more than 365 days"), "{err}");
+        // One bound alone is not a range.
+        assert!(MovementQuery::from_args(None, Some("2010-01-01"), None, None, 1).is_ok());
     }
 
     #[test]

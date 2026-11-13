@@ -1581,7 +1581,7 @@ Options:
           Disable colored output
 
       --to <TO>
-          Last day, YYYY-MM-DD
+          Last day, YYYY-MM-DD; with --from, at most 365 days after it
 
       --holder <ID>
           One holder's movements, by the id in the HOLDER ID column
