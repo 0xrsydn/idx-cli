@@ -3977,6 +3977,26 @@ fn bandar_never_reads_a_broker_summary_cached_in_the_old_shape() {
     assert!(table.contains("big distribution"), "{table}");
 }
 
+/// Stockbit answers the market's IPO list whatever symbol is asked for (the
+/// fixture is that answer), so one stock's actions keep only its own rows.
+#[test]
+fn actions_lists_only_the_stock_asked_for() {
+    let root = test_env_dir("actions-own-rows");
+    let rows = run_success_json(
+        mock_bin_with_root(&root)
+            .env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .args(["-o", "json", "stocks", "actions", "RANS", "--kind", "ipo"]),
+    );
+    let symbols: Vec<&str> = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["symbol"].as_str().unwrap())
+        .collect();
+    assert_eq!(symbols, ["RANS.JK"]);
+    let _ = fs::remove_dir_all(root);
+}
+
 /// `--kind` takes the names JSON carried before they matched it, so a kind
 /// copied from an older answer works here as it does over MCP.
 #[test]

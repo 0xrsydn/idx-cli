@@ -36,6 +36,9 @@ impl Corporate<'_> {
     ) -> Result<Fetched<Vec<CorporateAction>>, IdxError> {
         let (resolved, _) = self.idx.idx_code(symbol, "corporate actions")?;
         let mut fetched = self.fetch(kinds, Some(&resolved), policy)?;
+        // Stockbit ignores `symbol` for some kinds (IPOs, seen 2026-11-13)
+        // and answers the market's list.
+        fetched.data.retain(|action| action.symbol == resolved);
         fetched
             .data
             .sort_by(|a, b| b.date.cmp(&a.date).then(a.kind.cmp(&b.kind)));
