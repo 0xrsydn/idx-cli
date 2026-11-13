@@ -8,6 +8,7 @@
 - The `ssh -L` forward that `idx stockbit login` and `stockbit_login` suggest names this host when `HOSTNAME` is not exported, where it said `<this host>`. (#0)
 - `stocks actions SYM --kind ipo` and `get_corporate_actions` with `ipo` list only that stock's IPO, where they listed the market's recent IPOs under its name. (#0)
 - `ownership movements` and `get_shareholder_movements` refuse a `from`..`to` range over 365 days with `INVALIDINPUT`, where Stockbit's `HTTP 400: INVALID_PARAMETER` came through. (#0)
+- `ownership movements --to` with a date before Stockbit's feed begins returns no rows, where it returned one row from years after that date. (#0)
 
 ### Output Changes
 

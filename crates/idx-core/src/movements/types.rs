@@ -275,11 +275,16 @@ impl MovementQuery {
         })
     }
 
+    /// Whether `movement` is dated within `from`..`to`.
+    pub fn in_dates(&self, movement: &ShareholderMovement) -> bool {
+        self.from.is_none_or(|from| movement.date >= from)
+            && self.to.is_none_or(|to| movement.date <= to)
+    }
+
     /// Whether `movement` passes the query's filters (what Stockbit applies
     /// on its side; the mock provider uses it).
     pub fn admits(&self, movement: &ShareholderMovement) -> bool {
-        self.from.is_none_or(|from| movement.date >= from)
-            && self.to.is_none_or(|to| movement.date <= to)
+        self.in_dates(movement)
             && self
                 .holder_id
                 .as_ref()

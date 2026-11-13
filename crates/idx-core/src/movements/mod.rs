@@ -82,9 +82,17 @@ impl Movements<'_> {
                     stale: false,
                 })
             }
-            (result, _) => result,
+            (result, _) => result.map(|fetched| fetched.map(|list| within_dates(list, &query))),
         }
     }
+}
+
+/// Drops rows dated outside the query's range. Stockbit applies the range
+/// itself, but a `to` before its feed begins came back with one row from
+/// years later (`to=2015-01-01` answered a 2023-11-13 row on 2026-11-13).
+fn within_dates(mut list: MovementList, query: &MovementQuery) -> MovementList {
+    list.movements.retain(|movement| query.in_dates(movement));
+    list
 }
 
 /// Reads the query's pages in turn. A failure after the first page leaves
@@ -134,6 +142,39 @@ fn cache_key(query: &MovementQuery) -> String {
 mod tests {
     use super::*;
     use types::{ActionFilter, MovementSource};
+
+    #[test]
+    fn rows_outside_the_dates_asked_for_are_dropped() {
+        let body = std::fs::read_to_string("tests/fixtures/stockbit_exodus_majorholder.json")
+            .expect("fixture");
+        let page = stockbit::movement::parse_movements(&body).unwrap();
+        let mut dates: Vec<_> = page.movements.iter().map(|m| m.date).collect();
+        dates.sort();
+        dates.dedup();
+        assert!(dates.len() > 1, "the fixture spans several days");
+        let last = *dates.last().unwrap();
+        let all = page.movements.len();
+        let list = MovementList {
+            movements: page.movements,
+            more: false,
+            incomplete: None,
+        };
+
+        let mut query = MovementQuery::from_args(None, None, None, None, 1).unwrap();
+        assert_eq!(within_dates(list.clone(), &query).movements.len(), all);
+        query.to = last.pred_opt();
+        let kept = within_dates(list.clone(), &query).movements;
+        assert!(!kept.is_empty() && kept.len() < all);
+        assert!(kept.iter().all(|m| m.date < last));
+        query.to = None;
+        query.from = Some(last);
+        assert!(
+            within_dates(list, &query)
+                .movements
+                .iter()
+                .all(|m| m.date == last)
+        );
+    }
 
     #[test]
     fn cache_keys_differ_by_every_filter() {
