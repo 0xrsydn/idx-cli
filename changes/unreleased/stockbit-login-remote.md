@@ -12,6 +12,7 @@
 - `ownership movements` says `symbol not found` for a code Stockbit does not know, where it printed an empty list. (#0)
 - Warrants and rights (`INET-W`, `BMAS-R`) work in `stocks orderbook`, `stocks intraday` and Stockbit quotes and history, where they answered `UNSUPPORTED: Stockbit covers IDX (.JK) symbols only`. (#0)
 - Index tickers work on Yahoo: `--provider yahoo stocks quote ^JKSE`, `stocks history ^JKSE` and `stocks technical ^JKSE` answered `symbol not found: ^JKSE.JK`. (#0)
+- A Yahoo quote takes the day's change from Yahoo's own percentage when its previous close is stale, as it was for `^JKSE` (+4.48% shown on a +1.78% day). (#0)
 
 ### Output Changes
 

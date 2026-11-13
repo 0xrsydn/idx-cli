@@ -3,6 +3,26 @@ use crate::error::IdxError;
 
 use super::raw_types::{ChartError, ChartResponse, QuoteSummaryResponse};
 
+/// The close the day's change is measured from. Yahoo's
+/// `chartPreviousClose` can be a session behind for an index (`^JKSE` on
+/// 2026-11-13 carried the close of two sessions before, beside a correct
+/// `regularMarketChangePercent`), so when the two disagree the close is
+/// worked back from Yahoo's own percentage.
+fn previous_close(price: f64, stated: Option<f64>, change_pct: Option<f64>) -> Option<f64> {
+    const TOLERANCE_PCT: f64 = 0.05;
+    let Some(pct) = change_pct.filter(|pct| pct.is_finite() && *pct > -100.0) else {
+        return stated;
+    };
+    let agrees = stated
+        .filter(|close| *close != 0.0)
+        .is_some_and(|close| ((price - close) / close * 100.0 - pct).abs() <= TOLERANCE_PCT);
+    if agrees {
+        stated
+    } else {
+        Some(price / (1.0 + pct / 100.0))
+    }
+}
+
 pub(super) fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, IdxError> {
     if let Some(err) = chart.chart.error.as_ref() {
         return Err(map_yahoo_error(symbol, "chart", err));
@@ -18,7 +38,11 @@ pub(super) fn parse_quote(symbol: &str, chart: &ChartResponse) -> Result<Quote, 
     let raw_price = meta
         .regular_market_price
         .ok_or_else(|| IdxError::SymbolNotFound(symbol.to_string()))?;
-    let raw_prev_close = meta.previous_close.or(meta.chart_previous_close);
+    let raw_prev_close = previous_close(
+        raw_price,
+        meta.previous_close.or(meta.chart_previous_close),
+        meta.regular_market_change_percent,
+    );
 
     let price = round_price(raw_price).ok_or_else(|| {
         IdxError::ParseError(format!(
@@ -227,4 +251,25 @@ pub(super) fn map_yahoo_error(symbol: &str, endpoint: &str, err: &ChartError) ->
         "yahoo {endpoint} error {}: {}",
         err.code, err.description
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::previous_close;
+
+    /// A stated close that matches Yahoo's percentage stands; a stale one
+    /// (the index on 2026-11-13) gives way to the close the percentage implies.
+    #[test]
+    fn a_stale_previous_close_gives_way_to_the_change_percent() {
+        assert_eq!(
+            previous_close(5500.0, Some(5475.0), Some(0.457)),
+            Some(5475.0)
+        );
+        let index = previous_close(5344.406, Some(5115.04), Some(1.783)).unwrap();
+        assert!((index - 5250.79).abs() < 0.5, "{index}");
+        assert_eq!(previous_close(5500.0, Some(5475.0), None), Some(5475.0));
+        assert_eq!(previous_close(5500.0, None, None), None);
+        let derived = previous_close(5500.0, None, Some(0.457)).unwrap();
+        assert!((derived - 5475.0).abs() < 0.5, "{derived}");
+    }
 }

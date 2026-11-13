@@ -62,6 +62,7 @@ pub(super) struct ChartMeta {
     pub(super) regular_market_price: Option<f64>,
     pub(super) previous_close: Option<f64>,
     pub(super) chart_previous_close: Option<f64>,
+    pub(super) regular_market_change_percent: Option<f64>,
     pub(super) regular_market_volume: Option<u64>,
     pub(super) regular_market_day_high: Option<f64>,
     pub(super) regular_market_day_low: Option<f64>,
