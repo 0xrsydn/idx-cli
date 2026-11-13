@@ -17,6 +17,7 @@
 
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use crate::error::IdxError;
@@ -80,6 +81,23 @@ impl LoginPage {
     where
         F: Fn(&str) -> Result<(), IdxError> + Send + Sync + 'static,
     {
+        self.wait_with(timeout, None, verify)
+    }
+
+    /// `wait`, also taking session values from `pastes`: the way in for a
+    /// user whose browser cannot reach this page (a terminal on another
+    /// machine with no port forward). They go through the same check as the
+    /// page's, one at a time; a refused one is warned about and the wait
+    /// goes on.
+    pub fn wait_with<F>(
+        &self,
+        timeout: Duration,
+        pastes: Option<&Receiver<String>>,
+        verify: F,
+    ) -> Result<(), IdxError>
+    where
+        F: Fn(&str) -> Result<(), IdxError> + Send + Sync + 'static,
+    {
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
         let accepted = std::sync::Mutex::new(false);
         let verify = std::sync::Arc::new(move |paste: &str| {
@@ -100,6 +118,14 @@ impl LoginPage {
             }
             if Instant::now() >= deadline {
                 break;
+            }
+            if let Some(paste) = pastes.and_then(|pastes| pastes.try_recv().ok()) {
+                match (*verify)(&paste) {
+                    Ok(()) => return Ok(()),
+                    Err(err) => {
+                        crate::runtime::warn(format!("{err}; paste it again, or use the page"))
+                    }
+                }
             }
             match self.listener.accept() {
                 Ok((stream, _)) => {
@@ -152,7 +178,7 @@ window.open('{target}#t='+encodeURIComponent(m[1]))}})()"
 ///
 /// The target comes from `SSH_CONNECTION` (`client_ip client_port server_ip
 /// server_port`) when idx runs inside an SSH session, else from `USER` and
-/// `HOSTNAME`, else it is left for the reader to fill in.
+/// the host name, else it is left for the reader to fill in.
 pub fn ssh_forward(port: u16) -> String {
     let target = ssh_target().unwrap_or_else(|| "<this host>".to_string());
     format!("ssh -L {port}:127.0.0.1:{port} {target}")
@@ -169,8 +195,17 @@ fn ssh_target() -> Option<String> {
         }
     }
     let user = std::env::var("USER").ok()?;
-    let host = std::env::var("HOSTNAME").ok()?;
-    Some(format!("{user}@{host}"))
+    Some(format!("{user}@{}", host_name()?))
+}
+
+/// This machine's name. Shells set `HOSTNAME` without exporting it, so the
+/// kernel's answer is read where there is one.
+fn host_name() -> Option<String> {
+    std::env::var("HOSTNAME")
+        .ok()
+        .or_else(|| std::fs::read_to_string("/proc/sys/kernel/hostname").ok())
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
 }
 
 /// Answers one request; true when a paste was accepted.
@@ -674,6 +709,27 @@ mod tests {
         assert!(page.contains("https://stockbit.com/symbol/BBCA"));
         assert!(page.contains("Send my Stockbit session"));
         assert!(page.contains("Paste from clipboard"));
+    }
+
+    /// A value pasted in the terminal goes through the same check as the
+    /// page's: a refused one keeps the wait going, a good one ends it.
+    #[test]
+    fn a_terminal_paste_ends_the_wait_like_the_page_does() {
+        let page = LoginPage::bind(0).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send("nonsense".to_string()).unwrap();
+        tx.send("good".to_string()).unwrap();
+        let checks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = checks.clone();
+        page.wait_with(Duration::from_secs(10), Some(&rx), move |paste| {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            match paste {
+                "good" => Ok(()),
+                _ => Err(IdxError::InvalidInput("not a Stockbit session".to_string())),
+            }
+        })
+        .expect("accepted");
+        assert_eq!(checks.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     #[test]

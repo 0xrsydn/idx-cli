@@ -8,13 +8,16 @@
 //!   session cookie over DevTools. Nothing to copy; the default on a desktop.
 //! - **Page** (`loopback.rs`): a page on 127.0.0.1 that takes the cookie from
 //!   the user's own browser (bookmarklet, clipboard or paste). For a shell
-//!   over SSH, a machine with no display, or no supported browser.
+//!   over SSH, a machine with no display, or no supported browser. A
+//!   frontend with a terminal can feed pasted values into the same wait
+//!   (`wait_with_pastes`), for a browser that cannot reach the page.
 //!
 //! `Method::Auto` picks the browser unless it would not reach the user, and
 //! falls back to the page only when the browser cannot start. A sign-in that
 //! started and then timed out or was closed is an error, not a fallback.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -70,8 +73,9 @@ pub enum Started {
         port: u16,
         /// The `ssh -L` command that brings the page to another machine.
         forward: String,
-        /// The shell is over SSH, so the page is on another machine than the
-        /// user's browser.
+        /// The user's browser is most likely on another machine (the shell
+        /// is over SSH, or this machine has no display), where 127.0.0.1 is
+        /// not this page: it needs `forward`, or a paste in the terminal.
         remote: bool,
         /// Why the browser was not used, when `Auto` picked the page.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -137,7 +141,7 @@ impl SignIn {
                 url: page.url(),
                 port: page.port(),
                 forward: loopback::ssh_forward(page.port()),
-                remote: over_ssh(),
+                remote: no_local_browser().is_some(),
                 reason,
             },
             timeout: PAGE_TIMEOUT,
@@ -159,12 +163,28 @@ impl SignIn {
         self.wait_until(&AtomicBool::new(false))
     }
 
+    /// `wait`, also taking session values the user pastes in the terminal
+    /// while the page waits: the page is on 127.0.0.1, which a browser on
+    /// another machine reaches only through a port forward. The browser
+    /// window needs no paste and ignores them.
+    pub fn wait_with_pastes(self, pastes: &Receiver<String>) -> Result<SessionStatus, IdxError> {
+        self.wait_on(&AtomicBool::new(false), Some(pastes))
+    }
+
     /// `wait`, ending early with the browser closed when `cancel` is set.
     /// The page has nothing to close and stops with the process.
     fn wait_until(self, cancel: &AtomicBool) -> Result<SessionStatus, IdxError> {
+        self.wait_on(cancel, None)
+    }
+
+    fn wait_on(
+        self,
+        cancel: &AtomicBool,
+        pastes: Option<&Receiver<String>>,
+    ) -> Result<SessionStatus, IdxError> {
         match self.waiting {
             Waiting::Browser(window) => window.wait(self.timeout, cancel, &accept)?,
-            Waiting::Page(page) => page.wait(self.timeout, accept)?,
+            Waiting::Page(page) => page.wait_with(self.timeout, pastes, accept)?,
         }
         super::session_status()
     }

@@ -257,7 +257,9 @@ WIB as the fallback.
   user's own browser and opens the page with it in the URL fragment, or a
   clipboard button; a per-run secret guards the path, the page is `no-store`
   with a strict CSP, and the server stops on success or after five minutes.
-  Piped stdin keeps the paste path. Sign-in progress goes to stderr (as JSON
+  Piped stdin keeps the paste path, and in a terminal the CLI also takes a
+  pasted cookie while the page waits (`SignIn::wait_with_pastes`), since a
+  browser on another machine reaches 127.0.0.1 only through a forward. Sign-in progress goes to stderr (as JSON
   lines with `-o json`), so stdout holds only the result.
 - `api/stockbit/auth.rs` reads expiries from the JWTs (`exp`, unverified)
   and refreshes an access token within an hour of expiry with

@@ -34,7 +34,8 @@ and closes the window. Your password, one-time codes and any reCAPTCHA stay in t
 A stored session that still works means nothing to do: idx exits at once. Over SSH, without \
 a display, without such a browser, or with --no-browser, idx serves a local page on \
 127.0.0.1 instead, with a bookmarklet that reads the cookie in your own browser and a \
-clipboard button. With stdin piped, it reads the value of stockbit.com's \
+clipboard button. While the page waits you can also paste the cookie in the terminal, \
+which needs no port forward when your browser is on another machine. With stdin piped, it reads the value of stockbit.com's \
 `credentialStorage` cookie (DevTools, Application, Cookies) or a refresh token from stdin. \
 Servers can set IDX_STOCKBIT_REFRESH_TOKEN instead; IDX_STOCKBIT_BROWSER picks the browser."
     )]
@@ -133,7 +134,35 @@ fn sign_in(
         }
     };
     describe(sign_in.started(), format);
+    if matches!(sign_in.started(), signin::Started::Page { .. }) {
+        return sign_in.wait_with_pastes(&terminal_pastes());
+    }
     sign_in.wait()
+}
+
+/// Longest line a Unix terminal hands over in one read; a longer paste
+/// arrives cut.
+const TERMINAL_LINE_LIMIT: usize = 4095;
+
+/// Lines typed or pasted in the terminal while the page waits, so a user
+/// whose browser cannot reach the page (a remote shell with no port forward)
+/// still signs in from the same command. The thread ends with the process.
+fn terminal_pastes() -> std::sync::mpsc::Receiver<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lines() {
+            let Ok(line) = line else { break };
+            if line.len() >= TERMINAL_LINE_LIMIT {
+                runtime::warn(
+                    "the terminal cut that paste short; pipe it instead \
+                     (`pbpaste | ssh <host> idx stockbit login`) or paste only the refresh token",
+                );
+            } else if !line.trim().is_empty() && tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    rx
 }
 
 /// Where to sign in. These lines are the instructions, so they print even
@@ -161,18 +190,26 @@ fn describe(started: &signin::Started, format: &OutputFormat) {
             reason,
             ..
         } => {
-            if let Some(reason) = reason
-                && !remote
-            {
+            if let Some(reason) = reason {
                 runtime::warn(format!("{reason}; using the local page"));
             }
             say(format!("Open this page to connect Stockbit: {url}"));
             if *remote {
                 say(format!(
-                    "This shell is over SSH, so the page is on the remote machine. From the \
-                     machine with your browser, run (and keep it open):\n  {forward}\nthen open \
-                     the URL above there."
+                    "The page is on this machine (127.0.0.1). If your browser is on another \
+                     machine, do one of these:\n  \
+                     1. Forward the page: run this where the browser is, keep it open, then \
+                     open the URL above there:\n       {forward}\n  \
+                     2. Paste the session here: on stockbit.com, open DevTools > Application > \
+                     Cookies, copy the value of `credentialStorage`, then paste it in this \
+                     terminal and press Enter."
                 ));
+            } else {
+                say(
+                    "Or paste the value of stockbit.com's `credentialStorage` cookie in this \
+                     terminal and press Enter."
+                        .to_string(),
+                );
             }
         }
         signin::Started::Existing => {}

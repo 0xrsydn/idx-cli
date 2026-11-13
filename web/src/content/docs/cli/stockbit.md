@@ -118,8 +118,9 @@ stockbit.com open and logged in, click the page's **Send my Stockbit
 session** bookmarklet: it reads Stockbit's `credentialStorage` cookie in your
 browser and hands it to the page, which checks it with one request and says
 "Connected". If bookmarklets are blocked, click **Paste from clipboard**
-after copying the cookie, or paste it into the box. `--port` picks another
-port. Piping the value in still works
+after copying the cookie, or paste it into the box. While the page waits, the
+terminal takes the same value: paste the cookie there and press Enter.
+`--port` picks another port. Piping the value in still works
 (`pbpaste | idx stockbit login`), as does a refresh token on its own. On a
 server, set `IDX_STOCKBIT_REFRESH_TOKEN`. Set `IDX_STOCKBIT_BROWSER` to use a
 browser idx does not find on its own.
@@ -137,6 +138,12 @@ The page listens on this machine's loopback interface only, and the browser
 handoff needs a browser on this machine too. On a server, in a container, or
 in a WSL distro, `127.0.0.1` is a different machine and neither will load.
 Three ways around that, in order of how little they ask of you.
+
+**Paste it in the terminal.** Run `idx stockbit login` on the server. It prints
+the page's URL and then waits; copy the `credentialStorage` value on the
+machine with the browser (DevTools, Application, Cookies), paste it in that
+terminal and press Enter. No tunnel, and it works in any remote terminal, SSH
+or not. The value shows in the terminal as you paste it.
 
 **Pipe the cookie over SSH.** No tunnel, one command. Copy the
 `credentialStorage` value on the machine with the browser (DevTools,
@@ -157,9 +164,8 @@ idx stockbit login                    # on the server: over SSH, it serves the p
 ssh -L 7878:127.0.0.1:7878 <host>     # where the browser is, keep it open
 ```
 
-Then open the printed URL there and click the bookmarklet. Over SSH, idx
-notices `SSH_CONNECTION`, skips the browser, and prints the exact forward
-itself.
+Then open the printed URL there and click the bookmarklet. Over SSH or on a
+machine with no display, idx skips the browser and prints the forward itself.
 
 **Seed a token.** For anything unattended, keep the refresh token in a secret
 store and pass it at run time:
