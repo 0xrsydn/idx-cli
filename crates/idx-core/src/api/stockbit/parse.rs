@@ -96,7 +96,8 @@ struct RawPoint {
     value: Value,
 }
 
-/// Stockbit's code for a resolved symbol: `BBCA.JK` -> `BBCA`, and Yahoo's
+/// Stockbit's code for a resolved symbol: `BBCA.JK` -> `BBCA`, a warrant or
+/// right as it is listed (`INET-W.JK` -> `INET-W`), and Yahoo's
 /// index tickers to Stockbit's (`^JKSE` -> `IHSG`, `^JKLQ45` -> `LQ45`).
 pub fn stockbit_code(resolved: &str) -> Result<String, IdxError> {
     let unsupported = || {
@@ -111,7 +112,10 @@ pub fn stockbit_code(resolved: &str) -> Result<String, IdxError> {
         Some(_) => return Err(unsupported()),
         None => code,
     };
-    if code.is_empty() || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
+    // Letters and digits, with the dash of a warrant (`INET-W`) or a right
+    // (`BMAS-R`); the code goes into a URL path.
+    let plain = |c: char| c.is_ascii_alphanumeric();
+    if !code.starts_with(plain) || !code.chars().all(|c| plain(c) || c == '-') {
         return Err(unsupported());
     }
     Ok(code.to_string())
@@ -430,7 +434,10 @@ mod tests {
         assert_eq!(stockbit_code("BBCA.JK").unwrap(), "BBCA");
         assert_eq!(stockbit_code("^JKSE.JK").unwrap(), "IHSG");
         assert_eq!(stockbit_code("^JKLQ45.JK").unwrap(), "LQ45");
-        for other in ["AAPL.US", "^GSPC.JK", "BRK-B.JK", ".JK"] {
+        // Warrants and rights trade under the stock's code and a dash.
+        assert_eq!(stockbit_code("INET-W.JK").unwrap(), "INET-W");
+        assert_eq!(stockbit_code("BMAS-R.JK").unwrap(), "BMAS-R");
+        for other in ["AAPL.US", "^GSPC.JK", "-W.JK", "A=B.JK", "A.B.JK", ".JK"] {
             assert!(
                 matches!(stockbit_code(other), Err(IdxError::Unsupported(_))),
                 "{other}"

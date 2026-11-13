@@ -10,6 +10,7 @@
 - `ownership movements` and `get_shareholder_movements` refuse a `from`..`to` range over 365 days with `INVALIDINPUT`, where Stockbit's `HTTP 400: INVALID_PARAMETER` came through. (#0)
 - `ownership movements --to` with a date before Stockbit's feed begins returns no rows, where it returned one row from years after that date. (#0)
 - `ownership movements` says `symbol not found` for a code Stockbit does not know, where it printed an empty list. (#0)
+- Warrants and rights (`INET-W`, `BMAS-R`) work in `stocks orderbook`, `stocks intraday` and Stockbit quotes and history, where they answered `UNSUPPORTED: Stockbit covers IDX (.JK) symbols only`. (#0)
 
 ### Output Changes
 
