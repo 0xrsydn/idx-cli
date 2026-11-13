@@ -31,6 +31,16 @@ cargo install idx-mcp                                  # Rust 1.89+
 nix profile install github:0xrsydn/idx-cli#idx-mcp
 ```
 
+Or run it from Docker, with `docker` as the command and these arguments:
+
+```bash
+docker run --rm -i -v idx:/home/nonroot ghcr.io/0xrsydn/idx-mcp
+```
+
+The `idx` volume holds the ownership database; fill it with
+`docker run --rm -v idx:/home/nonroot ghcr.io/0xrsydn/idx-cli ownership sync`
+or start the server with `--allow-sync`.
+
 ## 2. Add it to your client
 
 <McpClientTabs />

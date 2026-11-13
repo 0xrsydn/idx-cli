@@ -48,9 +48,20 @@ cargo install idx-cli
 
 Builds from source; requires Rust `1.89+`.
 
+### Docker
+
+```bash
+docker run --rm -v idx:/home/nonroot ghcr.io/0xrsydn/idx-cli stocks quote BBCA
+```
+
+Images for `idx` (`ghcr.io/0xrsydn/idx-cli`) and `idx-mcp`
+(`ghcr.io/0xrsydn/idx-mcp`) cover linux/amd64 and linux/arm64, are tagged
+`X.Y.Z`, `X.Y` and `latest`, and hold the release binaries only. Mount a volume
+at `/home/nonroot` to keep the cache and ownership database between runs.
+
 ### Runtime helper tools
 
-The install script, npm, and Cargo installs ship only the `idx` binary. A few
+The install script, npm, Cargo and Docker installs ship only the `idx` binary. A few
 commands call external tools:
 
 | Tool | Needed for |
@@ -183,6 +194,7 @@ client:
 
 ```bash
 claude mcp add idx -- npx -y idx-mcp   # Claude Code, via npm
+claude mcp add idx -- docker run --rm -i -v idx:/home/nonroot ghcr.io/0xrsydn/idx-mcp   # or Docker
 cargo install idx-mcp                  # or build it (Rust 1.89+)
 nix profile install github:0xrsydn/idx-cli#idx-mcp
 ```

@@ -1,6 +1,6 @@
 ---
 title: Install
-description: Install idx with npm, the install script, Cargo or Nix.
+description: Install idx with npm, the install script, Cargo, Nix or Docker.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
@@ -61,6 +61,19 @@ nix run github:0xrsydn/idx-cli -- version   # or run without installing
 ```
 
 The Nix package bundles the helper tools below.
+
+</TabItem>
+<TabItem label="Docker">
+
+```bash
+docker run --rm -v idx:/home/nonroot ghcr.io/0xrsydn/idx-cli version
+alias idx='docker run --rm -i -v idx:/home/nonroot ghcr.io/0xrsydn/idx-cli'
+```
+
+Images for linux/amd64 and linux/arm64, tagged `0.5.1`, `0.5` and `latest`.
+The `idx` volume keeps the cache and ownership database between runs. The
+image holds only the binary, without the helper tools below. The MCP server is
+`ghcr.io/0xrsydn/idx-mcp`.
 
 </TabItem>
 </Tabs>

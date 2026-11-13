@@ -1,0 +1,152 @@
+name: Images
+
+# Publishes ghcr.io/<owner>/idx-cli and ghcr.io/<owner>/idx-mcp for linux/amd64
+# and linux/arm64 from a release's checksum-verified static binaries. The
+# release workflow calls this after attaching the binaries; dispatch it by hand
+# to (re)publish the images of an existing release. A pull request builds and
+# runs the images from the latest release without pushing them.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag whose binaries to package (for example v0.5.1)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag whose binaries to package (for example v0.5.1)"
+        required: true
+  pull_request:
+    paths:
+      - ".github/workflows/images.yml"
+      - "contrib/docker/**"
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Image ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: idx-cli
+            description: CLI for Indonesian stock market (IDX) analysis and KSEI shareholder ownership
+          - image: idx-mcp
+            description: MCP server for Indonesian stock market (IDX) market, financial, and ownership data
+    env:
+      GH_TOKEN: ${{ github.token }}
+      INPUT_TAG: ${{ inputs.tag }}
+      PUSH: ${{ github.event_name != 'pull_request' }}
+    steps:
+      - name: Check out the Dockerfile
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          sparse-checkout: contrib/docker
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve the release and image tags
+        id: meta
+        run: |
+          latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+          tag="${INPUT_TAG:-$latest}"
+          version="${tag#v}"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}"
+          revision="$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)"
+
+          tags="$image:$version"
+          if [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.[0-9]+$ ]]; then
+            tags+=$'\n'"$image:${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            # Only the newest release moves `latest`, so republishing an older
+            # release's images leaves it alone.
+            if [ "$tag" = "$latest" ]; then
+              tags+=$'\n'"$image:latest"
+            fi
+          fi
+
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "revision=$revision"
+            echo "tags<<EOF"
+            echo "$tags"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "Packaging $tag ($revision) as:" >> "$GITHUB_STEP_SUMMARY"
+          while read -r t; do echo "- \`$t\`"; done <<< "$tags" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download and verify the release binaries
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          mkdir release
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir release \
+            --pattern 'idx-linux-*' --pattern 'idx-mcp-linux-*' --pattern SHA256SUMS
+          cd release
+          for arch in x64 arm64; do
+            for bin in idx idx-mcp; do
+              [ -f "$bin-linux-$arch" ] || { echo "::error::$TAG has no $bin-linux-$arch"; exit 1; }
+            done
+          done
+          sha256sum --check --ignore-missing SHA256SUMS
+          cd ..
+          for pair in x64:amd64 arm64:arm64; do
+            asset="${pair%%:*}" platform="${pair##*:}"
+            mkdir -p "contrib/docker/dist/linux-$platform"
+            cp "release/idx-linux-$asset" "contrib/docker/dist/linux-$platform/idx"
+            cp "release/idx-mcp-linux-$asset" "contrib/docker/dist/linux-$platform/idx-mcp"
+          done
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the amd64 image for a test run
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: contrib/docker
+          target: ${{ matrix.image }}
+          platforms: linux/amd64
+          load: true
+          tags: ${{ matrix.image }}:test
+
+      - name: Check the image runs
+        run: docker run --rm "${{ matrix.image }}:test" --help >/dev/null
+
+      - name: Log in to ghcr.io
+        if: env.PUSH == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # The source label and index annotation link the package to this
+      # repository on GitHub; the description annotation is what ghcr.io shows.
+      - name: Build and push linux/amd64 and linux/arm64
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: contrib/docker
+          target: ${{ matrix.image }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ env.PUSH == 'true' }}
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.url=https://idx.rasyidanaf.com
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.meta.outputs.revision }}
+          annotations: |
+            index:org.opencontainers.image.description=${{ matrix.description }}
+            index:org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            index:org.opencontainers.image.licenses=MIT
+            index:org.opencontainers.image.version=${{ steps.meta.outputs.version }}

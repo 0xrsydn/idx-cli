@@ -102,6 +102,21 @@ targets, names the binaries with the asset names above, writes `SHA256SUMS`,
 and attaches everything to the matching GitHub Release. The asset names and
 URLs must stay aligned with `scripts/install.js`.
 
+After the release has its binaries, the workflow calls
+`.github/workflows/images.yml`, which downloads the linux binaries from the
+release, checks them against `SHA256SUMS`, and pushes
+`ghcr.io/0xrsydn/idx-cli` and `ghcr.io/0xrsydn/idx-mcp` for linux/amd64 and
+linux/arm64 from `contrib/docker/Dockerfile`. They are tagged `X.Y.Z` and
+`X.Y`, plus `latest` when the tag is the newest release. To publish the images
+of an existing release:
+
+```bash
+gh workflow run images.yml -f tag=v0.5.1
+```
+
+GitHub creates a package as private the first time it is pushed; make it
+public once in the package's settings (Danger Zone, Change visibility).
+
 To attach binaries to a tag that already exists, run the workflow manually:
 
 ```bash
@@ -129,7 +144,8 @@ Release order:
    the notes it has.
 4. Publish the crates from the tagged commit, dependency first:
    `cargo publish -p idx-core`, then `-p idx-cli` and `-p idx-mcp`.
-5. Confirm the release has all eight binaries plus `SHA256SUMS` and the notes.
+5. Confirm the release has all eight binaries plus `SHA256SUMS` and the notes,
+   and that the Images job pushed both images.
    To fix the notes later, edit `CHANGELOG.md` and run
    `gh release edit vX.Y.Z --notes-file <(scripts/changelog.sh notes X.Y.Z)`.
 6. Run `npm publish` in the repo root and in `npm/idx-mcp/` from the tagged
