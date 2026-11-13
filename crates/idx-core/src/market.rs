@@ -27,6 +27,17 @@ pub struct HistorySource {
     pub is_fallback: bool,
 }
 
+/// The provider that quotes `resolved` when `selected` is the user's choice.
+/// MSN has no indices, so an index ticker (`^JKSE`) asked of it goes to
+/// Yahoo; every other symbol and provider stays as chosen.
+fn quote_route(selected: ProviderKind, resolved: &str) -> ProviderKind {
+    if selected == ProviderKind::Msn && resolved.starts_with('^') {
+        ProviderKind::Yahoo
+    } else {
+        selected
+    }
+}
+
 impl Market<'_> {
     /// Quotes in input order; stops at the first symbol that fails.
     pub fn quotes<S: AsRef<str>>(
@@ -41,9 +52,20 @@ impl Market<'_> {
             _ => idx.config.quote_ttl,
         };
         let session = latest_session(Utc::now());
+        // Built only when an index is asked of MSN (see `quote_route`).
+        let yahoo = std::cell::OnceCell::new();
         let mut quotes = Vec::with_capacity(symbols.len());
         for symbol in symbols {
             let resolved = idx.resolve(symbol.as_ref())?;
+            let (provider, bucket) = match quote_route(idx.provider.kind(), &resolved) {
+                ProviderKind::Yahoo if idx.provider.kind() != ProviderKind::Yahoo => (
+                    yahoo.get_or_init(|| {
+                        crate::api::default_provider(ProviderKind::Yahoo, idx.config.verbose)
+                    }),
+                    "yahoo-quote".to_string(),
+                ),
+                _ => (&idx.provider, bucket.clone()),
+            };
             let mut quote = cached_fetch(
                 &idx.cache,
                 CacheSpec {
@@ -51,10 +73,10 @@ impl Market<'_> {
                     key: &resolved,
                     ttl_secs,
                     subject: &resolved,
-                    source: idx.provider.kind().as_str(),
+                    source: provider.kind().as_str(),
                 },
                 policy,
-                || idx.provider.market().quote(&resolved),
+                || provider.market().quote(&resolved),
                 Ok,
             )?;
             // The session rule is IDX's; other exchanges keep other hours.
@@ -474,6 +496,17 @@ mod tests {
     };
     use crate::api::types::Quote;
     use crate::error::IdxError;
+
+    /// Only an index asked of MSN changes provider.
+    #[test]
+    fn an_index_asked_of_msn_goes_to_yahoo() {
+        use super::quote_route;
+        use crate::config::ProviderKind::{Msn, Stockbit, Yahoo};
+        assert_eq!(quote_route(Msn, "^JKSE.JK"), Yahoo);
+        assert_eq!(quote_route(Msn, "BBCA.JK"), Msn);
+        assert_eq!(quote_route(Stockbit, "^JKSE.JK"), Stockbit);
+        assert_eq!(quote_route(Yahoo, "^JKSE.JK"), Yahoo);
+    }
 
     fn sample_quote(symbol: &str, change_pct: Option<f64>) -> Quote {
         Quote {
