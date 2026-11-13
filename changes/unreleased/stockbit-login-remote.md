@@ -16,3 +16,7 @@
 
 - `stockbit_login` and `stockbit_status` answer `"remote": true` for a page sign-in on a machine with no display, as they did over SSH. (#0)
 - `ownership movements` and `get_shareholder_movements` answer `SYMBOLNOTFOUND` (exit 3) for an unknown symbol, where they answered an empty list. (#0)
+
+### Docs
+
+- The ownership and Stockbit pages state the 365-day limit of `ownership movements` and show a warrant ticker. (#0)

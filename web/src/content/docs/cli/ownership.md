@@ -55,7 +55,8 @@ commissioners and other insiders, at any size, with the trade price. `KSEI`
 rows are changes of holders at 5% and above, which report no price; Stockbit
 estimates one, shown with `~`. `--holder` takes the number in the HOLDER ID
 column. Shares are exact. Stakes are as Stockbit rounds them, so a director's
-small holding reads `<0.01%`.
+small holding reads `<0.01%`. `--from` and `--to` together span at most 365
+days, Stockbit's limit; either one alone has none.
 
 These are filings, not signals. Many insiders buying at one price on one day
 is usually a share plan, transfers are not trades, and a row appears days

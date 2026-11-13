@@ -76,6 +76,7 @@ idx stockbit login                    # sign in on Stockbit's page in a browser 
 idx stockbit status                   # logged in? when do the tokens expire?
 idx stocks orderbook BBCA             # depth, queued orders, foreign flow
 idx stocks orderbook BBRI --depth 5
+idx stocks orderbook INET-W           # a warrant; rights end in -R
 idx stocks actions BBCA               # dividends, splits, meetings, ...
 idx stocks calendar --kind dividend   # cum dates in the next 30 days
 idx ownership movements BBCA          # insider and major holder buys and sells

@@ -66,9 +66,13 @@ with `session`, `state_name`, `state_start_time`, `state_end_time`,
 | Tue 2026-11-03 12:35 | `STATE_NAME_BREAK`, session 1, 12:00:00-13:29:59 | `STATE_NAME_BREAK`, session 3, 12:00:00-13:59:59 |
 | Tue 2026-11-03 13:30 | `STATE_NAME_SESSION_2`, session 2, 13:30:00-15:49:59 | still `STATE_NAME_BREAK` |
 | Tue 2026-11-03 14:00 | `STATE_NAME_SESSION_2` | `STATE_NAME_SESSION_4` |
+| Fri 2026-11-13 15:52 | `STATE_NAME_PRE_CLOSING` | not read |
 
 The order book and session quotes treat any numbered `STATE_NAME_SESSION_<n>`
-as trading (#74; the assumed `STATE_NAME_MARKET_OPEN` never appeared). idx
+as trading (#74; the assumed `STATE_NAME_MARKET_OPEN` never appeared), so
+the closing auction (`STATE_NAME_PRE_CLOSING`, from 15:50) reads as not
+trading: the order book still shows both sides, and a quote drops bid/offer
+and says `close`. idx
 reads `regular` only, so FCA-board stocks can show the regular board's state
 around the break.
 
@@ -108,7 +112,10 @@ a calendar of cum dates.
 ### Endpoint
 
 `GET /corpaction/{type}?symbol=SYM` gives one stock's history (BBCA: 37 cash dividends, cum dates 2009-06-09 to 2026-08-28); `GET /corpaction/{type}` without `symbol` is the
-market-wide list, newest cum/event date first, upcoming events included. The
+market-wide list, newest cum/event date first, upcoming events included
+(`ipo` ignores `symbol` and always answers the market's list, so idx filters
+one stock's rows itself; meetings and exposes reached back about three months
+on 2026-11-13, dividends a year). The
 bundle passes `limit` (default 30); `rightissue` honoured it loosely (28 rows
 for `limit=5`), `warrant` ignored it (1329 rows for `limit=3`), so idx filters
 by date itself.
@@ -193,6 +200,12 @@ the row's `id` (not unique per row); `action_type` takes `ACTION_TYPE_BUY`,
 `_SELL`, `_TRANSFER`, `_CROSS` or `_CORPACTION` (the app's filter list);
 `source_type` takes `SOURCE_TYPE_IDX` or `_KSEI`. `page` counts from 1. 50 rows
 a page, `data.is_more` for the next page; a busy day has more than 50 rows.
+Limits found on 2026-11-13: `date_start` and `date_end` together span at
+most 365 days (a day more answers `400 INVALID_PARAMETER`; one of them alone
+has no limit), a `date_end` before the feed begins (2015, 2016) answered one
+row from 2023, and an unknown `symbol` answers an empty list, not 404. idx
+refuses the long range, drops rows outside the dates, and asks the order book
+whether a symbol with no rows exists.
 Without `symbol` it is market-wide, newest first: on 2026-11-03 the newest rows
 were from 2026-11-02. BBCA's 50 rows span 2024-03-22 to 2026-03-25.
 
@@ -276,8 +289,8 @@ Yahoo prices, forward 5/20/60-session returns against IHSG).
 
 ## Open questions
 
-- The `regular` state in session 1 (assumed `STATE_NAME_SESSION_1`), the
-  pre-open (08:45-09:00) and the closing auction (15:50-16:00).
+- The `regular` state in session 1 (assumed `STATE_NAME_SESSION_1`) and the
+  pre-open (08:45-09:00); the closing auction is `STATE_NAME_PRE_CLOSING`.
 - When `has_foreign_bs` turns true, and whether the figures are then the
   day's.
 - `stock_dividend` and `reversesplit` row shapes (both empty on 2026-11-03).
