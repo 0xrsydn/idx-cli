@@ -16,6 +16,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use base64::Engine;
 use chrono::{DateTime, Utc};
@@ -179,9 +180,12 @@ impl SessionStore {
 
     /// The file's tokens, each missing one taken from the seed.
     pub fn load(&self) -> Session {
-        let mut session = std::fs::read_to_string(self.path())
-            .ok()
-            .and_then(|raw| serde_json::from_str::<Session>(&raw).ok())
+        let raw = std::fs::read_to_string(self.path()).ok();
+        if raw.is_some() {
+            self.keep_private();
+        }
+        let mut session = raw
+            .and_then(|raw| self.parse_file(&raw))
             .unwrap_or_default();
         session.access = normalize_token(&session.access);
         session.refresh = normalize_token(&session.refresh);
@@ -192,6 +196,58 @@ impl SessionStore {
             session.refresh.clone_from(&self.seed.refresh);
         }
         session
+    }
+
+    /// The file's session; a file that holds something else is ignored with
+    /// one warning, since "not logged in" alone would not say why.
+    fn parse_file(&self, raw: &str) -> Option<Session> {
+        static WARNED: AtomicBool = AtomicBool::new(false);
+        if raw.trim().is_empty() {
+            return None;
+        }
+        let session = serde_json::from_str::<Session>(raw).ok();
+        if session.is_none() && !WARNED.swap(true, Ordering::Relaxed) {
+            crate::runtime::warn(format!(
+                "the Stockbit session file {} is damaged and was ignored; run `idx stockbit \
+                 login` to replace it",
+                self.path().display()
+            ));
+        }
+        session
+    }
+
+    /// Takes the session file back to owner-only when something widened it
+    /// (idx writes it 0600), saying so once.
+    fn keep_private(&self) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            static WARNED: AtomicBool = AtomicBool::new(false);
+            let path = self.path();
+            let Ok(meta) = std::fs::metadata(&path) else {
+                return;
+            };
+            if meta.permissions().mode() & 0o077 == 0 {
+                return;
+            }
+            let fixed =
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).is_ok();
+            if !WARNED.swap(true, Ordering::Relaxed) {
+                crate::runtime::warn(if fixed {
+                    format!(
+                        "the Stockbit session file {} was readable by other users; idx made it \
+                         owner-only again",
+                        path.display()
+                    )
+                } else {
+                    format!(
+                        "the Stockbit session file {} is readable by other users; run `chmod \
+                         600` on it",
+                        path.display()
+                    )
+                });
+            }
+        }
     }
 
     pub fn has_session(&self) -> bool {
@@ -671,6 +727,33 @@ mod tests {
             })
             .unwrap();
         assert_eq!(seeded.load().refresh, stored);
+    }
+
+    /// A file something widened goes back to owner-only when it is read, and
+    /// a damaged one reads as no session rather than failing.
+    #[cfg(unix)]
+    #[test]
+    fn a_widened_file_is_made_private_and_a_damaged_one_is_no_session() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new("widened");
+        let store = SessionStore::at(dir.0.clone(), Session::default());
+        let session = Session {
+            access: jwt(NOW + 100, "a"),
+            refresh: jwt(NOW + 100, "r"),
+        };
+        store.save(&session).unwrap();
+        std::fs::set_permissions(store.path(), std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(store.load(), session);
+        let mode = std::fs::metadata(store.path())
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+
+        std::fs::write(store.path(), "{not json").unwrap();
+        assert!(store.load().is_empty());
+        std::fs::write(store.path(), "").unwrap();
+        assert!(store.load().is_empty());
     }
 
     #[test]

@@ -17,6 +17,7 @@
 ### Improvements
 
 - `stocks calendar` and `get_corporate_calendar` warn when the range starts before Stockbit's market-wide lists do, naming each kind and the date its list begins, where a past range silently came back short. (#0)
+- A Stockbit session file that other users can read is set back to owner-only, and a damaged one is named in a warning, where it read as "not logged in" with no reason. (#0)
 
 ### Output Changes
 
