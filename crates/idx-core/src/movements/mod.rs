@@ -68,7 +68,7 @@ impl Movements<'_> {
             || read_pages(provider.as_ref(), &query, &partial),
             Ok,
         );
-        match (result, partial.into_inner()) {
+        let fetched = match (result, partial.into_inner()) {
             (Err(err), Some(mut list)) => {
                 runtime::warn(format!(
                     "{err}; showing the {} rows read before it",
@@ -83,7 +83,18 @@ impl Movements<'_> {
                 })
             }
             (result, _) => result.map(|fetched| fetched.map(|list| within_dates(list, &query))),
+        }?;
+        // Stockbit answers a code it does not know with an empty list, as it
+        // does a stock with nothing reported; its order book tells them apart.
+        if fetched.data.movements.is_empty()
+            && policy != CachePolicy::Offline
+            && let Some(symbol) = &query.symbol
+            && let Err(err @ IdxError::SymbolNotFound(_)) =
+                self.idx.market().orderbook(symbol, policy)
+        {
+            return Err(err);
         }
+        Ok(fetched)
     }
 }
 

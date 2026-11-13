@@ -282,7 +282,7 @@ fn classify(reply: Reply, subject: &str) -> Result<String, IdxError> {
     }
 }
 
-fn error_type(body: &str) -> Option<String> {
+pub(crate) fn error_type(body: &str) -> Option<String> {
     serde_json::from_str::<Value>(body)
         .ok()?
         .get("error_type")?

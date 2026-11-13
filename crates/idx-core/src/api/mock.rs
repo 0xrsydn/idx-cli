@@ -201,6 +201,11 @@ impl MockStockbitProvider {
     fn book(&self, symbol: &str) -> Result<OrderBook, IdxError> {
         let code = stockbit::stockbit_code(symbol)?.to_ascii_lowercase();
         let body = self.exodus(symbol, &format!("orderbook_{code}.json"))?;
+        // A recorded 404 body (`orderbook_zzzz.json`) is the answer for a
+        // code Stockbit does not know.
+        if exodus::error_type(&body).as_deref() == Some("NOT_FOUND") {
+            return Err(IdxError::SymbolNotFound(symbol.to_string()));
+        }
         let state = self.exodus(symbol, "market_session.json")?;
         exodus::parse_orderbook(symbol, &body, exodus::parse_market_status(&state))
     }

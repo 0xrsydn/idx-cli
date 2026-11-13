@@ -2922,6 +2922,27 @@ fn auto_history_falls_back_to_yahoo_when_the_session_is_refused() {
     let _ = fs::remove_dir_all(root);
 }
 
+/// Stockbit answers an unknown code with an empty list; idx says the symbol
+/// is not found, and keeps the empty list for a stock with nothing to show.
+#[test]
+fn movements_of_an_unknown_symbol_are_not_an_empty_list() {
+    let root = test_env_dir("movements-unknown");
+    run_error_json(
+        mock_bin_with_root(&root)
+            .env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .args(["-o", "json", "ownership", "movements", "ZZZZ"]),
+        "SYMBOLNOTFOUND",
+    );
+    let none = run_success_json(
+        mock_bin_with_root(&root)
+            .env("IDX_STOCKBIT_REFRESH_TOKEN", FAKE_STOCKBIT_TOKEN)
+            .args(["-o", "json", "ownership", "movements", "BBCA"])
+            .args(["--from", "2031-01-01"]),
+    );
+    assert_eq!(none["movements"].as_array().unwrap().len(), 0);
+    let _ = fs::remove_dir_all(root);
+}
+
 /// A page after the first that fails keeps the rows read before it, says
 /// why, and is not cached; a query's pages are cached as one answer.
 #[test]
