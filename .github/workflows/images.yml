@@ -61,11 +61,18 @@ jobs:
           image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}"
           revision="$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)"
 
+          # Moving tags follow the newest release only: `X.Y` the newest
+          # X.Y.* release and `latest` the newest overall, so republishing an
+          # older release's images leaves both alone.
           tags="$image:$version"
           if [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.[0-9]+$ ]]; then
-            tags+=$'\n'"$image:${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
-            # Only the newest release moves `latest`, so republishing an older
-            # release's images leaves it alone.
+            minor="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            newest_in_minor="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 \
+              --exclude-drafts --exclude-pre-releases --json tagName --jq '.[].tagName' \
+              | grep -E "^v${minor//./\\.}\.[0-9]+$" | sort -V | tail -n 1)"
+            if [ "$tag" = "$newest_in_minor" ]; then
+              tags+=$'\n'"$image:$minor"
+            fi
             if [ "$tag" = "$latest" ]; then
               tags+=$'\n'"$image:latest"
             fi

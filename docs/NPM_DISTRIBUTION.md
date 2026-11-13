@@ -106,9 +106,10 @@ After the release has its binaries, the workflow calls
 `.github/workflows/images.yml`, which downloads the linux binaries from the
 release, checks them against `SHA256SUMS`, and pushes
 `ghcr.io/0xrsydn/idx-cli` and `ghcr.io/0xrsydn/idx-mcp` for linux/amd64 and
-linux/arm64 from `contrib/docker/Dockerfile`. They are tagged `X.Y.Z` and
-`X.Y`, plus `latest` when the tag is the newest release. To publish the images
-of an existing release:
+linux/arm64 from `contrib/docker/Dockerfile`. They are tagged `X.Y.Z`; `X.Y` moves only for
+the newest `X.Y.*` release and `latest` only for the newest release, so
+republishing an older release leaves both alone. To publish the images of an
+existing release:
 
 ```bash
 gh workflow run images.yml -f tag=v0.5.1
