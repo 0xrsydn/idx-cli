@@ -55,6 +55,19 @@ impl Corporate<'_> {
         policy: CachePolicy,
     ) -> Result<Fetched<Vec<CorporateAction>>, IdxError> {
         let fetched = self.fetch(kinds, None, policy)?;
+        let short = starts_after(&fetched.data, range.from);
+        if range.from < self.today() && !short.is_empty() {
+            let kinds: Vec<String> = short
+                .iter()
+                .map(|(kind, first)| format!("{} from {first}", kind.as_str()))
+                .collect();
+            crate::runtime::warn(format!(
+                "Stockbit's market-wide lists start after {}: {}; earlier events of those kinds \
+                 are missing here (`stocks actions SYM` has one stock's full history)",
+                range.from,
+                kinds.join(", ")
+            ));
+        }
         Ok(fetched.map(|mut actions| {
             actions.retain(|a| range.includes(a));
             actions.sort_by(|a, b| (a.date, &a.symbol, a.kind).cmp(&(b.date, &b.symbol, b.kind)));
@@ -108,5 +121,50 @@ impl Corporate<'_> {
             merged.data.extend(part.data);
         }
         Ok(merged)
+    }
+}
+
+/// The kinds whose oldest row is dated after `from`, with that date.
+/// Stockbit's market-wide list of a kind holds its newest rows only (three
+/// months of meetings, a year of dividends on 2026-11-13), so a range that
+/// starts before the oldest row is not covered from its start.
+fn starts_after(actions: &[CorporateAction], from: NaiveDate) -> Vec<(ActionKind, NaiveDate)> {
+    let mut oldest: Vec<(ActionKind, NaiveDate)> = Vec::new();
+    for action in actions {
+        match oldest.iter_mut().find(|(kind, _)| *kind == action.kind) {
+            Some((_, date)) => *date = (*date).min(action.date),
+            None => oldest.push((action.kind, action.date)),
+        }
+    }
+    oldest.retain(|(_, date)| *date > from);
+    oldest.sort();
+    oldest
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn day(month: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, month, day).unwrap()
+    }
+
+    /// A kind whose oldest row is after the range's first day is named with
+    /// that row's date; one that reaches the first day is not.
+    #[test]
+    fn kinds_that_start_after_the_range_are_named() {
+        let row = |kind, date| CorporateAction::new("BBCA.JK".to_string(), kind, date);
+        let actions = [
+            row(ActionKind::Meeting, day(9, 2)),
+            row(ActionKind::Meeting, day(8, 3)),
+            row(ActionKind::Dividend, day(1, 5)),
+            row(ActionKind::Dividend, day(6, 1)),
+        ];
+        assert_eq!(
+            starts_after(&actions, day(3, 1)),
+            [(ActionKind::Meeting, day(8, 3))]
+        );
+        assert!(starts_after(&actions, day(8, 3)).is_empty());
+        assert!(starts_after(&[], day(1, 1)).is_empty());
     }
 }

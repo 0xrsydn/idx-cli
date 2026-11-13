@@ -14,6 +14,10 @@
 - Index tickers work on Yahoo: `--provider yahoo stocks quote ^JKSE`, `stocks history ^JKSE` and `stocks technical ^JKSE` answered `symbol not found: ^JKSE.JK`. (#0)
 - A Yahoo quote takes the day's change from Yahoo's own percentage when its previous close is stale, as it was for `^JKSE` (+4.48% shown on a +1.78% day). (#0)
 
+### Improvements
+
+- `stocks calendar` and `get_corporate_calendar` warn when the range starts before Stockbit's market-wide lists do, naming each kind and the date its list begins, where a past range silently came back short. (#0)
+
 ### Output Changes
 
 - `stockbit_login` and `stockbit_status` answer `"remote": true` for a page sign-in on a machine with no display, as they did over SSH. (#0)
