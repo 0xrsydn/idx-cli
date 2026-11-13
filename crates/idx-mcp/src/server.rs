@@ -182,7 +182,9 @@ the user can open."
         let OrderBookParams { symbol, depth } = params.0;
         self.live(move |idx| {
             let depth = bounded_limit("depth", depth, BOOK_DEPTH, MAX_BOOK_DEPTH)?;
-            let mut book = idx.market().orderbook(&symbol, CachePolicy::Default)?;
+            let mut book = idx
+                .market()
+                .orderbook_for_reader(&symbol, CachePolicy::Default)?;
             book.data.bids.truncate(depth);
             book.data.offers.truncate(depth);
             Ok(book)

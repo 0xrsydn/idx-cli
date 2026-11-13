@@ -58,6 +58,46 @@ pub fn is_trading(state: &str) -> bool {
         .strip_prefix(TRADING_PREFIX)
         .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
+
+/// What to tell someone reading an order book outside a trading session:
+/// the book looks the same as a live one, so the state has to be said.
+/// `None` while the market trades.
+pub fn not_trading_notice(state: Option<&str>) -> Option<String> {
+    const LEFT: &str = "this order book is as trading left it, not live";
+    const AUCTION: &str = "orders queue for the auction price and do not match yet";
+    let Some(state) = state else {
+        return Some(
+            "Stockbit did not say whether the market is open: this order book may not be live"
+                .to_string(),
+        );
+    };
+    if is_trading(state) {
+        return None;
+    }
+    Some(match state {
+        "STATE_NAME_MARKET_CLOSED" => format!("the market is closed: {LEFT}"),
+        "STATE_NAME_BREAK" => format!("the market is on its midday break: {LEFT}"),
+        "STATE_NAME_POST_CLOSING" => {
+            format!("the market is past its close (post-closing session): {LEFT}")
+        }
+        "STATE_NAME_PRE_CLOSING" => format!("the market is in its closing auction: {AUCTION}"),
+        "STATE_NAME_NEGOTIATION" => {
+            format!("the regular market is closed (negotiated trades only): {LEFT}")
+        }
+        // The opening auction's name has not been recorded yet.
+        other if other.contains("PRE_OPEN") => {
+            format!("the market is in its opening auction: {AUCTION}")
+        }
+        other => format!(
+            "the market is not in a trading session ({}): {LEFT}",
+            other
+                .strip_prefix("STATE_NAME_")
+                .unwrap_or(other)
+                .replace('_', " ")
+                .to_lowercase()
+        ),
+    })
+}
 /// The market's state changes a few times a day; one read serves this long.
 const MARKET_STATE_TTL: Duration = Duration::from_secs(30);
 
@@ -629,6 +669,19 @@ mod tests {
     fn only_numbered_sessions_are_trading() {
         assert!(is_trading("STATE_NAME_SESSION_1"));
         assert!(is_trading("STATE_NAME_SESSION_2"));
+        assert_eq!(not_trading_notice(Some("STATE_NAME_SESSION_2")), None);
+        for (state, says) in [
+            (Some("STATE_NAME_MARKET_CLOSED"), "the market is closed"),
+            (Some("STATE_NAME_BREAK"), "midday break"),
+            (Some("STATE_NAME_PRE_CLOSING"), "closing auction"),
+            (Some("STATE_NAME_POST_CLOSING"), "past its close"),
+            (Some("STATE_NAME_NEGOTIATION"), "negotiated trades only"),
+            (Some("STATE_NAME_SOMETHING_NEW"), "(something new)"),
+            (None, "did not say"),
+        ] {
+            let notice = not_trading_notice(state).unwrap();
+            assert!(notice.contains(says), "{notice}");
+        }
         for state in [
             "STATE_NAME_BREAK",
             "STATE_NAME_MARKET_CLOSED",

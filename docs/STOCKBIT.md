@@ -67,12 +67,15 @@ with `session`, `state_name`, `state_start_time`, `state_end_time`,
 | Tue 2026-11-03 13:30 | `STATE_NAME_SESSION_2`, session 2, 13:30:00-15:49:59 | still `STATE_NAME_BREAK` |
 | Tue 2026-11-03 14:00 | `STATE_NAME_SESSION_2` | `STATE_NAME_SESSION_4` |
 | Fri 2026-11-13 15:52 | `STATE_NAME_PRE_CLOSING` | not read |
+| Fri 2026-11-13 16:12 | `STATE_NAME_POST_CLOSING` | not read |
+| Fri 2026-11-13 16:25 | `STATE_NAME_NEGOTIATION` | not read |
 
 The order book and session quotes treat any numbered `STATE_NAME_SESSION_<n>`
 as trading (#74; the assumed `STATE_NAME_MARKET_OPEN` never appeared), so
 the closing auction (`STATE_NAME_PRE_CLOSING`, from 15:50) reads as not
 trading: the order book still shows both sides, and a quote drops bid/offer
-and says `close`. idx
+and says `close`. The order book warns in every state that is not a trading
+session (`exodus::not_trading_notice`). idx
 reads `regular` only, so FCA-board stocks can show the regular board's state
 around the break.
 

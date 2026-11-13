@@ -216,7 +216,10 @@ What the login adds:
 | `ownership movements` | `AUTHERROR` | insider and major holder buys and sells, as reported to IDX and KSEI |
 
 The order book is what Stockbit's own app shows. Outside trading it is the
-book as the market left it, and the output says so. Foreign buy, sell and net
+book as the market left it, and a warning on stderr says which state the
+market is in: closed, the midday break, an auction, or the negotiated market
+after the close. In JSON the book looks the same as a live one, so read the
+warning or `market_status`; the command still exits 0. Foreign buy, sell and net
 appear only when Stockbit marks them current: during trading its figures are
 the previous session's, so idx leaves them out (`stocks flow` has foreign
 flow session by session). Sizes are lots in the

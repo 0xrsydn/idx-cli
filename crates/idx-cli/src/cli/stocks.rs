@@ -394,7 +394,7 @@ pub fn handle(
                     "--depth must be 1 to {MAX_BOOK_DEPTH} (got {depth})"
                 )));
             }
-            let mut book = idx.market().orderbook(symbol, policy)?.data;
+            let mut book = idx.market().orderbook_for_reader(symbol, policy)?.data;
             book.bids.truncate(*depth);
             book.offers.truncate(*depth);
             render_orderbook(&book, format, no_color)

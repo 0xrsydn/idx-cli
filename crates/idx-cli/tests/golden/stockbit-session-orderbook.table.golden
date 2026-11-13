@@ -15,3 +15,4 @@ market closed: the book as the market left it
 └────────┴──────┴─────┴───────┴───────────┴────────┘
 Source: your Stockbit session; for personal, non-commercial use (Stockbit's terms).
 --- stderr
+warning: the market is closed: this order book is as trading left it, not live

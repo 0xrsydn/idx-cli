@@ -197,6 +197,22 @@ impl Market<'_> {
         )
     }
 
+    /// `orderbook`, warning when the market is not trading: outside a
+    /// session the book reads like a live one, in JSON above all.
+    pub fn orderbook_for_reader(
+        &self,
+        symbol: &str,
+        policy: CachePolicy,
+    ) -> Result<Fetched<OrderBook>, IdxError> {
+        let fetched = self.orderbook(symbol, policy)?;
+        if let Some(notice) =
+            stockbit::exodus::not_trading_notice(fetched.data.market_status.as_deref())
+        {
+            crate::runtime::warn(notice);
+        }
+        Ok(fetched)
+    }
+
     /// Screener results, ranked locally and truncated to `query.limit`.
     pub fn screen(
         &self,
