@@ -35,8 +35,6 @@ pub enum ConfigSubcommand {
 }
 
 pub fn handle(cmd: &ConfigCmd, setting: OutputSetting) -> Result<(), IdxError> {
-    // Plain text, as scripts read `$(idx config path)`, unless JSON is asked
-    // for (-o json, IDX_OUTPUT, or general.output); auto stays text when piped.
     let print = |text: String, document: serde_json::Value| {
         if matches!(setting, OutputSetting::Json | OutputSetting::Jsonl) {
             json::print_json(&document)

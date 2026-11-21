@@ -27,18 +27,64 @@ pub fn print_json<T: Serialize + ?Sized>(value: &T) -> Result<(), IdxError> {
         PRETTY => println!("{}", serde_json::to_string_pretty(value).map_err(to_err)?),
         COMPACT => println!("{}", serde_json::to_string(value).map_err(to_err)?),
         _ => {
-            // Split an array into one line per item without re-serializing,
-            // so each line keeps the same key order as `-o json`.
-            let compact = serde_json::to_string(value).map_err(to_err)?;
-            match serde_json::from_str::<Vec<&serde_json::value::RawValue>>(&compact) {
-                Ok(items) => {
-                    for item in items {
-                        println!("{}", item.get());
-                    }
-                }
-                Err(_) => println!("{compact}"),
+            for line in json_lines(value).map_err(to_err)? {
+                println!("{line}");
             }
         }
     }
     Ok(())
+}
+
+fn json_lines<T: Serialize + ?Sized>(value: &T) -> serde_json::Result<Vec<String>> {
+    let compact = serde_json::to_string(value)?;
+    Ok(
+        match serde_json::from_str::<Vec<&serde_json::value::RawValue>>(&compact) {
+            Ok(items) => items.iter().map(|item| item.get().to_string()).collect(),
+            Err(_) => vec![compact],
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::json_lines;
+
+    #[derive(serde::Serialize)]
+    struct Row {
+        symbol: &'static str,
+        close: i64,
+    }
+
+    #[test]
+    fn json_lines_keep_the_key_order_of_json_output() {
+        let rows = [
+            Row {
+                symbol: "BBCA",
+                close: 9000,
+            },
+            Row {
+                symbol: "BBRI",
+                close: 4000,
+            },
+        ];
+        assert_eq!(
+            json_lines(&rows).unwrap(),
+            [
+                r#"{"symbol":"BBCA","close":9000}"#,
+                r#"{"symbol":"BBRI","close":4000}"#
+            ]
+        );
+    }
+
+    #[test]
+    fn json_lines_print_a_non_array_as_one_line() {
+        let row = Row {
+            symbol: "BBCA",
+            close: 9000,
+        };
+        assert_eq!(
+            json_lines(&row).unwrap(),
+            [r#"{"symbol":"BBCA","close":9000}"#]
+        );
+    }
 }

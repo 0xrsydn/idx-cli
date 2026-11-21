@@ -54,6 +54,10 @@ Docs:
 8. A PR that changes what users or agents see adds
    `changes/unreleased/<branch-name>.md` (format in `changes/README.md`);
    `Output Changes` lists any change to JSON, MCP results or error codes.
+9. No comments. Say it in code: a name, a type, a test, an assertion message;
+   architecture goes in `docs/`. `crates/idx-cli/tests/comments.rs` ratchets
+   per-file counts down (doc comments clap or schemars render are exempt);
+   `/delete-comment` runs the cleanup.
 
 ## Verify
 ```bash

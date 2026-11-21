@@ -21,9 +21,6 @@ pub fn query_ownership_graph(
 
     let root_node_id = detect_root_node(conn, root)?;
 
-    // Breadth-first over the latest edges with an exact visited set: linear
-    // in the graph size, unlike enumerating every path, and a node is never
-    // mistaken for one whose id merely contains it (`entity:1` in `entity:10`).
     let mut edges = query_all_edges(conn)?;
     let mut neighbors: HashMap<&str, Vec<&str>> = HashMap::new();
     for edge in &edges {
@@ -338,8 +335,6 @@ mod tests {
 
     #[test]
     fn graph_reaches_holders_whose_id_is_a_prefix_of_a_visited_one() {
-        // From entity:10 via ticker:BB to entity:1; "entity:1" is a substring
-        // of "entity:10", which the old path check treated as visited.
         let conn = setup();
         let bb = upsert_ticker(&conn, "BB", None).unwrap();
         conn.execute(
@@ -384,7 +379,11 @@ mod tests {
 
         let mut labels: Vec<_> = nodes.iter().map(|node| node.label.as_str()).collect();
         labels.sort();
-        assert_eq!(labels, ["BB", "HOLDER ONE", "HOLDER TEN"]);
+        assert_eq!(
+            labels,
+            ["BB", "HOLDER ONE", "HOLDER TEN"],
+            "entity:10 reaches entity:1 via ticker:BB although \"entity:1\" is a substring of \"entity:10\""
+        );
         assert_eq!(edges.len(), 2);
     }
 

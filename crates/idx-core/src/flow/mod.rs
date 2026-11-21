@@ -70,7 +70,6 @@ impl Flow<'_> {
                 let dates: Vec<NaiveDate> = (0..lookback)
                     .map(|back| today - Duration::days(back))
                     .collect();
-                // Offline, an uncached day says nothing; look further back.
                 (dates, sessions, policy == CachePolicy::Offline)
             }
             FlowRange::Dates { from, to } => {
@@ -345,7 +344,6 @@ pub fn foreign_flow(
     rounded: bool,
 ) -> Option<ForeignFlow> {
     let (from, to) = (days.first()?.date, days.last()?.date);
-    // IDX has exact shares; IPOT has values.
     let foreign_share_bps = match source {
         FlowSource::Idx => share(
             sum(&days, |day| day.foreign_buy),
@@ -409,22 +407,31 @@ mod tests {
             (first.foreign_net, first.change_bps),
             (Some(400), Some(1000))
         );
-        // 400 shares at 1,100 (value over volume).
-        assert_eq!(first.foreign_net_value, Some(440_000));
+        assert_eq!(
+            first.foreign_net_value,
+            Some(440_000),
+            "400 shares at 1,100 (value over volume)"
+        );
         assert_eq!(
             (first.foreign_buy_value, first.foreign_sell_value),
             (Some(660_000), Some(220_000))
         );
         assert_eq!(first.foreign_share_bps, Some(4000));
-        // 110,000 of 1,100,000 regular plus 110,000 non-regular.
-        assert_eq!(first.non_regular_bps, Some(909));
+        assert_eq!(
+            first.non_regular_bps,
+            Some(909),
+            "110,000 of 1,100,000 regular plus 110,000 non-regular"
+        );
         assert_eq!(flow.days[1].change_bps, Some(-500));
         assert_eq!(
             (flow.foreign_net, flow.foreign_net_value),
             (Some(200), Some(220_000))
         );
-        // (700 + 500) / (2 * 2,000).
-        assert_eq!(flow.foreign_share_bps, Some(3000));
+        assert_eq!(
+            flow.foreign_share_bps,
+            Some(3000),
+            "(700 + 500) / (2 * 2,000)"
+        );
         assert_eq!((flow.from.day(), flow.to.day()), (15, 16));
     }
 
@@ -443,8 +450,11 @@ mod tests {
         let rows = crate::api::idx::parse_stock_summary(raw, date).unwrap();
         let bbri: Vec<StockDay> = rows.into_iter().filter(|row| row.code == "BBRI").collect();
         let flow = idx_flow(&bbri).unwrap();
-        // 172.3B non-regular against 338.5B regular: 33.74%, not 50.91%.
-        assert_eq!(flow.days[0].non_regular_bps, Some(3374));
+        assert_eq!(
+            flow.days[0].non_regular_bps,
+            Some(3374),
+            "172.3B non-regular against 338.5B regular: 33.74%, not 50.91%"
+        );
     }
 
     #[test]
@@ -481,8 +491,11 @@ mod tests {
                 Some(-2_300_000_000_000)
             )
         );
-        // (1.7 T + 4.0 T) / (2 * 6.6 T).
-        assert_eq!(flow.foreign_share_bps, Some(4318));
+        assert_eq!(
+            flow.foreign_share_bps,
+            Some(4318),
+            "(1.7 T + 4.0 T) / (2 * 6.6 T)"
+        );
         assert_eq!((flow.close, flow.foreign_net), (None, None));
     }
 

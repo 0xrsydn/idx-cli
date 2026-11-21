@@ -120,8 +120,6 @@ pub(super) fn parse_history(
         .and_then(|i| i.quote.as_ref())
         .and_then(|q| q.first())
         .ok_or(IdxError::ProviderUnavailable)?;
-    // Yahoo stamps weekly/monthly bars at local midnight (17:00Z the day before),
-    // so take the date in the exchange's own offset, not UTC.
     let exchange_tz = result
         .meta
         .as_ref()

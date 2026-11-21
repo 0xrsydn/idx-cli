@@ -57,9 +57,8 @@ pub fn handle(cmd: &StockbitCmd, format: &OutputFormat) -> Result<(), IdxError> 
     match &cmd.command {
         StockbitSubcommand::Login { no_browser, port } => {
             let interactive = std::io::stdin().is_terminal();
-            // A session that still works means there is nothing to sign in to.
-            let reuse = interactive && stockbit::verify_session().is_ok();
-            let status = if reuse {
+            let still_signed_in = interactive && stockbit::verify_session().is_ok();
+            let status = if still_signed_in {
                 stockbit::session_status()?
             } else if interactive {
                 sign_in(*no_browser, *port, format)?
@@ -69,7 +68,7 @@ pub fn handle(cmd: &StockbitCmd, format: &OutputFormat) -> Result<(), IdxError> 
             if format.is_json() {
                 return json::print_json(&status);
             }
-            if reuse {
+            if still_signed_in {
                 println!(
                     "Already signed in to Stockbit; use `idx stockbit logout` to switch accounts."
                 );

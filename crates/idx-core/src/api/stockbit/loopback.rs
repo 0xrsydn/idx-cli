@@ -129,7 +129,6 @@ impl LoginPage {
             }
             match self.listener.accept() {
                 Ok((stream, _)) => {
-                    // Browsers open a handful; anything beyond this is junk.
                     if busy.load(std::sync::atomic::Ordering::Relaxed) >= MAX_CONNECTIONS {
                         continue;
                     }
@@ -218,7 +217,6 @@ fn serve_once(
     let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
     let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
     let Some(request) = read_request(&mut stream) else {
-        // An idle preconnect or a malformed request: drop it quietly.
         return false;
     };
     match (request.method.as_str(), request.path.as_str()) {
@@ -600,7 +598,6 @@ mod tests {
         let rest = url.trim_start_matches("http://");
         let (authority, path) = rest.split_once('/').expect("path");
         let mut stream = TcpStream::connect(authority).expect("connect");
-        // A server that never answers must fail the test, not hang it.
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
@@ -672,9 +669,10 @@ mod tests {
         assert_eq!(status, 200);
         assert!(html.contains("Connect Stockbit to idx"));
         assert!(html.contains("javascript:"), "bookmarklet rendered");
-        // The bookmarklet carries this run's page and a fragment, not the
-        // secret in a query string.
-        assert!(html.contains(&format!("{url}#t=")), "bookmarklet target");
+        assert!(
+            html.contains(&format!("{url}#t=")),
+            "the bookmarklet carries this run's page and a fragment, not the secret in a query string"
+        );
 
         let (status, body) = request(&url, "POST", "nonsense");
         assert_eq!(status, 200);
@@ -757,10 +755,9 @@ mod tests {
         });
         std::thread::sleep(Duration::from_millis(100));
 
-        // Two sockets that say nothing, as Chrome's preconnects do.
         let rest = url.trim_start_matches("http://");
         let (authority, _) = rest.split_once('/').unwrap();
-        let idle: Vec<TcpStream> = (0..2)
+        let silent_like_chrome_preconnects: Vec<TcpStream> = (0..2)
             .map(|_| TcpStream::connect(authority).unwrap())
             .collect();
         std::thread::sleep(Duration::from_millis(100));
@@ -773,7 +770,7 @@ mod tests {
             "page waited {:?} behind idle connections",
             started.elapsed()
         );
-        drop(idle);
+        drop(silent_like_chrome_preconnects);
         drop(handle);
     }
 }

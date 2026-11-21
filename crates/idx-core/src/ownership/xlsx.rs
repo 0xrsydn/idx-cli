@@ -94,7 +94,6 @@ fn read_zip_entry(
 }
 
 fn first_worksheet_name(zip: &mut zip::ZipArchive<Cursor<&[u8]>>) -> Result<String, IdxError> {
-    // Undecodable entry names cannot be worksheets; skip them.
     let mut sheets: Vec<String> = zip
         .file_names()
         .filter_map(Result::ok)
@@ -102,7 +101,6 @@ fn first_worksheet_name(zip: &mut zip::ZipArchive<Cursor<&[u8]>>) -> Result<Stri
         .filter(|name| !name["xl/worksheets/".len()..].contains('/'))
         .map(|name| name.into_owned())
         .collect();
-    // sheet1.xml, sheet2.xml, ... sort by their numeric suffix.
     sheets.sort_by_key(|name| {
         name.trim_start_matches("xl/worksheets/sheet")
             .trim_end_matches(".xml")
@@ -490,8 +488,7 @@ mod tests {
     #[test]
     fn parses_above1_xlsx_excerpt() {
         let drafts = fixture();
-        // Pinned so a regression that silently drops rows fails loudly.
-        assert_eq!(drafts.len(), 17);
+        assert_eq!(drafts.len(), 17, "no row is silently dropped");
         assert!(
             drafts
                 .iter()
@@ -528,13 +525,14 @@ mod tests {
                 .all(|d| d.report_date == NaiveDate::from_ymd_opt(2026, 10, 30).unwrap())
         );
 
-        // The new column sits at F, so every later column moved one to the
-        // right; fields are still read by name.
         let timothy = drafts
             .iter()
             .find(|d| d.ticker_code == "ZYRX" && d.raw_investor_name == "TIMOTHY SIDDIK SHU")
             .expect("ZYRX controller present");
-        assert_eq!(timothy.total_shares, 752_076_700);
+        assert_eq!(
+            timothy.total_shares, 752_076_700,
+            "the new column at F moved every later column right; fields are read by name"
+        );
         assert_eq!(timothy.percentage_bps, 5641);
         assert_eq!(timothy.nationality.as_deref(), Some("INDONESIAN"));
         assert!(timothy.locality.is_some());

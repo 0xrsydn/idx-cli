@@ -355,8 +355,6 @@ pub fn write_ksei_release(
         }
 
         let inserted = insert_ksei_holdings_rows(conn, holdings)?;
-        // Record the rows stored, not parsed: INSERT OR IGNORE drops repeated
-        // ticker/investor rows, and snapshot validation counts what is stored.
         let stored = OwnershipRelease {
             row_count: inserted,
             ..release.clone()
@@ -1486,7 +1484,6 @@ mod tests {
 
     #[test]
     fn changes_sum_an_investors_accounts_in_a_ticker() {
-        // KREN, 2026-09: a second account took KRESNA from 9.44% to 13.45%.
         let conn = setup();
         let kren = upsert_ticker(&conn, "KREN", None).unwrap();
         let kresna = entity(&conn, "KRESNA PRIMA INVEST");
@@ -1516,14 +1513,13 @@ mod tests {
         assert_eq!(rows[0].change_type, ChangeType::Increased);
         assert_eq!(
             (rows[0].old_bps, rows[0].new_bps, rows[0].delta_bps),
-            (Some(944), Some(1345), 401)
+            (Some(944), Some(1345), 401),
+            "KREN, 2026-09: a second account took KRESNA from 9.44% to 13.45%"
         );
     }
 
     #[test]
     fn changes_read_the_latest_import_for_a_date() {
-        // A corrected January file supersedes the original, so Jan -> Feb at
-        // the corrected 12% shows no change, not a spurious increase.
         let conn = setup();
         let bbca = upsert_ticker(&conn, "BBCA", None).unwrap();
         let alpha = entity(&conn, "ALPHA");
@@ -1555,15 +1551,13 @@ mod tests {
         assert!(
             query_changes(&conn, "2026-01-30", "2026-02-27")
                 .unwrap()
-                .is_empty()
+                .is_empty(),
+            "a corrected January file supersedes the original: Jan -> Feb at 12% is no change"
         );
     }
 
     #[test]
     fn changes_keep_each_date_to_its_own_rows() {
-        // A file with a January ALPHA row and February BETA row is the
-        // February release; ALPHA was never held in February, so Feb -> Mar
-        // must not report it as exited.
         let conn = setup();
         let bbca = upsert_ticker(&conn, "BBCA", None).unwrap();
         write_release(
@@ -1582,7 +1576,10 @@ mod tests {
         write_release(&conn, "mar", "2026-03-31", 2, bbca, &[(None, "BETA", 200)]);
 
         let rows = query_changes(&conn, "2026-02-27", "2026-03-31").unwrap();
-        assert!(rows.is_empty(), "{rows:?}");
+        assert!(
+            rows.is_empty(),
+            "ALPHA's January row in the February file was never held in February: {rows:?}"
+        );
 
         let rows = query_changes(&conn, "2026-01-30", "2026-03-31").unwrap();
         let alpha = rows.iter().find(|r| r.entity_name == "ALPHA").unwrap();
@@ -1591,8 +1588,6 @@ mod tests {
 
     #[test]
     fn same_second_imports_resolve_to_the_later_file_everywhere() {
-        // Original and corrected file for one date imported in the same
-        // second: the ticker view and `changes` must read the same one.
         let conn = setup();
         let bbca = upsert_ticker(&conn, "BBCA", None).unwrap();
         let alpha = entity(&conn, "ALPHA");
@@ -1617,15 +1612,13 @@ mod tests {
 
         assert_eq!(
             ticker.holders[0].percentage_bps, 1200,
-            "{:?}",
+            "original and corrected file imported in the same second: {:?}",
             ticker.holders
         );
     }
 
     #[test]
     fn a_release_records_the_rows_it_stored() {
-        // A file listing the same ticker/investor twice stores one row; the
-        // release metadata must say 1, or snapshot validation rejects it.
         let conn = setup();
         let bbca = upsert_ticker(&conn, "BBCA", None).unwrap();
         write_release(
@@ -1651,7 +1644,11 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!((row_count, stored), (1, 1));
+        assert_eq!(
+            (row_count, stored),
+            (1, 1),
+            "a repeated ticker/investor stores one row, and snapshot validation needs the release to say so"
+        );
     }
 
     #[test]
@@ -2300,20 +2297,19 @@ mod tests {
         std::fs::create_dir_all(&real_dir).unwrap();
         let real_dir = std::fs::canonicalize(&real_dir).unwrap();
         let link = root.join("link.db");
-        // Dangling: the target does not exist yet (fresh install, mid-swap).
         std::os::unix::fs::symlink(real_dir.join("ownership.db"), &link).unwrap();
         assert_eq!(
             super::resolve_db_path(&link).unwrap(),
-            real_dir.join("ownership.db")
+            real_dir.join("ownership.db"),
+            "a dangling link: the target does not exist yet (fresh install, mid-swap)"
         );
-        // Relative link, resolved against the link's directory.
         let relative = root.join("relative.db");
         std::os::unix::fs::symlink("real/ownership.db", &relative).unwrap();
         assert_eq!(
             super::resolve_db_path(&relative).unwrap(),
-            real_dir.join("ownership.db")
+            real_dir.join("ownership.db"),
+            "a relative link resolves against the link's directory"
         );
-        // A plain path is returned as-is (canonical parent).
         assert_eq!(
             super::resolve_db_path(&real_dir.join("ownership.db")).unwrap(),
             real_dir.join("ownership.db")

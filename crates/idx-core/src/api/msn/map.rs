@@ -16,8 +16,6 @@ use std::collections::HashMap;
 pub(super) fn parse_quote(symbol: &str, quotes: &[MsnQuote]) -> Result<Quote, IdxError> {
     let quote = quotes.first().ok_or(IdxError::ProviderUnavailable)?;
     let Some(raw_price) = quote.price else {
-        // MSN still lists suspended/untraded names (symbol, name, market cap)
-        // but sends no price. That is a real instrument with no market data.
         if quote.symbol.is_some() {
             return Err(IdxError::NoMarketData(format!(
                 "{symbol} is listed but has no price from MSN (it may be suspended)"
@@ -485,8 +483,6 @@ pub(super) fn parse_sentiment(
     symbol: &str,
     raw: &[RawSentiment],
 ) -> Result<SentimentData, IdxError> {
-    // MSN answers `[]` for tickers nobody has voted on (all IDX names as of
-    // 2026-10). That is "no votes", not a malformed response.
     let Some(item) = raw.first() else {
         let ticker = ticker_from_symbol(symbol).unwrap_or_default();
         return Ok(SentimentData {
@@ -622,8 +618,6 @@ pub(super) fn parse_news(
             }
         })
         .collect();
-    // Compare instants, not strings (fractional seconds and offsets vary);
-    // missing or unparseable dates sort last.
     let instant = |item: &NewsItem| DateTime::parse_from_rfc3339(&item.published_at).ok();
     items.sort_by(|a, b| {
         a.relevance
@@ -653,6 +647,8 @@ fn mentions_company(text: &str, ticker: &str, names: &[String]) -> bool {
 /// name ("Telkom Indonesia") and the display name without legal suffixes
 /// ("Telkom Indonesia (Persero) Tbk PT" -> "Telkom Indonesia"). Abbreviated
 /// short names ("Bank Cntrl Asia") never match and are harmless.
+const SHORTEST_NAME_THAT_IS_NOT_A_FRAGMENT: usize = "PT BRI".len();
+
 pub(super) fn company_names(short_name: Option<&str>, display_name: Option<&str>) -> Vec<String> {
     const SUFFIXES: [&str; 3] = ["(persero)", "tbk", "pt"];
     let display = display_name.map(|name| {
@@ -667,8 +663,9 @@ pub(super) fn company_names(short_name: Option<&str>, display_name: Option<&str>
         .flatten()
     {
         let name = name.trim().to_string();
-        // Short fragments ("PT", "BRI") would match unrelated text.
-        if name.len() >= 6 && !names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+        if name.len() >= SHORTEST_NAME_THAT_IS_NOT_A_FRAGMENT
+            && !names.iter().any(|n| n.eq_ignore_ascii_case(&name))
+        {
             names.push(name);
         }
     }
@@ -763,7 +760,6 @@ pub(super) fn parse_history(
         let volume = series_volume_at(series, idx);
 
         out.push(Ohlc {
-            // MSN stamps each IDX day at local midnight (17:00Z the day before).
             date: timestamp
                 .with_timezone(&crate::api::idx_offset())
                 .date_naive(),
@@ -811,9 +807,6 @@ fn series_volume_at(series: &RawChartSeries, idx: usize) -> u64 {
 }
 
 fn parse_statement_section(section: &RawStatementSection) -> StatementSection {
-    // MSN financial statement values are nested one level deep inside sub-objects
-    // (e.g., incomeStatement.income.{lineItems}, incomeStatement.revenue.{lineItems})
-    // Flatten all numeric values from any depth-1 sub-object into a single map.
     let skip_keys = [
         "currency",
         "source",
@@ -836,10 +829,8 @@ fn parse_statement_section(section: &RawStatementSection) -> StatementSection {
             continue;
         }
         if let Some(num) = v.as_f64() {
-            // Direct numeric value at top level
             values.insert(k.to_string(), num);
         } else if let Some(obj) = v.as_object() {
-            // Nested sub-object — flatten one level (e.g., income.{lineItem: value})
             for (sub_k, sub_v) in obj {
                 if let Some(num) = sub_v.as_f64() {
                     values.insert(sub_k.to_string(), num);
@@ -1006,8 +997,11 @@ mod tests {
         let items = parse_news("BBCA.JK", "bn91jc", &[], &raw, 10).expect("news");
 
         let order: Vec<_> = items.iter().map(|i| i.id.as_str()).collect();
-        // 16:30+07:00 is 09:30Z, the oldest dated item.
-        assert_eq!(&order[..3], ["fraction", "whole", "offset"]);
+        assert_eq!(
+            &order[..3],
+            ["fraction", "whole", "offset"],
+            "16:30+07:00 is 09:30Z, the oldest dated item"
+        );
         assert!(order[3..].contains(&"undated") && order[3..].contains(&"garbage"));
     }
 
@@ -1220,8 +1214,11 @@ mod tests {
         let history = parse_history("BBCA.JK", &raw).expect("chart history should parse");
 
         assert_eq!(history.len(), 3);
-        // `2026-01-13T17:00:00Z` is midnight WIB on the 14th, the trading day it belongs to.
-        assert_eq!(history[0].date.to_string(), "2026-01-14");
+        assert_eq!(
+            history[0].date.to_string(),
+            "2026-01-14",
+            "2026-01-13T17:00:00Z is midnight WIB on the 14th, the trading day it belongs to"
+        );
         assert_eq!(history[0].open, 8000);
         assert_eq!(history[0].high, 8000);
         assert_eq!(history[0].low, 8000);

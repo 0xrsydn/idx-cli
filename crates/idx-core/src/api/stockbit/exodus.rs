@@ -84,7 +84,6 @@ pub fn not_trading_notice(state: Option<&str>) -> Option<String> {
         "STATE_NAME_NEGOTIATION" => {
             format!("the regular market is closed (negotiated trades only): {LEFT}")
         }
-        // The opening auction's name has not been recorded yet.
         other if other.contains("PRE_OPEN") => {
             format!("the market is in its opening auction: {AUCTION}")
         }
@@ -396,10 +395,6 @@ pub fn parse_orderbook(
     } else {
         None
     };
-    // Stockbit flags whether `fbuy`/`fsell`/`fnet` are current. While the
-    // flag was off (2026-11-03, in session) they were the previous session's
-    // figures (equal to IPOT's for 2026-11-02 for BBCA, BBRI and TLKM), so
-    // they are dropped rather than shown beside today's prices.
     let foreign_current = d.get("has_foreign_bs").and_then(Value::as_bool) == Some(true);
     let foreign = |key: &str| foreign_current.then(|| whole(d.get(key))).flatten();
     Ok(OrderBook {
@@ -580,14 +575,12 @@ mod tests {
         ] {
             assert!(is_read_path(path), "{path}");
         }
-        // Paths another module builds come from its own builder, so the
-        // allowlist cannot drift from them.
         let query = MovementQuery::default();
         for path in [
             movement::request_path(&query, None, 1),
             movement::request_path(&query, Some("BBCA"), 3),
         ] {
-            assert!(is_read_path(&path), "{path}");
+            assert!(is_read_path(&path), "{path}, from movement's own builder");
         }
         for path in [
             "/order/buy",
@@ -621,8 +614,7 @@ mod tests {
             (Some(5825), Some(5825), Some(5175))
         );
         assert_eq!(book.foreign_net, Some(-2_329_493_087_500));
-        // BBCA closed at its lower limit: no bids, offers best price first.
-        assert!(book.bids.is_empty());
+        assert!(book.bids.is_empty(), "BBCA closed at its lower limit");
         assert_eq!(
             book.offers[0],
             BookLevel {
@@ -696,12 +688,13 @@ mod tests {
 
     #[test]
     fn foreign_flow_only_when_stockbit_marks_it_current() {
-        // In session (has_foreign_bs false) the figures were 2026-11-02's.
         let live =
             parse_orderbook("BBCA.JK", &fixture("orderbook_bbca_in_session.json"), None).unwrap();
         assert_eq!(
             (live.foreign_buy, live.foreign_sell, live.foreign_net),
-            (None, None, None)
+            (None, None, None),
+            "on 2026-11-03, in session with has_foreign_bs false, fbuy/fsell/fnet were \
+             2026-11-02's figures (IPOT's for BBCA, BBRI and TLKM)"
         );
         assert_eq!(live.volume, Some(134_744_100));
         let done = parse_orderbook("BBCA.JK", &fixture("orderbook_bbca.json"), None).unwrap();

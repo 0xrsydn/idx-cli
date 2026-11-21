@@ -898,7 +898,6 @@ fn handle_import(
     let source = match (&args.file, &args.url) {
         (Some(path), _) => ImportSource::File(path.clone()),
         (None, Some(url)) => ImportSource::Url(url.clone()),
-        // An empty --fetch-bing list has nothing to import.
         (None, None) => return Ok(()),
     };
     let result = match (&source, &args.source_url) {

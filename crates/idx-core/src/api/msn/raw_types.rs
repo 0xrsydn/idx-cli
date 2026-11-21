@@ -236,8 +236,6 @@ pub(super) struct RawSentimentStat {
     pub(super) neutral: Option<i32>,
 }
 
-// Actual MSN insights API response: array of insight containers, each holding
-// individual insight items grouped by category (Valuation, Risk, etc.)
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct RawInsight {

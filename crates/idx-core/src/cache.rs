@@ -42,6 +42,15 @@ pub struct CacheInfo {
     pub newest: Option<DateTime<Utc>>,
 }
 
+fn write_whole_or_not_at_all(path: &Path, raw: String) -> Result<(), IdxError> {
+    let temp = path.with_extension(format!("json.{}.tmp", fastrand::u64(..)));
+    fs::write(&temp, raw).map_err(|e| IdxError::Io(e.to_string()))?;
+    fs::rename(&temp, path).map_err(|e| {
+        let _ = fs::remove_file(&temp);
+        IdxError::Io(e.to_string())
+    })
+}
+
 impl Cache {
     pub fn new() -> Result<Self, IdxError> {
         Ok(Self { root: cache_dir()? })
@@ -136,14 +145,7 @@ impl Cache {
         };
         let raw = serde_json::to_string_pretty(&entry)
             .map_err(|e| IdxError::ParseError(e.to_string()))?;
-        // Write then rename, so a concurrent reader never sees a partial
-        // entry (and deletes it as corrupt).
-        let temp = path.with_extension(format!("json.{}.tmp", fastrand::u64(..)));
-        fs::write(&temp, raw).map_err(|e| IdxError::Io(e.to_string()))?;
-        fs::rename(&temp, &path).map_err(|e| {
-            let _ = fs::remove_file(&temp);
-            IdxError::Io(e.to_string())
-        })
+        write_whole_or_not_at_all(&path, raw)
     }
 
     pub fn info(&self) -> Result<CacheInfo, IdxError> {
@@ -185,8 +187,6 @@ impl Cache {
         }
         let mut removed = 0usize;
         let mut failed = Vec::new();
-        // `walk` yields files and symlinks, never entering a linked
-        // directory; remove_file on a symlink removes the link, not its target.
         Self::walk(&self.root, &mut |p| match fs::remove_file(p) {
             Ok(_) => removed += 1,
             Err(_) => failed.push(p.to_path_buf()),
@@ -198,8 +198,6 @@ impl Cache {
         for entry in fs::read_dir(dir).map_err(|e| IdxError::Io(e.to_string()))? {
             let entry = entry.map_err(|e| IdxError::Io(e.to_string()))?;
             let path = entry.path();
-            // file_type() does not follow symlinks, so a link to a directory
-            // outside the cache is never walked (or emptied by `clear`).
             let file_type = entry.file_type().map_err(|e| IdxError::Io(e.to_string()))?;
             if file_type.is_dir() {
                 Self::walk(&path, f)?;
@@ -234,8 +232,6 @@ impl Cache {
                 runtime::warn(format!(
                     "corrupted cache entry for {data_type}/{symbol}, treating as miss: {e}"
                 ));
-                // Not deleted: a concurrent writer may have just replaced it
-                // with a valid entry. The next put overwrites it atomically.
                 return Ok(None);
             }
         };
@@ -381,7 +377,6 @@ mod tests {
         let root = tmp();
         let cache = Cache::at(root.clone());
 
-        // Write invalid JSON to a cache file
         let path = root.join("quote/CORRUPT.JK.json");
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).expect("create parent dir");
@@ -390,18 +385,20 @@ mod tests {
 
         assert!(path.exists(), "corrupted file should exist before get()");
 
-        // get() should return Ok(None), not an error
         let result: Option<T> = cache
             .get("quote", "CORRUPT.JK")
             .expect("get should not error");
         assert_eq!(result, None, "corrupted entry should be treated as miss");
 
-        // Left for the next put to replace (deleting could race a writer).
         cache
             .put("quote", "CORRUPT.JK", &T { v: 7 }, 3600)
             .expect("put");
         let result: Option<T> = cache.get("quote", "CORRUPT.JK").expect("get");
-        assert_eq!(result, Some(T { v: 7 }));
+        assert_eq!(
+            result,
+            Some(T { v: 7 }),
+            "a corrupt entry is left for the next put to replace; deleting it could race a writer"
+        );
     }
 
     #[test]
@@ -409,7 +406,6 @@ mod tests {
         let root = tmp();
         let cache = Cache::at(root.clone());
 
-        // Write invalid JSON to a cache file
         let path = root.join("quote/STALE_CORRUPT.JK.json");
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).expect("create parent dir");
@@ -421,7 +417,6 @@ mod tests {
             "corrupted file should exist before get_stale()"
         );
 
-        // get_stale() should return Ok(None), not an error
         let result: Option<T> = cache
             .get_stale("quote", "STALE_CORRUPT.JK")
             .expect("get_stale should not error");

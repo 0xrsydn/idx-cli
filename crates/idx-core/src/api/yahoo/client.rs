@@ -30,8 +30,6 @@ impl YahooClient {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_connect(Some(Duration::from_secs(5)))
             .timeout_recv_body(Some(Duration::from_secs(10)))
-            // A server that stalls before sending headers must not hold a
-            // call (and an MCP call slot) forever.
             .timeout_global(Some(Duration::from_secs(30)))
             .build()
             .into();
@@ -168,7 +166,6 @@ impl YahooClient {
             .stderr(Stdio::null())
             .output();
 
-        // Step 2: fetch crumb with cookie jar (Chrome TLS fingerprint + A3 cookie).
         let output = curl_impersonate::run(
             "Yahoo crumb fetch",
             &["--silent", "--cookie", cookie_jar_str, CRUMB_FETCH_URL],

@@ -244,6 +244,11 @@ As built (phase 4):
   section fails.
 - `get_ownership_changes` returns at most `limit` rows (default 200) with the
   full count in `total`.
+- Every list input has a hard cap (`MAX_*` in `server.rs`), so a misbehaving
+  or prompt-injected agent cannot turn one call into unbounded upstream
+  traffic or output. `get_ownership_changes` pages stop at 300 rows, since
+  pages above a few hundred rows (~40 KB) overflow some agents' tool output;
+  `get_intraday` caps at 400 points, a whole session of about 340 minutes.
 - Each call runs on a blocking thread with a fresh `Idx`, so tools share the
   CLI's config, cache, and database. With a shared cache, tool data equals
   the CLI's JSON value for value (checked live for every tool); object keys

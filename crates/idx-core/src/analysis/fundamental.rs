@@ -148,8 +148,6 @@ pub fn analyze_risk(fundamentals: &Fundamentals) -> RiskReport {
     let de_signal = de_signal(fundamentals.debt_to_equity);
     let current_ratio_signal = cr_signal(fundamentals.current_ratio);
 
-    // A known adverse signal decides on its own: negative equity or heavy
-    // leverage is high risk even when the current ratio is missing.
     let overall_signal = if matches!(de_signal, "highly leveraged" | "negative equity")
         || current_ratio_signal == "weak"
     {
@@ -180,8 +178,6 @@ pub fn analyze_fundamental(symbol: &str, fundamentals: &Fundamentals) -> Fundame
     let valuation = analyze_valuation(fundamentals);
     let risk = analyze_risk(fundamentals);
 
-    // "healthy" needs evidence on all three: missing valuation or risk data
-    // must not pass for "not expensive" or "not risky".
     let overall_signal = if growth.overall_signal == "growing"
         && matches!(
             valuation.overall_signal.as_str(),
@@ -386,7 +382,6 @@ mod tests {
 
     #[test]
     fn missing_valuation_and_risk_data_is_not_healthy() {
-        // Growth alone (12% revenue, 22% earnings) used to rate "healthy".
         let fundamentals = Fundamentals {
             revenue_growth: Some(0.12),
             earnings_growth: Some(0.22),
@@ -407,10 +402,13 @@ mod tests {
             "mixed"
         );
 
-        // Known heavy leverage decides even with the current ratio missing.
         fundamentals.debt_to_equity = Some(250.0);
         fundamentals.current_ratio = None;
-        assert_eq!(analyze_risk(&fundamentals).overall_signal, "high risk");
+        assert_eq!(
+            analyze_risk(&fundamentals).overall_signal,
+            "high risk",
+            "known heavy leverage decides even with the current ratio missing"
+        );
     }
 
     #[test]

@@ -30,9 +30,11 @@ mod tests {
 
     #[test]
     fn painted_cells_keep_idx_color_codes() {
-        // comfy-table appends a reset; the color codes themselves survive.
         let green = "\u{1b}[32mBullish\u{1b}[39m".to_string();
-        assert!(painted(green.clone()).content().starts_with(&green));
+        assert!(
+            painted(green.clone()).content().starts_with(&green),
+            "comfy-table may append a reset, but the color codes must survive"
+        );
     }
 
     #[test]

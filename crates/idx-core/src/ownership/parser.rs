@@ -138,8 +138,7 @@ fn normalize_stext_for_classification(xml: &str) -> String {
     while i < bytes.len() {
         if bytes[i..].starts_with(b"TEXT=\"") {
             result.push_str("TEXT=\"");
-            i += 6; // skip past TEXT="
-            // Collect everything until the closing quote.
+            i += r#"TEXT=""#.len();
             while i < bytes.len() && bytes[i] != b'"' {
                 let ch = bytes[i] as char;
                 result.push(if ch == ' ' { '_' } else { ch });
@@ -147,7 +146,7 @@ fn normalize_stext_for_classification(xml: &str) -> String {
             }
             if i < bytes.len() {
                 result.push('"');
-                i += 1; // skip closing quote
+                i += 1;
             }
         } else {
             result.push(bytes[i] as char);

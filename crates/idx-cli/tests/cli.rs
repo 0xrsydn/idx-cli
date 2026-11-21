@@ -1021,6 +1021,18 @@ fn config_prints_json_only_when_json_is_asked_for() {
         env["path"].as_str().unwrap().ends_with("config.toml"),
         "{env}"
     );
+
+    let piped_auto = bin_with_root(&root)
+        .env("IDX_OUTPUT", "auto")
+        .args(["config", "path"])
+        .output()
+        .unwrap();
+    assert!(piped_auto.status.success(), "{piped_auto:?}");
+    let path = String::from_utf8(piped_auto.stdout).unwrap();
+    assert!(
+        path.trim_end().ends_with("config.toml") && !path.starts_with('{'),
+        "scripts read `$(idx config path)`, so piped auto output stays plain text: {path}"
+    );
 }
 
 #[test]

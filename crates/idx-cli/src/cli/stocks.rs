@@ -552,8 +552,6 @@ pub fn handle(
         }
         StocksSubcommand::Compare { symbols } => {
             let comparison = idx.analysis().compare(&expand_symbols(symbols)?, policy)?;
-            // Partial success needs diagnostics; total failure must leave stderr
-            // available for the single structured error emitted by the caller.
             for (resolved, err) in comparison.failures {
                 runtime::warn(format!(
                     "failed to fetch fundamentals for {resolved}: {err}"

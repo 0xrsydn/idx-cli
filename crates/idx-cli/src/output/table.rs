@@ -840,7 +840,6 @@ fn format_earnings_period(period: &str) -> String {
         return format!("FY{trimmed}");
     }
 
-    // ASCII only, so the byte slices below fall on character boundaries.
     if trimmed.len() == 6
         && trimmed.is_ascii()
         && trimmed.starts_with('Q')
@@ -952,7 +951,6 @@ fn format_text_signal(
     positive: &[&str],
     negative: &[&str],
 ) -> String {
-    // The label comes from the analysis report; make it safe before styling.
     let label = terminal_safe(signal);
     if no_color {
         return label;
@@ -979,7 +977,6 @@ pub fn print_profile(profile: &CompanyProfile) -> Result<(), IdxError> {
         .load_preset(UTF8_FULL)
         .set_header(vec!["FIELD", "VALUE"]);
 
-    // Use long_name with short_name as fallback (IDX stocks often only have shortName)
     let name = if !profile.long_name.is_empty() {
         &profile.long_name
     } else {
@@ -1004,7 +1001,6 @@ pub fn print_profile(profile: &CompanyProfile) -> Result<(), IdxError> {
         table.add_row(vec![cell("Employees"), cell(profile.employees.to_string())]);
     }
     if !profile.description.is_empty() {
-        // Truncate long descriptions for table display
         let desc = truncate_chars(&profile.description, 200);
         table.add_row(vec![cell("Description"), cell(desc)]);
     }
@@ -1411,7 +1407,6 @@ pub fn print_bandar_report(report: &BandarReport, no_color: bool) -> Result<(), 
         )
         .bold()
     );
-    // Brokers on either side mean trades, even when a total is unavailable.
     if report
         .tiers
         .iter()
@@ -1867,9 +1862,6 @@ pub fn print_corporate_calendar(
     range: &CalendarRange,
     actions: &[CorporateAction],
 ) -> Result<(), IdxError> {
-    // Offers still open are listed by the day they opened, which can be
-    // before `from`; the title says so rather than claim the range bounds
-    // every row.
     let earlier = if actions.iter().any(|a| a.date < range.from) {
         ", with offers opened earlier and still open"
     } else {

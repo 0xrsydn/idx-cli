@@ -64,7 +64,6 @@ pub fn parse_figure(text: &str) -> Option<(i64, bool)> {
     let scale = 10_i64.checked_pow(exponent)?;
     let mut value = whole.parse::<i64>().ok()?.checked_mul(scale)?;
     if exponent == 0 {
-        // A plain decimal: round to whole units.
         if fraction
             .as_bytes()
             .first()
@@ -157,7 +156,6 @@ fn cell(td: ElementRef) -> Option<(String, Option<String>)> {
             Node::Comment(_) => {}
             Node::Element(element) if element.name() == "span" && class.is_none() => {
                 let span = ElementRef::wrap(child)?;
-                // One class token, as the browser splits it.
                 let mut tokens = class_tokens(span.attr("class")?);
                 let token = tokens
                     .next()
@@ -319,7 +317,6 @@ const INPUT_PATH: [(&str, &str); 3] = [
 
 /// The `MM/DD/YYYY` value of the one input with this id, where IPOT puts it.
 fn input_date(input: ElementRef) -> Option<NaiveDate> {
-    // A text input drops line breaks from its value before showing it.
     let value = input.attr("value")?.replace(['\r', '\n'], "");
     NaiveDate::parse_from_str(value.trim(), "%m/%d/%Y").ok()
 }
@@ -378,8 +375,6 @@ const FOOTER: [&str; 4] = ["T. Val :", "F. NVal :", "T.Lot :", "Avg :"];
 /// from `tfoot > tr > th > div` holding exactly IPOT's four text-only spans
 /// in order, with nothing else shown between them.
 fn footer_figures(tfoot: ElementRef) -> Option<[String; 4]> {
-    // Each element on the way carries exactly IPOT's classes, which could
-    // otherwise hide a figure (Bootstrap's `visible-xs` on a total, say).
     let row = sole_child(tfoot, "tr").filter(|row| same_classes(*row, "bdr-t"))?;
     let div = sole_child(sole_child(row, "th")?, "div")
         .filter(|div| same_classes(*div, "text-center pt20 valign-middle"))?;
@@ -410,7 +405,6 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     if html.len() > MAX_PAGE_BYTES || html.matches('<').count() > MAX_PAGE_TAGS {
         return Err(parse_error("page larger than IPOT serves"));
     }
-    // For an unknown code the whole response is this one line.
     if html.trim().eq_ignore_ascii_case("invalid stock code!") {
         return Ok(IpotPage::Invalid);
     }
@@ -428,7 +422,6 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     let [head, body, tfoot] = parts[..] else {
         return Err(parse_error("unexpected table parts"));
     };
-    // The columns must be labelled as IPOT labels them, in its order.
     let headers: Option<Vec<String>> = sole_child(head, "tr").and_then(|row| {
         row.child_elements()
             .map(|th| {
@@ -447,7 +440,6 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     if names != ["thead", "tbody", "tfoot"] {
         return Err(parse_error("unexpected table parts"));
     }
-    // Without the range it applied, a page's figures could be any session's.
     let (from, to) =
         echoed_dates(&page).ok_or_else(|| parse_error("no readable echoed date range"))?;
     let mut raw = BrokerSummaryRaw {
@@ -486,7 +478,6 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
         ] {
             let code = cells[at].0.to_ascii_uppercase();
             if code.is_empty() {
-                // A blank side shows no figures either.
                 if cells[at + 1..at + 4]
                     .iter()
                     .any(|(text, _)| !text.is_empty())
@@ -520,7 +511,6 @@ pub fn parse_broker_summary(html: &str) -> Result<IpotPage, IdxError> {
     raw.total_value = figure(&value);
     raw.foreign_net_value = figure(&net);
     raw.total_lots = figure(&lots);
-    // The page prints `Avg : 0` when nothing traded; there is no average then.
     raw.average_price = figure(&average).filter(|_| raw.total_lots.is_some_and(|lots| lots > 0));
     raw.rounded = rounded;
     Ok(IpotPage::Summary(raw))
@@ -747,7 +737,6 @@ mod tests {
                 ),
             ),
             ("no table", "</tbody><tbody>".to_string()),
-            // Text a browser would not show, or not as one figure or code.
             (
                 "a script inside a figure",
                 DAY.replacen(">828,163 <", ">8<script>2</script>28,163 <", 1),
@@ -800,8 +789,7 @@ mod tests {
     #[test]
     fn test_parse_broker_summary_reads_what_a_browser_shows() {
         let original = summary(DAY);
-        // Markup a browser repairs or decodes to the same table.
-        let same = [
+        let repaired_to_the_same_table = [
             (
                 "rank 1 without cell ends",
                 mutated(|page, rows| {
@@ -850,18 +838,16 @@ mod tests {
                 DAY.replacen("</tbody>", "</tbody><script></script>", 1),
             ),
         ];
-        // Each page is rejected or read as shown; never read as other data.
         let read = |page: &str| match parse_broker_summary(page) {
             Ok(IpotPage::Summary(raw)) => Some(raw),
             Err(IdxError::ParseError(_)) => None,
             other => panic!("{other:?}"),
         };
-        for (what, page) in same {
+        for (what, page) in repaired_to_the_same_table {
             if let Some(raw) = read(&page) {
                 assert_eq!(raw, original, "{what}");
             }
         }
-        // Markup a browser shows differently: the figure it shows, not ours.
         let lots = "<span class=\"text-up\">828,163 </span>";
         let shown_otherwise = [
             (
@@ -903,8 +889,7 @@ mod tests {
         for (what, page) in dates_shown_otherwise {
             assert!(read(&page).is_none(), "{what}");
         }
-        // Ways to hide or relabel what IPOT shows, all outside its markup.
-        let hidden = [
+        let hidden_outside_ipot_markup = [
             ("a popover", format!("<div popover>{DAY}</div>")),
             (
                 "an inline style",
@@ -956,7 +941,7 @@ mod tests {
                     .replacen(">B.Tmp<", ">B.Val<", 1),
             ),
         ];
-        for (what, page) in hidden.into_iter().chain(more) {
+        for (what, page) in hidden_outside_ipot_markup.into_iter().chain(more) {
             assert!(read(&page).is_none(), "{what}");
         }
         let spaced_class = DAY.replacen("class=\"text-foreign\"", "class=\" text-foreign \"", 1);
@@ -965,10 +950,6 @@ mod tests {
             Some(original.clone()),
             "class spacing shows the same"
         );
-        // The round-12 audit: class tokens split on ASCII space only; a
-        // date's line breaks dropped as an input drops them; ancestor
-        // classes as a set; dates by id, name and order; no figures beside
-        // a blank code.
         let nbsp_class = DAY.replacen(
             "class=\"text-foreign\">KZ",
             "class=\"text-foreign&nbsp;\">KZ",
@@ -1009,16 +990,13 @@ mod tests {
             Some(original.clone()),
             "a repeated ancestor class"
         );
-        // Rank 10's buyer AK, in the last row, so no broker follows it.
-        let last_ak = DAY.rfind(">AK<").unwrap();
+        let last_row_buyer_ak = DAY.rfind(">AK<").unwrap();
         let blank_code_with_figures =
-            DAY[..last_ak].to_string() + "><" + &DAY[last_ak + ">AK<".len()..];
+            DAY[..last_row_buyer_ak].to_string() + "><" + &DAY[last_row_buyer_ak + ">AK<".len()..];
         assert!(
             read(&blank_code_with_figures).is_none(),
             "figures beside a blank broker code"
         );
-        // Classes bound to their places: Bootstrap's `visible-xs` hides at
-        // desktop widths, so on a total or the table it rejects the page.
         let hidden_total = DAY.replacen(
             "<span class=\"fsize12 ml5 mr5\">T. Val",
             "<span class=\"fsize12 ml5 mr5 visible-xs\">T. Val",

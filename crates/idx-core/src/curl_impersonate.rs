@@ -289,8 +289,6 @@ mod tests {
 
     #[test]
     fn output_past_the_limit_fails_at_once_behind_a_profile_wrapper() {
-        // Like the curl_* profile scripts, the wrapper runs "curl" without
-        // exec; this one writes too much, then stalls holding stderr open.
         let dir = std::env::temp_dir().join(format!("idx-curl-{}", fastrand::u64(..)));
         std::fs::create_dir_all(&dir).unwrap();
         let fake = dir.join("curl");

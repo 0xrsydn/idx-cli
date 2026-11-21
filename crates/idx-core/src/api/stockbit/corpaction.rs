@@ -47,8 +47,6 @@ pub fn parse_corporate_actions(
     let rows = match root.get("data") {
         Some(Value::Object(data)) => match data.values().find_map(Value::as_array) {
             Some(rows) => rows.as_slice(),
-            // No rows reads `{"dividend": null, "today": "..."}`: a null list
-            // beside scalars. An object in their place is a new layout.
             None if !data.values().any(Value::is_object) => &[],
             None => return Err(bad("no list in data".to_string())),
         },
@@ -369,9 +367,12 @@ mod tests {
         assert_eq!(rans.price, Some(170));
         assert_eq!(rans.shares, Some(2_525_000_000));
         assert_eq!(rans.period.map(|r| r.start), Some(day("2026-07-02")));
-        // An ETF listed without offer terms: no price, no period.
         let xkgs = find(&ipos, "XKGS.JK");
-        assert_eq!((xkgs.price, xkgs.period, xkgs.shares), (None, None, None));
+        assert_eq!(
+            (xkgs.price, xkgs.period, xkgs.shares),
+            (None, None, None),
+            "an ETF listed without offer terms"
+        );
     }
 
     #[test]
@@ -393,11 +394,14 @@ mod tests {
         assert!(parse_corporate_actions(ActionKind::Dividend, r#"{"message":"x"}"#).is_err());
         let moved = r#"{"data":{"dividend":{"rows":[]},"today":"2026-11-04"}}"#;
         assert!(parse_corporate_actions(ActionKind::Dividend, moved).is_err());
-        // A reverse split named like a split, read by suffix.
-        let body = r#"{"data":{"stock_reverse":[{"company_symbol":"ABCD",
+        let reverse_split_with_reverse_prefixed_keys = r#"{"data":{"stock_reverse":[{"company_symbol":"ABCD",
             "reverse_cumdate":"2026-12-01","reverse_exdate":"2026-12-02",
             "reverse_old":"10","reverse_new":"1","reverse_factor":"0.1"}]}}"#;
-        let rows = parse_corporate_actions(ActionKind::ReverseSplit, body).unwrap();
+        let rows = parse_corporate_actions(
+            ActionKind::ReverseSplit,
+            reverse_split_with_reverse_prefixed_keys,
+        )
+        .unwrap();
         assert_eq!(rows[0].ratio, Some(Ratio { old: 10, new: 1 }));
         assert_eq!(rows[0].factor, Some(0.1));
     }

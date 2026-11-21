@@ -172,7 +172,6 @@ fn extract_txt_from_zip(path: &Path) -> Result<String, IdxError> {
             continue;
         }
 
-        // An undecodable entry name cannot be the TXT payload.
         let Ok(name) = file.name().map(|name| name.to_ascii_lowercase()) else {
             continue;
         };
@@ -200,7 +199,6 @@ fn validate_header(header: &str) -> Result<(), IdxError> {
 
 fn parse_archive_date(raw: &str) -> Result<NaiveDate, IdxError> {
     let trimmed = raw.trim();
-    // Fixed byte offsets below; non-ASCII input would split a character.
     if trimmed.len() != 11 || !trimmed.is_ascii() {
         return Err(IdxError::ParseError(format!(
             "invalid KSEI archive date `{trimmed}`"
@@ -360,8 +358,10 @@ mod tests {
 
     #[test]
     fn non_ascii_archive_dates_are_parse_errors_not_panics() {
-        // 11 bytes, but byte offsets would split the 'é'.
-        assert!(super::parse_archive_date("1éJan-2026").is_err());
+        assert!(
+            super::parse_archive_date("1éJan-2026").is_err(),
+            "11 bytes, but byte offsets would split the 'é'"
+        );
         assert_eq!(
             super::parse_archive_date("27-FEB-2026").unwrap(),
             chrono::NaiveDate::from_ymd_opt(2026, 2, 27).unwrap()

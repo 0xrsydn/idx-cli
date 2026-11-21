@@ -41,15 +41,11 @@ const NEWS_LIMIT: usize = 10;
 const SCREEN_LIMIT: usize = 50;
 const SEARCH_LIMIT: usize = 20;
 const CHANGES_LIMIT: usize = 200;
-// Hard caps on what one call may request, so a misbehaving or prompt-injected
-// agent cannot turn a call into unbounded upstream traffic or output.
 const MAX_SYMBOLS: usize = 20;
 const MAX_SCREEN_LIMIT: usize = 200;
 const MAX_SEARCH_LIMIT: usize = 100;
-// Pages above a few hundred rows (~40 KB) overflow some agents' tool output.
 const MAX_CHANGES_LIMIT: usize = 300;
 const CHANGES_TOP_TICKERS: usize = 10;
-// A session has about 340 minutes, so this is the whole day.
 const MAX_INTRADAY_POINTS: usize = 400;
 const BOOK_DEPTH: usize = 10;
 const MAX_BOOK_DEPTH: usize = 50;

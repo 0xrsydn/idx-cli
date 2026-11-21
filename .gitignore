@@ -3,7 +3,8 @@ node_modules/
 *.tgz
 target/
 .direnv/
-.claude/
+/.claude/*
+!/.claude/skills/
 result
 result-*
 tmp/

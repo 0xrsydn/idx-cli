@@ -19,7 +19,6 @@ pub const OUTPUT_VALUES: &[&str] = &["auto", "table", "json", "jsonl"];
 pub enum ProviderKind {
     Yahoo,
     Msn,
-    // Opt-in: quotes from Stockbit's public page (delayed, no login).
     Stockbit,
 }
 
@@ -31,7 +30,6 @@ pub enum HistoryProviderKind {
     Auto,
     Yahoo,
     Msn,
-    // Needs the user's Stockbit session (`idx stockbit login`).
     Stockbit,
 }
 
@@ -313,18 +311,9 @@ fn normalize_config_value(key: &str, value: &str) -> Result<toml::Value, IdxErro
             }
             Ok(toml::Value::Integer(parsed))
         }
-        "general.exchange" => {
-            // Exchange is free-form (e.g. JK, US, etc.)
-            Ok(toml::Value::String(value.to_string()))
-        }
-        "ownership.db_path" => {
-            // Ownership DB path is free-form and may be absolute or relative.
-            Ok(toml::Value::String(value.to_string()))
-        }
-        "ownership.snapshot_manifest" => {
-            // Snapshot manifest can be an absolute/relative path or a URL.
-            Ok(toml::Value::String(value.to_string()))
-        }
+        "general.exchange" => Ok(toml::Value::String(value.to_string())),
+        "ownership.db_path" => Ok(toml::Value::String(value.to_string())),
+        "ownership.snapshot_manifest" => Ok(toml::Value::String(value.to_string())),
         "general.color" => {
             if !value.eq_ignore_ascii_case("true") && !value.eq_ignore_ascii_case("false") {
                 return Err(IdxError::InvalidInput(format!(

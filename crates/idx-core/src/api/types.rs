@@ -185,8 +185,6 @@ pub struct Fundamentals {
 
 pub type Bar = Ohlc;
 
-// Forward-looking types for planned MSN endpoints — used once capability traits are wired to CLI.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompanyProfile {
     pub id: String,
@@ -205,7 +203,6 @@ pub struct CompanyProfile {
     pub officers: Vec<Officer>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Officer {
     pub name: String,
@@ -215,7 +212,6 @@ pub struct Officer {
     pub total_pay: Option<i64>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FinancialStatements {
     pub instrument: InstrumentInfo,
@@ -224,7 +220,6 @@ pub struct FinancialStatements {
     pub income_statement: Option<StatementSection>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstrumentInfo {
     pub id: String,
@@ -232,7 +227,6 @@ pub struct InstrumentInfo {
     pub name: String,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatementSection {
     pub values: std::collections::BTreeMap<String, f64>,
@@ -241,7 +235,6 @@ pub struct StatementSection {
     pub end_date: String,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EarningsReport {
     #[serde(default)]
@@ -252,7 +245,6 @@ pub struct EarningsReport {
     pub history: Vec<EarningsData>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EarningsData {
     pub eps_actual: Option<f64>,
@@ -266,7 +258,6 @@ pub struct EarningsData {
     pub period_type: String,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SentimentData {
     pub symbol: String,

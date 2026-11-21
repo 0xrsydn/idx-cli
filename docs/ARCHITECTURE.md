@@ -59,6 +59,10 @@ command parses arguments, makes one idx-core call, and renders the result.
   selected (`IntradayProvider`), and quotes under the opt-in
   `--provider stockbit`. See [Stockbit](#stockbit).
 
+Every provider's `ureq` agent sets `timeout_global` as well as connect and
+body timeouts: a server that stalls before sending headers must not hold a
+call, or an idx-mcp call slot, forever.
+
 ### MSN Endpoints
 - `https://assets.msn.com/service/`: quotes, charts, equities, earnings,
   sentiment, screener

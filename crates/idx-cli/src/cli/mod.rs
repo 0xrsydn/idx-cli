@@ -52,7 +52,6 @@ pub struct Cli {
     pub offline: bool,
     #[arg(long, global = true, help = "Bypass local cache")]
     pub no_cache: bool,
-    // `idx version` is the documented form; `--version` is a hidden alias.
     #[arg(short = 'V', long, action = clap::ArgAction::Version, hide = true)]
     version: Option<bool>,
     #[command(subcommand)]

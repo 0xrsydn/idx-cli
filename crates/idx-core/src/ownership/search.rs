@@ -3,6 +3,12 @@ use rusqlite::{Connection, params};
 use crate::error::IdxError;
 use crate::ownership::types::Entity;
 
+pub(crate) fn like_literal(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 /// Investors whose canonical name or any recorded alias (the raw names KSEI
 /// prints, such as `PT ASTRA INTERNATIONAL TBK`) contains `query`, ignoring
 /// ASCII case. Ranked by an exact name, then an exact alias, then a name
@@ -18,11 +24,7 @@ pub fn search_entities(
     }
     let limit =
         i64::try_from(limit).map_err(|e| IdxError::DatabaseError(format!("invalid limit: {e}")))?;
-    // `%` and `_` in the query are literal characters, not LIKE wildcards.
-    let escaped = q
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_");
+    let escaped = like_literal(q);
     let contains = format!("%{escaped}%");
     let prefix = format!("{escaped}%");
 
@@ -139,11 +141,13 @@ mod tests {
 
     #[test]
     fn a_name_prefix_ranks_above_a_mid_name_match() {
-        // Neither is an exact name or alias: only prefix vs substring differs,
-        // and the substring match is shorter, so length alone would flip them.
         let conn = conn_with(&[("BANK MANDIRI TASPEN", &[]), ("PT BANK", &[])]);
 
-        assert_eq!(names(&conn, "bank"), ["BANK MANDIRI TASPEN", "PT BANK"]);
+        assert_eq!(
+            names(&conn, "bank"),
+            ["BANK MANDIRI TASPEN", "PT BANK"],
+            "prefix before substring, though the substring match is shorter"
+        );
     }
 
     #[test]

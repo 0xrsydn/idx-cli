@@ -148,7 +148,6 @@ impl Broker<'_> {
             match self.summary(symbol, &query, policy) {
                 Ok(fetched) if !fetched.data.is_empty() => return Ok(fetched),
                 Ok(_) => {}
-                // Offline, an uncached day says nothing; look further back.
                 Err(IdxError::CacheMiss(_)) if policy == CachePolicy::Offline => {}
                 Err(err) => return Err(err),
             }
@@ -296,10 +295,6 @@ mod tests {
             (all.total_value, all.total_value)
         );
 
-        // Foreign on all boards: the footer's 1.7 T is foreign buying; with
-        // the -2.3 T foreign net, foreign selling is 4.0 T (IDX: about
-        // 3.95 T). Domestic buying 4.9 T makes up the rest of 6.6 T, and its
-        // selling is 2.6 T.
         let side = |investor, board, name: &str| {
             let query = BrokerQuery {
                 investor,
@@ -315,7 +310,9 @@ mod tests {
         );
         assert_eq!(
             (foreign.buy_value, foreign.sell_value),
-            (Some(1_700_000_000_000), Some(4_000_000_000_000))
+            (Some(1_700_000_000_000), Some(4_000_000_000_000)),
+            "foreign on all boards: the footer's 1.7 T is foreign buying; with the -2.3 T \
+             foreign net, foreign selling is 4.0 T (IDX: about 3.95 T)"
         );
         assert_eq!(foreign.total_value, None);
         assert_eq!(foreign.foreign_net_value, Some(-2_300_000_000_000));
@@ -326,14 +323,17 @@ mod tests {
         );
         assert_eq!(
             (domestic.buy_value, domestic.sell_value),
-            (Some(4_900_000_000_000), Some(2_600_000_000_000))
+            (Some(4_900_000_000_000), Some(2_600_000_000_000)),
+            "domestic buying 4.9 T makes up the rest of 6.6 T"
         );
 
-        // Foreign, regular board: the footer's 1.6 T is regular foreign
-        // buying, less than the 2.0 T its top seller alone sold, and the net
-        // covers all boards, so selling cannot be derived.
         let raw = read("ipot_brokersummary_bbca_20261016_foreign_regular.html");
-        assert!(raw.total_value < raw.sellers[0].value);
+        assert!(
+            raw.total_value < raw.sellers[0].value,
+            "foreign, regular board: the footer's 1.6 T is regular foreign buying, less than \
+             the 2.0 T its top seller alone sold, and the net covers all boards, so selling \
+             cannot be derived"
+        );
         let regular = side(
             BrokerInvestor::Foreign,
             BrokerBoard::Regular,

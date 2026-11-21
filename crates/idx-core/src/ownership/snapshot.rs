@@ -638,8 +638,6 @@ fn validate_snapshot_db(path: &Path, snapshot: &OwnershipSnapshotArtifact) -> Re
             snapshot.latest_row_count, latest.row_count
         )));
     }
-    // Count the stored rows too: release metadata alone would accept a
-    // snapshot whose holdings table is empty or missing.
     let stored_rows: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM ksei_holdings WHERE release_sha256 = ?1",
@@ -1023,8 +1021,6 @@ mod tests {
 
     #[test]
     fn build_sync_decision_never_drops_history_through_a_rebuild() {
-        // A forced same-date rebuild with fewer releases lists the old build;
-        // a client holding it keeps its history instead of downgrading.
         let earlier = "e".repeat(64);
         let mut snapshot = same_date_snapshot(vec![earlier.clone()]);
         snapshot.release_count = 1;
@@ -1032,13 +1028,16 @@ mod tests {
         local.release_count = 3;
 
         let decision = build_sync_decision(Some(&local), &snapshot, false);
-        assert!(!decision.should_download, "{}", decision.reason);
+        assert!(
+            !decision.should_download,
+            "a forced same-date rebuild with fewer releases lists the old build; a client \
+             holding it keeps its history: {}",
+            decision.reason
+        );
     }
 
     #[test]
     fn build_sync_decision_ignores_a_replayed_older_build_for_the_same_date() {
-        // Local holds corrected build B (7200 rows); an older build A for the
-        // same release (7154 rows) that does not list B must not undo it.
         let snapshot = same_date_snapshot(Vec::new());
         let mut local = same_release_local(&snapshot, &"c".repeat(64));
         if let Some(release) = local.latest_release.as_mut() {
@@ -1046,13 +1045,16 @@ mod tests {
         }
 
         let decision = build_sync_decision(Some(&local), &snapshot, false);
-        assert!(!decision.should_download, "{}", decision.reason);
+        assert!(
+            !decision.should_download,
+            "local corrected build B (7200 rows) is not undone by an older build A (7154 rows) \
+             that does not list B: {}",
+            decision.reason
+        );
     }
 
     #[test]
     fn validation_rejects_a_snapshot_whose_holdings_are_missing() {
-        // Release metadata and manifest agree (7154 rows), but no holdings
-        // are stored: installing it would replace good data with nothing.
         let snapshot = same_date_snapshot(Vec::new());
         let path = std::env::temp_dir().join(format!("idx-empty-{}.sqlite", fastrand::u64(..)));
         let conn = Connection::open(&path).unwrap();
@@ -1094,7 +1096,11 @@ mod tests {
         drop(conn);
 
         let err = validate_snapshot_db(&path, &snapshot).expect_err("no holdings stored");
-        assert!(err.to_string().contains("holds 0 rows"), "{err}");
+        assert!(
+            err.to_string().contains("holds 0 rows"),
+            "release metadata and manifest agree, but with no holdings stored installing it \
+             would replace good data with nothing: {err}"
+        );
         std::fs::remove_file(&path).unwrap();
     }
 
@@ -1104,8 +1110,10 @@ mod tests {
         assert!(check_download_source(remote, "/dev/zero").is_err());
         assert!(check_download_source(remote, "file:///etc/passwd").is_err());
         assert!(check_download_source(remote, "https://example.com/a.sqlite").is_ok());
-        // The user's own local manifest may point at a local file.
-        assert!(check_download_source("/tmp/manifest.json", "/tmp/a.sqlite").is_ok());
+        assert!(
+            check_download_source("/tmp/manifest.json", "/tmp/a.sqlite").is_ok(),
+            "the user's own local manifest may point at a local file"
+        );
     }
 
     #[cfg(unix)]
@@ -1133,13 +1141,15 @@ mod tests {
 
     #[test]
     fn build_sync_decision_keeps_a_locally_modified_database() {
-        // Same release metadata but a file matching no published build (local
-        // imports or entity edits): unchanged behavior, never replaced silently.
         let snapshot = same_date_snapshot(vec!["e".repeat(64)]);
         let local = same_release_local(&snapshot, &"f".repeat(64));
 
         let decision = build_sync_decision(Some(&local), &snapshot, false);
-        assert_eq!(decision.action, OwnershipSyncAction::NoChange);
+        assert_eq!(
+            decision.action,
+            OwnershipSyncAction::NoChange,
+            "a file matching no published build (local imports or entity edits) is never replaced silently"
+        );
         assert!(!decision.should_download);
     }
 
@@ -1323,8 +1333,6 @@ mod tests {
         }
         let published = super::sha256_hex(&std::fs::read(&db_path).unwrap());
 
-        // A committed edit that stays in the WAL: the main file still hashes
-        // as the published build while the connection is open.
         let editor = Connection::open(&db_path).unwrap();
         ensure_schema(&editor).unwrap();
         editor
@@ -1333,7 +1341,8 @@ mod tests {
         insert_release(&editor, &release("local edit")).unwrap();
         assert_eq!(
             super::sha256_hex(&std::fs::read(&db_path).unwrap()),
-            published
+            published,
+            "a committed edit still in the WAL leaves the main file hashing as the published build"
         );
 
         let local = super::inspect_local_db(&db_path).unwrap().unwrap();

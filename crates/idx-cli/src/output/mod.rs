@@ -28,12 +28,10 @@ use idx_core::movements::types::MovementList;
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq, Serialize, serde::Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum OutputSetting {
-    // Table on a terminal, JSON when stdout is piped or captured.
     #[default]
     Auto,
     Table,
     Json,
-    // JSON Lines: one array item per line.
     Jsonl,
 }
 
@@ -322,7 +320,6 @@ pub fn render_screener(
 
 pub fn emit_error(err: &IdxError, format: &OutputFormat) {
     if !format.is_json() {
-        // Errors can carry provider, KSEI, or manifest text.
         eprintln!("Error: {}", text::terminal_safe(&err.to_string()));
         return;
     }

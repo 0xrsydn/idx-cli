@@ -28,8 +28,6 @@ const BING_OWNERSHIP_BASE: &str =
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
     (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
-// ── Endpoint enum ────────────────────────────────────────────────────────────
-
 /// Bing ownership API endpoint variants.
 ///
 /// Each variant maps to one Bing hedge-fund endpoint path and the
@@ -86,8 +84,6 @@ impl BingEndpoint {
     }
 }
 
-// ── HTTP helpers ─────────────────────────────────────────────────────────────
-
 /// Build a `ureq::Agent` with timeouts matching existing MSN client conventions.
 fn build_agent() -> ureq::Agent {
     ureq::Agent::config_builder()
@@ -125,8 +121,6 @@ impl BingResponse {
         }
     }
 }
-
-// ── Public API ────────────────────────────────────────────────────────────────
 
 /// Fetch ownership data from a single Bing endpoint.
 ///
@@ -182,7 +176,6 @@ pub fn fetch_holders(
                 return Ok(parsed.into_holders());
             }
             Err(ureq::Error::StatusCode(404)) => {
-                // Instrument not found on Bing — return empty, not an error.
                 return Ok(vec![]);
             }
             Err(ureq::Error::StatusCode(429)) => {
@@ -233,13 +226,9 @@ pub fn fetch_all_ownership(
     Ok(results)
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── BingEndpoint::path() ──────────────────────────────────────────────
 
     #[test]
     fn test_endpoint_path_top_share_holders() {
@@ -275,8 +264,6 @@ mod tests {
         );
     }
 
-    // ── BingEndpoint::signal() ────────────────────────────────────────────
-
     #[test]
     fn test_endpoint_signal_mapping() {
         assert_eq!(BingEndpoint::TopShareHolders.signal(), FlowSignal::Holder);
@@ -291,8 +278,6 @@ mod tests {
             FlowSignal::Exited
         );
     }
-
-    // ── BingEndpoint::all() ───────────────────────────────────────────────
 
     #[test]
     fn test_endpoint_all_has_five_variants() {
@@ -313,8 +298,6 @@ mod tests {
         assert!(signals.contains("Exited"));
     }
 
-    // ── Fixture deserialization ───────────────────────────────────────────
-
     #[test]
     fn test_deserialize_holders_fixture() {
         let json = include_str!("../../../tests/fixtures/bing_holders_bbca.json");
@@ -324,7 +307,6 @@ mod tests {
             !holders.is_empty(),
             "fixture should have at least one holder"
         );
-        // First holder should have a name
         assert!(
             holders[0].investor_name.is_some(),
             "first holder should have investor_name"
@@ -341,8 +323,6 @@ mod tests {
             "fixture should have at least one buyer"
         );
     }
-
-    // ── Empty response handling ───────────────────────────────────────────
 
     #[test]
     fn test_deserialize_empty_array_is_ok() {

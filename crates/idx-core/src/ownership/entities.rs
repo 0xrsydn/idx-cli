@@ -110,8 +110,6 @@ pub fn normalize_name(raw: &str) -> String {
     }
 
     let tokens: Vec<&str> = upper.split_whitespace().collect();
-    // Trim prefix and suffix tokens by narrowing a slice: linear, where
-    // removing from the front of the Vec was quadratic in hostile names.
     let mut kept = tokens.as_slice();
     while let [first, rest @ ..] = kept
         && matches!(*first, "PT" | "PT.")
@@ -350,7 +348,6 @@ mod tests {
 
     #[test]
     fn normalize_name_strips_many_prefixes_in_linear_time() {
-        // Removing from the front of a Vec made this quadratic (~5e9 shifts).
         let hostile = format!("{}ACME TBK", "PT ".repeat(100_000));
         assert_eq!(normalize_name(&hostile), "ACME");
         assert_eq!(normalize_name("PT TBK"), "");

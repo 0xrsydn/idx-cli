@@ -662,13 +662,13 @@ mod tests {
         };
         assert_eq!(store.access(&refresher, NOW).unwrap(), new_access);
         assert_eq!(calls.get(), 1);
-        // The rotated pair is what the next process reads.
         assert_eq!(
             store.load(),
             Session {
                 access: new_access,
                 refresh: new_refresh
-            }
+            },
+            "the rotated pair is what the next process reads"
         );
         #[cfg(unix)]
         {

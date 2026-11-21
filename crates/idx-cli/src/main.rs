@@ -124,8 +124,6 @@ fn argument_error(err: clap::Error) -> IdxError {
 /// `-o`/`--output` as clap reads it (clustered short flags, the last one
 /// at any subcommand level), then `IDX_OUTPUT`, then auto.
 fn requested_output_from_args() -> OutputFormat {
-    // args_os: an argument that is not UTF-8 (itself the error being
-    // reported) must not panic here.
     let setting = output_flag(std::env::args_os().collect())
         .or_else(|| {
             std::env::var("IDX_OUTPUT")

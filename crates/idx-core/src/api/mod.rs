@@ -215,6 +215,14 @@ impl SelectedProvider {
     }
 }
 
+fn safe_in_cache_file_names_and_urls(ticker: &str) -> bool {
+    ticker.len() <= 32
+        && !ticker.contains("..")
+        && ticker
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '^' | '='))
+}
+
 pub fn resolve_symbol(symbol: &str, exchange: &str) -> Result<String, IdxError> {
     let trimmed = symbol.trim().to_uppercase();
     if trimmed.is_empty() {
@@ -222,14 +230,7 @@ pub fn resolve_symbol(symbol: &str, exchange: &str) -> Result<String, IdxError> 
             "ticker symbol cannot be empty".into(),
         ));
     }
-    // Tickers name cache files and provider URLs: letters, digits, and the
-    // separators real symbols use (BBCA.JK, BRK-B, ^JKSE), nothing else.
-    if trimmed.len() > 32
-        || trimmed.contains("..")
-        || !trimmed
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '^' | '='))
-    {
+    if !safe_in_cache_file_names_and_urls(&trimmed) {
         return Err(IdxError::InvalidInput(format!(
             "invalid ticker symbol '{}'",
             symbol.trim()
@@ -316,7 +317,6 @@ fn build_selected_provider(
             news: Some(Box::new(msn::MsnProvider::new(verbose))),
             screener: Some(Box::new(msn::MsnProvider::new(verbose))),
         },
-        // Quotes only; history needs a session (see `history_source`).
         ProviderKind::Stockbit => SelectedProvider {
             kind: ProviderKind::Stockbit,
             market: mock.unwrap_or_else(|| Box::new(stockbit::StockbitProvider::new())),
@@ -446,11 +446,8 @@ mod tests {
         assert_eq!(resolve_symbol("TLKM.us", "JK").unwrap(), "TLKM.US");
         assert_eq!(resolve_symbol("abcd.ef.gh", "JK").unwrap(), "ABCD.EF.GH");
         assert_eq!(resolve_symbol(" bbri ", "jk").unwrap(), "BBRI.JK");
-        // Empty ticker should return error
         assert!(resolve_symbol("", "JK").is_err());
-        // Whitespace-only ticker should also return error
         assert!(resolve_symbol("  ", "JK").is_err());
-        // Valid ticker returns Ok
         assert_eq!(resolve_symbol("BBCA", "JK").unwrap(), "BBCA.JK");
     }
 
@@ -552,7 +549,6 @@ mod tests {
             ),
             ProviderKind::Stockbit
         );
-        // No session, a window Stockbit charts weekly, or another provider.
         assert_eq!(
             source(
                 ProviderKind::Stockbit,
@@ -561,7 +557,8 @@ mod tests {
                 year.1.clone(),
                 false
             ),
-            ProviderKind::Yahoo
+            ProviderKind::Yahoo,
+            "no session"
         );
         assert_eq!(
             source(
@@ -571,7 +568,8 @@ mod tests {
                 Interval::Day,
                 true
             ),
-            ProviderKind::Yahoo
+            ProviderKind::Yahoo,
+            "a window Stockbit charts weekly"
         );
         assert_eq!(
             source(
@@ -581,9 +579,9 @@ mod tests {
                 year.1.clone(),
                 true
             ),
-            ProviderKind::Yahoo
+            ProviderKind::Yahoo,
+            "another provider"
         );
-        // An explicit choice wins either way.
         assert_eq!(
             source(
                 ProviderKind::Msn,
@@ -592,11 +590,13 @@ mod tests {
                 year.1.clone(),
                 false
             ),
-            ProviderKind::Stockbit
+            ProviderKind::Stockbit,
+            "an explicit choice wins without a session"
         );
         assert_eq!(
             source(ProviderKind::Stockbit, Yahoo, year.0, year.1, true),
-            ProviderKind::Yahoo
+            ProviderKind::Yahoo,
+            "an explicit choice wins with a session"
         );
     }
 }

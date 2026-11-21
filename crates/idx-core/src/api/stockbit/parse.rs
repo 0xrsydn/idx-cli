@@ -112,8 +112,6 @@ pub fn stockbit_code(resolved: &str) -> Result<String, IdxError> {
         Some(_) => return Err(unsupported()),
         None => code,
     };
-    // Letters and digits, with the dash of a warrant (`INET-W`) or a right
-    // (`BMAS-R`); the code goes into a URL path.
     let plain = |c: char| c.is_ascii_alphanumeric();
     if !code.starts_with(plain) || !code.chars().all(|c| plain(c) || c == '-') {
         return Err(unsupported());
@@ -254,11 +252,14 @@ fn parse_points(chart: &RawChart) -> Result<Vec<IntradayPoint>, IdxError> {
         points.push(IntradayPoint { time, price });
     }
     points.sort_by_key(|p| p.time);
-    // A repeated minute keeps its last row.
+    keep_last_row_per_minute(&mut points);
+    Ok(points)
+}
+
+fn keep_last_row_per_minute(points: &mut Vec<IntradayPoint>) {
     points.reverse();
     points.dedup_by_key(|p| p.time);
     points.reverse();
-    Ok(points)
 }
 
 /// `"22 Oct 2026"` and `"Thu 16:14"` as a WIB time.
@@ -326,8 +327,11 @@ mod tests {
         assert_eq!(q.session_note, None);
         assert_eq!(q.as_of.unwrap().to_rfc3339(), "2026-10-22T16:14:00+07:00");
 
-        // 336 rows less the anchor at the previous close.
-        assert_eq!(day.points.len(), 335);
+        assert_eq!(
+            day.points.len(),
+            335,
+            "336 rows less the anchor at the previous close"
+        );
         let first = &day.points[0];
         assert_eq!(first.time.to_rfc3339(), "2026-10-22T08:58:00+07:00");
         assert_eq!(first.price, 5125.0);
@@ -360,8 +364,11 @@ mod tests {
             (q.price, q.prev_close, q.change),
             (5388, Some(5328), Some(60))
         );
-        // An index has no book even while open.
-        assert_eq!((q.bid, q.offer), (None, None));
+        assert_eq!(
+            (q.bid, q.offer),
+            (None, None),
+            "an index has no book even while open"
+        );
         assert_eq!(day.points.last().unwrap().price, 5387.90);
     }
 
@@ -380,8 +387,10 @@ mod tests {
             let day = parse_symbol_page("X.JK", &fixture(file)).unwrap();
             assert!(day.points.is_empty(), "{file}");
             assert_eq!(day.quote.session_note.as_deref(), Some(note), "{file}");
-            // The page's date/time is not a trade time when nothing traded.
-            assert_eq!(day.quote.as_of, None, "{file}");
+            assert_eq!(
+                day.quote.as_of, None,
+                "{file}: the page's date/time is not a trade time when nothing traded"
+            );
         }
     }
 
@@ -434,8 +443,11 @@ mod tests {
         assert_eq!(stockbit_code("BBCA.JK").unwrap(), "BBCA");
         assert_eq!(stockbit_code("^JKSE.JK").unwrap(), "IHSG");
         assert_eq!(stockbit_code("^JKLQ45.JK").unwrap(), "LQ45");
-        // Warrants and rights trade under the stock's code and a dash.
-        assert_eq!(stockbit_code("INET-W.JK").unwrap(), "INET-W");
+        assert_eq!(
+            stockbit_code("INET-W.JK").unwrap(),
+            "INET-W",
+            "warrants and rights trade under the stock's code and a dash"
+        );
         assert_eq!(stockbit_code("BMAS-R.JK").unwrap(), "BMAS-R");
         for other in ["AAPL.US", "^GSPC.JK", "-W.JK", "A=B.JK", "A.B.JK", ".JK"] {
             assert!(

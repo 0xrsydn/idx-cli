@@ -52,7 +52,6 @@ impl Market<'_> {
             _ => idx.config.quote_ttl,
         };
         let session = latest_session(Utc::now());
-        // Built only when an index is asked of MSN (see `quote_route`).
         let yahoo = std::cell::OnceCell::new();
         let mut quotes = Vec::with_capacity(symbols.len());
         for symbol in symbols {
@@ -79,7 +78,6 @@ impl Market<'_> {
                 || provider.market().quote(&resolved),
                 Ok,
             )?;
-            // The session rule is IDX's; other exchanges keep other hours.
             if resolved.ends_with(".JK") {
                 mark_behind_session(&mut quote.data, session);
             }
@@ -128,7 +126,6 @@ impl Market<'_> {
     ) -> HistorySource {
         let mode = mode.unwrap_or(self.idx.config.history_provider);
         let selected = self.idx.provider.kind();
-        // Only `auto` under the stockbit provider looks for a session.
         let session = mode == HistoryProviderKind::Auto
             && selected == ProviderKind::Stockbit
             && stockbit::has_session();
@@ -247,9 +244,6 @@ impl Market<'_> {
             region,
             limit,
         } = *query;
-        // Filters re-sorted client-side need the whole MSN list: MSN orders
-        // by 1-year return, so truncating first and then sorting by day
-        // change made `--limit 3` return different stocks than `--limit 25`.
         let fetch_limit = (!filter.needs_full_list()).then_some(limit);
         let bucket = idx.bucket("screen");
         let key = match fetch_limit {
@@ -543,7 +537,6 @@ mod tests {
 
     #[test]
     fn latest_session_is_the_last_weekday_past_the_post_trading_close() {
-        // 2026-10-16 is a Friday.
         for (now, session) in [
             ("2026-10-16T16:53:00", "2026-10-16"),
             ("2026-10-16T16:15:00", "2026-10-16"),
@@ -554,13 +547,16 @@ mod tests {
             ("2026-10-19T10:00:00", "2026-10-16"),
             ("2026-10-19T16:15:00", "2026-10-19"),
         ] {
-            assert_eq!(latest_session(wib(now)), day(session), "now {now}");
+            assert_eq!(
+                latest_session(wib(now)),
+                day(session),
+                "now {now} (2026-10-16 is a Friday)"
+            );
         }
     }
 
     #[test]
     fn quote_from_before_the_latest_session_is_behind_it() {
-        // Issue #50: at 16:53 WIB on the 16th, MSN still served the 15th.
         let session = latest_session(wib("2026-10-16T16:53:00"));
         for (as_of, behind) in [
             (Some("2026-10-15T16:15:00+07:00"), true),
@@ -573,7 +569,10 @@ mod tests {
             let mut quote = sample_quote("BBCA.JK", None);
             quote.as_of = as_of.map(|t| chrono::DateTime::parse_from_rfc3339(t).unwrap());
             mark_behind_session(&mut quote, session);
-            assert_eq!(quote.behind_session, behind, "as_of {as_of:?}");
+            assert_eq!(
+                quote.behind_session, behind,
+                "as_of {as_of:?} (issue #50: at 16:53 WIB on the 16th, MSN still served the 15th)"
+            );
         }
     }
 

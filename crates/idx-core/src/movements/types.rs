@@ -349,8 +349,10 @@ mod tests {
         let err = MovementQuery::from_args(None, Some("2025-11-12"), Some("2026-11-13"), None, 1)
             .unwrap_err();
         assert!(err.to_string().contains("more than 365 days"), "{err}");
-        // One bound alone is not a range.
-        assert!(MovementQuery::from_args(None, Some("2010-01-01"), None, None, 1).is_ok());
+        assert!(
+            MovementQuery::from_args(None, Some("2010-01-01"), None, None, 1).is_ok(),
+            "one bound alone is not a range"
+        );
     }
 
     #[test]

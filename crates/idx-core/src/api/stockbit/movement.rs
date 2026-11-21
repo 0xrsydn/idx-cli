@@ -239,8 +239,10 @@ mod tests {
             (row.shares_before, row.shares_after, row.shares_change),
             (193_206, 341_139, 147_933)
         );
-        // 0.0003% of BBCA rounds to 0 basis points; the shares stay exact.
-        assert_eq!(row.percentage_after_bps, 0);
+        assert_eq!(
+            row.percentage_after_bps, 0,
+            "0.0003% of BBCA rounds to 0 basis points; the shares stay exact"
+        );
         assert_eq!(row.price, Some(6982));
         assert_eq!(row.value, Some(1_032_868_206));
         assert!(!row.price_estimated);

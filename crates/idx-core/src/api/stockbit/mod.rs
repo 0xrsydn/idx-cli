@@ -73,8 +73,6 @@ impl StockbitProvider {
         let agent = ureq::Agent::config_builder()
             .timeout_connect(Some(Duration::from_secs(5)))
             .timeout_recv_body(Some(Duration::from_secs(10)))
-            // A server that stalls before sending headers must not hold a
-            // call (and an MCP call slot) forever.
             .timeout_global(Some(Duration::from_secs(20)))
             .build()
             .into();
@@ -159,7 +157,6 @@ fn pace_across_processes() -> std::io::Result<()> {
     let mut raw = String::new();
     file.read_to_string(&mut raw)?;
     if let Ok(prev_ms) = raw.trim().parse::<u128>() {
-        // A clock that went backwards waits at most one interval.
         let elapsed = now_ms().saturating_sub(prev_ms);
         let wait = MIN_INTERVAL.as_millis().saturating_sub(elapsed);
         if wait > 0 {
@@ -257,7 +254,6 @@ pub fn verify_session() -> Result<(), IdxError> {
             "no Stockbit session stored".to_string(),
         ));
     }
-    // As in `login`: the mock provider stands in for the network.
     #[cfg(feature = "testing")]
     let check = !crate::api::mock::enabled();
     #[cfg(not(feature = "testing"))]

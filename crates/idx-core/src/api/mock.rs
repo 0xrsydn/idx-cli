@@ -49,7 +49,6 @@ impl MockProvider {
         match provider {
             ProviderKind::Yahoo => Self::from_yahoo_fixtures(history_verbose),
             ProviderKind::Msn => Self::from_msn_fixtures(),
-            // `MockStockbitProvider` serves Stockbit; it has no history.
             ProviderKind::Stockbit => Self::with_error(IdxError::Unsupported(
                 "Stockbit serves no price history".to_string(),
             )),
@@ -187,7 +186,6 @@ impl MockStockbitProvider {
                 "Stockbit rejected the session; run `idx stockbit login` again".to_string(),
             ));
         }
-        // The session API's own block, as `exodus::fetch` reports it.
         if std::env::var("IDX_MOCK_STOCKBIT_STATUS").as_deref() == Ok("403") {
             return Err(stockbit::exodus::blocked());
         }
@@ -201,8 +199,6 @@ impl MockStockbitProvider {
     fn book(&self, symbol: &str) -> Result<OrderBook, IdxError> {
         let code = stockbit::stockbit_code(symbol)?.to_ascii_lowercase();
         let body = self.exodus(symbol, &format!("orderbook_{code}.json"))?;
-        // A recorded 404 body (`orderbook_zzzz.json`) is the answer for a
-        // code Stockbit does not know.
         if exodus::error_type(&body).as_deref() == Some("NOT_FOUND") {
             return Err(IdxError::SymbolNotFound(symbol.to_string()));
         }
@@ -280,7 +276,6 @@ impl ShareholderMovementProvider for MockStockbitProvider {
         page: u32,
     ) -> Result<MovementPage, IdxError> {
         let subject = query.symbol.as_deref().unwrap_or("shareholder movements");
-        // `IDX_MOCK_MOVEMENTS_FAIL_PAGE=N` rate-limits page N alone.
         if std::env::var("IDX_MOCK_MOVEMENTS_FAIL_PAGE").ok() == Some(page.to_string()) {
             return Err(IdxError::RateLimited);
         }

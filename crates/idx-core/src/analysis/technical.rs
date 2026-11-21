@@ -174,15 +174,14 @@ mod tests {
 
     #[test]
     fn rsi_returns_seeded_none_and_known_value() {
-        // Classic Wilder example dataset; RSI(14) first computed value ~= 70.46.
-        let closes = [
+        let wilder_example_closes = [
             44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.10, 45.42, 45.84, 46.08, 45.89, 46.03,
             45.61, 46.28, 46.28,
         ];
         let period = 14;
-        let values = rsi(&closes, period);
+        let values = rsi(&wilder_example_closes, period);
 
-        assert_eq!(values.len(), closes.len());
+        assert_eq!(values.len(), wilder_example_closes.len());
         assert!(values.iter().take(period).all(Option::is_none));
 
         let rsi_14 = values[period].expect("expected first RSI value");

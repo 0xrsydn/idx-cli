@@ -193,7 +193,6 @@ pub fn bandar_tier(summary: &BrokerSummary, top: u8) -> BandarTier {
                 i128::from(bought),
                 i128::from(sold),
             );
-            // Checked: past i128 there is no reading, never a wrapped one.
             buy.checked_mul(sold)
                 .zip(sell.checked_mul(bought))
                 .and_then(|(buys, sells)| buys.checked_sub(sells))
@@ -343,12 +342,14 @@ mod tests {
             (Some(7000), Some(4500))
         );
         assert_eq!(top3.imbalance_bps, Some(2500));
-        // 700 IDR over 4 + 2 + 2 shares.
-        assert_eq!(top3.buy_average, Some(88));
+        assert_eq!(top3.buy_average, Some(88), "700 IDR over 4 + 2 + 2 shares");
         assert_eq!(top3.sell_average, Some(110));
 
-        // Short lists: every broker on a side is listed, so the sums hold.
-        assert_eq!(report.tiers[3].imbalance_value, Some(250));
+        assert_eq!(
+            report.tiers[3].imbalance_value,
+            Some(250),
+            "short lists: every broker on a side is listed, so the sums hold"
+        );
         assert_eq!(
             (report.top, report.signal),
             (3, Some(BandarSignal::BigAccumulation))
@@ -370,11 +371,10 @@ mod tests {
             let tier = bandar_tier(&s, 1);
             (tier.imbalance_bps, tier.signal)
         };
-        // -4.9952% and -14.9952% stay short of the thresholds, like their
-        // mirror images.
         assert_eq!(
             reading(504_300_000, 609_200_000),
-            (Some(-499), Some(BandarSignal::Neutral))
+            (Some(-499), Some(BandarSignal::Neutral)),
+            "-4.9952% stays short of the threshold, like its mirror image"
         );
         assert_eq!(
             reading(609_200_000, 504_300_000),
@@ -392,8 +392,6 @@ mod tests {
 
     #[test]
     fn test_bandar_tier_weighs_one_side_against_its_own_buying_and_selling() {
-        // Foreign investors bought 1,000 and sold 4,000: the top buyer took
-        // half of the buying, the top seller a quarter of the selling.
         let mut s = summary(
             vec![flow("AA", Some(500), 100)],
             vec![flow("BB", Some(1_000), 100)],
@@ -408,16 +406,20 @@ mod tests {
         let tier = &report.tiers[0];
         assert_eq!(
             (tier.buy_share_bps, tier.sell_share_bps),
-            (Some(5000), Some(2500))
+            (Some(5000), Some(2500)),
+            "foreign bought 1,000 and sold 4,000: the top buyer took half the buying, the top seller a quarter of the selling"
         );
         assert_eq!(tier.imbalance_bps, Some(2500));
         assert_eq!(tier.imbalance_value, Some(-500));
         assert_eq!(report.signal, Some(BandarSignal::BigAccumulation));
         assert_eq!(report.foreign_net_bps, None, "no total to weigh it against");
 
-        // Without the selling total (one side on one board) there is no reading.
         s.sell_value = None;
-        assert_eq!(analyze_bandar(&s, 1).signal, None);
+        assert_eq!(
+            analyze_bandar(&s, 1).signal,
+            None,
+            "without the selling total (one side on one board) there is no reading"
+        );
     }
 
     #[test]
@@ -453,9 +455,16 @@ mod tests {
             let sellers = vec![flow("BB", Some(total / 10 * 4), 1)];
             bandar_tier(&summary(buyers, sellers, total), 1).imbalance_bps
         };
-        // A quadrillion rupiah, far past any session, is still exact.
-        assert_eq!(reading(1_000_000_000_000_000), Some(2000));
-        assert_eq!(reading(1_000_000_000_000_000_000), None);
+        assert_eq!(
+            reading(1_000_000_000_000_000),
+            Some(2000),
+            "a quadrillion rupiah, far past any session, is still exact"
+        );
+        assert_eq!(
+            reading(1_000_000_000_000_000_000),
+            None,
+            "past i128 there is no reading, never a wrapped one"
+        );
     }
 
     #[test]

@@ -237,7 +237,6 @@ fn wait_for_session(
     // Why Stockbit refused that cookie, so the error that ends the wait says
     // so: a polling frontend never saw the warning.
     let mut refusal: Option<String> = None;
-    // After a check fails for a passing reason, the next is held back.
     let mut retry_at: Option<Instant> = None;
     let mut last_error: Option<String> = None;
     // The window is watched so closing it ends the wait instead of running
@@ -252,9 +251,6 @@ fn wait_for_session(
             {
                 match verify(&cookie.value) {
                     Ok(()) => {
-                        // The session now lives in idx's own file. Take the
-                        // copy out of the browser, but leave Stockbit's
-                        // device cookies in place.
                         if let Err(err) = devtools.forget_session(&cookie) {
                             crate::runtime::warn(format!(
                                 "could not remove the session cookie from idx's browser \
@@ -288,8 +284,6 @@ fn wait_for_session(
                     }
                 }
             }
-            // A later read that works clears an earlier failure, so the
-            // timeout message names only what is still wrong.
             Ok(_) => last_error = None,
             Err(err) => last_error = Some(err.to_string()),
         }
@@ -682,18 +676,18 @@ impl DevTools {
         loop {
             let (fin, opcode, payload) = read_frame(&mut self.stream)?;
             match opcode {
-                // ping: answer so the browser keeps the socket open.
-                0x9 => self.stream.write_all(&frame(0xA, &payload)).map_err(io)?,
-                // pong: nothing to do.
-                0xA => continue,
-                0x8 => {
+                OP_PING => self
+                    .stream
+                    .write_all(&frame(OP_PONG, &payload))
+                    .map_err(io)?,
+                OP_PONG => continue,
+                OP_CLOSE => {
                     return Err(IdxError::Io(
                         "browser DevTools closed the connection".to_string(),
                     ));
                 }
-                // text, binary, or a continuation of the message in hand.
-                0x0 => buffer.extend_from_slice(&payload),
-                0x1 | 0x2 => {
+                OP_CONTINUATION => buffer.extend_from_slice(&payload),
+                OP_TEXT | OP_BINARY => {
                     buffer.clear();
                     buffer.extend_from_slice(&payload);
                 }
@@ -728,6 +722,13 @@ fn read_head(stream: &mut TcpStream) -> Result<String, IdxError> {
 }
 
 /// A masked client frame: clients must mask, servers must not.
+const OP_CONTINUATION: u8 = 0x0;
+const OP_TEXT: u8 = 0x1;
+const OP_BINARY: u8 = 0x2;
+const OP_CLOSE: u8 = 0x8;
+const OP_PING: u8 = 0x9;
+const OP_PONG: u8 = 0xA;
+
 fn frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(payload.len() + 14);
     out.push(0x80 | opcode);
@@ -1140,8 +1141,6 @@ mod tests {
         let profile = temp_dir("launch");
         let server = FakeBrowser::start(Fake::default());
 
-        // Writes the port file where the browser would, then waits to be
-        // closed.
         let path = fake_executable(
             &profile,
             &format!(
@@ -1167,10 +1166,9 @@ mod tests {
             server.finish().methods.last().map(String::as_str),
             Some("Browser.close")
         );
-        // The stand-in sleeps for 30 s; the sign-in must not wait for it.
         assert!(
             started.elapsed() < Duration::from_secs(10),
-            "the sign-in waited {:?}",
+            "the stand-in sleeps for 30 s, but the sign-in waited {:?}",
             started.elapsed()
         );
         let _ = std::fs::remove_dir_all(&profile);
@@ -1235,9 +1233,9 @@ mod tests {
             name: "Named".to_string(),
             path: path.clone(),
         };
-        // The launch records it even when the browser then goes away.
         assert!(browser.open(&profile).is_err());
-        let again = Browser::recorded(&profile).expect("the recorded browser");
+        let again = Browser::recorded(&profile)
+            .expect("the launch records the browser even when it then goes away");
         assert_eq!(again.path, path);
         assert_eq!(again.name, "fake-browser");
 

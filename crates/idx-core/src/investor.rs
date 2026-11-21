@@ -144,12 +144,7 @@ impl Investor {
             ));
         }
         let conn = self.connect()?;
-        // `%` and `_` in the name are literal characters, not LIKE wildcards.
-        let escaped = name
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
-        let pattern = format!("%{escaped}%");
+        let pattern = format!("%{}%", crate::ownership::search::like_literal(name));
         let entity_id = conn
             .query_row(
                 "SELECT id FROM entities WHERE canonical_name LIKE ?1 ESCAPE '\\' COLLATE NOCASE ORDER BY LENGTH(canonical_name) ASC LIMIT 1",
@@ -335,8 +330,6 @@ impl Investor {
         let conn = self.open_db()?;
 
         let sha256 = sha256_file(&input.path)?;
-        // A skipped import reports the release as stored: a `source_url`
-        // passed now is not recorded without `force`.
         if !force && let Some(existing) = db::find_release(&conn, &sha256)? {
             return Ok(ImportResult {
                 action: "skipped_existing",

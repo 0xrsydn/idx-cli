@@ -113,6 +113,24 @@ let conn = Connection::open(path)
 - **Prices:** whole IDR (i64). Rounded from float at parse boundary.
 - **Money (USD):** whole dollars (i64) for Bing data.
 
+## Comments
+Code carries its own explanation, because comments drift from the code they
+describe and nothing checks them. Comments are banned in Rust sources;
+`crates/idx-cli/tests/comments.rs` enforces it.
+
+- **Where the "why" goes instead:** a test whose name or assertion message
+  states the rule (it fails when the rule breaks); a function, constant or
+  variable name; a type that makes the wrong state unrepresentable; an error
+  message the user sees. Cross-cutting architecture goes in `docs/`.
+- **Rendered doc comments are data, not comments:** `///` on items deriving
+  clap's `Parser`/`Args`/`Subcommand`/`ValueEnum` or schemars' `JsonSchema`
+  becomes `--help` text or an MCP schema, so the lint exempts it.
+- **Ratchet:** `crates/idx-cli/tests/comment_baseline.txt` holds each file's
+  remaining comment lines. A file may not exceed its count, and a lower count
+  must be locked in with `IDX_UPDATE_COMMENT_BASELINE=1 cargo test -p idx-cli
+  --test comments`. Never raise a count to make a change pass.
+- **Cleanup:** `/delete-comment` (`.claude/skills/delete-comment/SKILL.md`).
+
 ## Testing
 - **Canonical verification:** `nix flake check -L` locally and before pushing; CI uses the same gate. Do not repeat full Cargo build/lint/test runs after a successful flake check.
 - **Focused debugging:** use `nix develop --command cargo test <filter>` when iterating on one failure.

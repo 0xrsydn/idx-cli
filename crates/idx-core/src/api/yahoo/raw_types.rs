@@ -1,5 +1,3 @@
-// Raw serde structs for Yahoo API responses. Fields not yet consumed by map.rs are
-// retained for future fundamentals expansion; suppress dead_code for forward-compat.
 #![allow(dead_code)]
 
 use serde::Deserialize;

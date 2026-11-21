@@ -115,8 +115,6 @@ impl std::str::FromStr for ActionKind {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let wanted = value.trim().to_ascii_lowercase().replace('_', "-");
-        // The names JSON carried before they matched `--kind`, which an
-        // agent may pass back from an earlier answer.
         let wanted = match wanted.as_str() {
             "public-expose" => "expose",
             "tender-offer" => "tender",
@@ -362,9 +360,8 @@ mod tests {
         assert_eq!((range.from, range.to), (today, day("2026-12-03")));
         let range = CalendarRange::from_args(Some("2026-11-10"), None, today).unwrap();
         assert_eq!(range.to, day("2026-12-10"));
-        // 366 days counting both ends is the most.
         let range = CalendarRange::from_args(Some("2028-01-01"), Some("2028-12-31"), today);
-        assert!(range.is_ok());
+        assert!(range.is_ok(), "366 days counting both ends is the most");
         for (from, to) in [
             (Some("2026-11-10"), Some("2026-11-09")),
             (Some("2026-01-01"), Some("2027-06-01")),
@@ -406,11 +403,14 @@ mod tests {
             assert_eq!(json, kind.as_str(), "{kind:?}");
             assert_eq!(serde_json::from_value::<ActionKind>(json).unwrap(), kind);
         }
-        // Entries cached before the names changed still read.
-        let old: ActionKind = serde_json::from_str("\"public_expose\"").unwrap();
+        let old: ActionKind = serde_json::from_str("\"public_expose\"")
+            .expect("entries cached before the names changed still read");
         assert_eq!(old, ActionKind::PublicExpose);
-        // And as input, so a kind copied from an older answer works.
-        assert_eq!("public_expose".parse::<ActionKind>().unwrap(), old);
+        assert_eq!(
+            "public_expose".parse::<ActionKind>().unwrap(),
+            old,
+            "a kind copied from an older answer works as input"
+        );
         assert_eq!(
             "tender_offer".parse::<ActionKind>().unwrap(),
             ActionKind::TenderOffer

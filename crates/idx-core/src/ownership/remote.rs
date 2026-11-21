@@ -385,7 +385,6 @@ pub fn discover_from_share_ownership_lists(
     for raw in lists {
         reports.extend(parse_share_ownership_list(raw, &list_url)?);
     }
-    // The same file saved twice is one report.
     let mut seen = std::collections::HashSet::new();
     reports.retain(|report| seen.insert(report.pdf_url.clone()));
     let reports = require_page_reports(reports, &list_url)?;
@@ -393,8 +392,6 @@ pub fn discover_from_share_ownership_lists(
     let mut discovered = select_page_reports(reports, family_filter);
     sort_and_limit(&mut discovered, limit);
     if discovered.is_empty() {
-        // The list parsed but holds no report of this family: nothing was
-        // fetched, so this is "nothing matched" (exit 3), not a network error.
         return Err(IdxError::NoMarketData(format!(
             "no matching ownership reports found in the saved IDX share ownership file list {list_url}"
         )));
@@ -1205,8 +1202,10 @@ mod tests {
                 .filter(|r| r.family != OwnershipReportFamily::AboveOnePercent)
                 .all(|r| r.status == OwnershipReportStatus::Unsupported)
         );
-        // IDX pads some descriptions with spaces and a newline.
-        assert!(reports.iter().all(|r| r.title == r.title.trim()));
+        assert!(
+            reports.iter().all(|r| r.title == r.title.trim()),
+            "IDX pads some descriptions with spaces and a newline"
+        );
         let may = reports
             .iter()
             .find(|r| {
@@ -1258,9 +1257,12 @@ mod tests {
     fn discovers_from_saved_lists_like_a_live_run() {
         let lists = vec![LIST_FIXTURE.to_string(), LIST_FIXTURE.to_string()];
         let reports = discover_from_share_ownership_lists(&lists, None, 50).expect("discover");
-        // The same list saved twice adds nothing; every above-1% month stays,
-        // the unsupported series keep only their newest entry.
-        assert_eq!(reports.len(), 5, "{reports:?}");
+        assert_eq!(
+            reports.len(),
+            5,
+            "the same list saved twice adds nothing; every above-1% month stays, the \
+             unsupported series keep only their newest entry: {reports:?}"
+        );
         assert_eq!(reports[0].as_of_date.as_deref(), Some("2026-11-09"));
         assert_eq!(reports[0].family, OwnershipReportFamily::AboveFivePercent);
 
