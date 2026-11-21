@@ -115,12 +115,10 @@ fn bin_with_root(root: &Path) -> Command {
     fs::create_dir_all(&cache_home).expect("create cache dir");
 
     let mut cmd = bin();
-    // The mock provider reads fixtures relative to the working directory.
-    cmd.current_dir(core_dir());
-    // Tests run with piped stdout, where the default (auto) format is JSON.
-    // Pin table so tests that assert table text keep doing so; `-o` and
-    // per-test IDX_OUTPUT still override this.
-    cmd.env("IDX_OUTPUT", "table");
+    let mock_provider_fixture_root = core_dir();
+    cmd.current_dir(mock_provider_fixture_root);
+    let table_over_the_piped_json_default = "table";
+    cmd.env("IDX_OUTPUT", table_over_the_piped_json_default);
     cmd.env("XDG_CONFIG_HOME", &config_home);
     cmd.env("XDG_CACHE_HOME", &cache_home);
     cmd
@@ -156,15 +154,22 @@ fn run_success_json(cmd: &mut Command) -> Value {
 }
 
 fn run_error_json(cmd: &mut Command, code: &str) {
+    run_error_json_for(cmd, code, "");
+}
+
+fn run_error_json_for(cmd: &mut Command, code: &str, case: &str) {
     let output = cmd.output().expect("run failing command");
-    assert!(!output.status.success(), "unexpected success: {output:?}");
+    assert!(
+        !output.status.success(),
+        "{case}: unexpected success: {output:?}"
+    );
     assert!(
         output.stdout.is_empty(),
-        "error polluted stdout: {output:?}"
+        "{case}: error polluted stdout: {output:?}"
     );
     let error: Value = serde_json::from_slice(&output.stderr).expect("stderr contains JSON error");
-    assert_eq!(error["error"], true);
-    assert_eq!(error["code"], code);
+    assert_eq!(error["error"], true, "{case}");
+    assert_eq!(error["code"], code, "{case}");
 }
 
 fn spawn_single_response_server(content_type: &str, body: impl Into<Vec<u8>>) -> String {
@@ -984,7 +989,6 @@ fn config_set_and_get_provider_round_trip() {
 
 #[test]
 fn config_prints_json_only_when_json_is_asked_for() {
-    // Piped with auto output, scripts read plain text: `$(idx config path)`.
     let root = test_env_dir("config-output-format");
     bin_with_root(&root)
         .args(["config", "set", "general.provider", "msn"])
@@ -1282,17 +1286,20 @@ fn ownership_discover_require_data_page_keeps_other_page_failures_distinct() {
     assert!(unreachable.stdout.is_empty(), "{unreachable:?}");
     assert_eq!(stderr_error(&unreachable)["code"], "HTTP");
 
-    // A well-formed list with no reports: it loads but parses to nothing.
-    let empty_page = spawn_single_response_server("application/json", r#"{"items":[]}"#);
+    let list_without_reports = spawn_single_response_server("application/json", r#"{"items":[]}"#);
     let unparsed = discover_with(
         "ownership-discover-require-unparsed",
         &announcement_fixture_url(),
-        &empty_page,
+        &list_without_reports,
         &["--require-data-page"],
     );
     assert_eq!(unparsed.status.code(), Some(1));
     assert!(unparsed.stdout.is_empty(), "{unparsed:?}");
-    assert_eq!(stderr_error(&unparsed)["code"], "PARSEERROR");
+    assert_eq!(
+        stderr_error(&unparsed)["code"],
+        "PARSEERROR",
+        "a well-formed list with no reports loads but parses to nothing"
+    );
 }
 
 #[test]
@@ -1402,8 +1409,11 @@ fn challenged_profiles_get_one_round_per_url() {
 
     assert_eq!(output.status.code(), Some(6), "{output:?}");
     assert_eq!(stderr_error(&output)["code"], "CLOUDFLARECHALLENGE");
-    // Two URLs, each tried once by each of two profiles.
-    assert_eq!(hits.load(Ordering::SeqCst), 4);
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        4,
+        "two urls, each tried once by each of two profiles"
+    );
 }
 
 #[cfg(unix)]
@@ -1419,8 +1429,11 @@ fn plain_403_profiles_keep_both_rounds() {
 
     assert_eq!(output.status.code(), Some(4), "{output:?}");
     assert_eq!(stderr_error(&output)["code"], "HTTP");
-    // Two URLs, two profiles, two rounds.
-    assert_eq!(hits.load(Ordering::SeqCst), 8);
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        8,
+        "two urls, two profiles, two rounds"
+    );
 }
 
 #[cfg(unix)]
@@ -1485,10 +1498,14 @@ fn ownership_discover_keeps_the_challenge_past_an_announcement_miss() {
 #[test]
 fn ownership_discover_does_not_blame_a_challenge_for_a_changed_page() {
     let (announcements, _) = spawn_403_server(true);
-    // A well-formed list with no reports: it loads but parses to nothing.
-    let page = spawn_single_response_server("application/json", r#"{"items":[]}"#);
+    let list_without_reports = spawn_single_response_server("application/json", r#"{"items":[]}"#);
 
-    let output = discover_with("discover-challenge-and-parse", &announcements, &page, &[]);
+    let output = discover_with(
+        "discover-challenge-and-parse",
+        &announcements,
+        &list_without_reports,
+        &[],
+    );
 
     assert_eq!(output.status.code(), Some(4), "{output:?}");
     assert_eq!(stderr_error(&output)["code"], "HTTP");
@@ -1568,10 +1585,10 @@ fn ownership_discover_finds_xlsx_in_the_data_page_list() {
         latest["pdf_url"],
         "https://www.idx.co.id/Media/wlef2nvt/peng-2026-10-00029-satu-persen.xlsx"
     );
-    // Provenance names the page people visit; the query is the list behind it.
     assert_eq!(
         latest["listing_page_url"],
-        "https://www.idx.co.id/id/perusahaan-tercatat/data-kepemilikan-saham/"
+        "https://www.idx.co.id/id/perusahaan-tercatat/data-kepemilikan-saham/",
+        "provenance names the page people visit; the query is the list behind it"
     );
     assert!(
         latest["query_url"]
@@ -1660,17 +1677,20 @@ fn ownership_discover_list_file_errors() {
     assert!(missing.stdout.is_empty());
     assert_eq!(stderr_error(&missing)["code"], "IO");
 
-    // What a browser saves when Cloudflare answers instead of IDX.
-    let challenge = root.join("challenge.json");
-    fs::write(&challenge, "<!DOCTYPE html><title>Just a moment...</title>")
-        .expect("write challenge page");
-    let not_json = discover("ownership-discover-list-challenge", &challenge);
+    let cloudflare_page_saved_by_a_browser = root.join("challenge.json");
+    fs::write(
+        &cloudflare_page_saved_by_a_browser,
+        "<!DOCTYPE html><title>Just a moment...</title>",
+    )
+    .expect("write challenge page");
+    let not_json = discover(
+        "ownership-discover-list-challenge",
+        &cloudflare_page_saved_by_a_browser,
+    );
     assert_eq!(not_json.status.code(), Some(1), "{not_json:?}");
     assert!(not_json.stdout.is_empty());
     assert_eq!(stderr_error(&not_json)["code"], "PARSEERROR");
 
-    // A list that parses but has no report in the family: nothing matched,
-    // not a network failure.
     let only_above5 = root.join("above5.json");
     fs::write(
         &only_above5,
@@ -1685,7 +1705,11 @@ fn ownership_discover_list_file_errors() {
         .expect("ownership discover output");
     assert_eq!(no_match.status.code(), Some(3), "{no_match:?}");
     assert!(no_match.stdout.is_empty());
-    assert_eq!(stderr_error(&no_match)["code"], "NOMARKETDATA");
+    assert_eq!(
+        stderr_error(&no_match)["code"],
+        "NOMARKETDATA",
+        "a list with no report in the family: nothing matched, not a network failure"
+    );
 }
 
 #[test]
@@ -2104,22 +2128,28 @@ fn ownership_import_file_with_source_url_records_provenance() {
     let xlsx = xlsx_path.to_str().unwrap();
     let url = "https://www.idx.co.id/Media/fahlw1o2/peng-2026-08-00017-satu-persen.xlsx";
 
-    for args in [
-        // a URL of another format than the file
-        vec![
-            "--file",
-            xlsx,
-            "--source-url",
-            "https://www.idx.co.id/Media/x/r.pdf",
-        ],
-        // not http(s)
-        vec!["--file", xlsx, "--source-url", "/tmp/peng.xlsx"],
-        // nothing to attach it to
-        vec!["--url", url, "--source-url", url],
+    for (case, args) in [
+        (
+            "a source url of another format than the file",
+            vec![
+                "--file",
+                xlsx,
+                "--source-url",
+                "https://www.idx.co.id/Media/x/r.pdf",
+            ],
+        ),
+        (
+            "a source url that is not http(s)",
+            vec!["--file", xlsx, "--source-url", "/tmp/peng.xlsx"],
+        ),
+        (
+            "a source url with no file to attach it to",
+            vec!["--url", url, "--source-url", url],
+        ),
     ] {
         let mut cmd = bin_with_root(&root);
         cmd.args(["-o", "json", "ownership", "import"]).args(&args);
-        run_error_json(&mut cmd, "INVALIDINPUT");
+        run_error_json_for(&mut cmd, "INVALIDINPUT", case);
     }
     let releases =
         run_success_json(bin_with_root(&root).args(["-o", "json", "ownership", "releases"]));
@@ -2129,7 +2159,6 @@ fn ownership_import_file_with_source_url_records_provenance() {
         "a refused import wrote"
     );
 
-    // Imported first without a URL, as the hand-built 2026-10-30 release was.
     let imported = run_success_json(bin_with_root(&root).args([
         "-o",
         "json",
@@ -2139,7 +2168,10 @@ fn ownership_import_file_with_source_url_records_provenance() {
         xlsx,
     ]));
     assert_eq!(imported["action"], "imported");
-    assert!(imported["source_url"].is_null());
+    assert!(
+        imported["source_url"].is_null(),
+        "imported first without a url, as the hand-built 2026-10-30 release was"
+    );
 
     let import_with_url = |force: bool| {
         let mut cmd = bin_with_root(&root);
@@ -2153,13 +2185,14 @@ fn ownership_import_file_with_source_url_records_provenance() {
     let releases =
         || run_success_json(bin_with_root(&root).args(["-o", "json", "ownership", "releases"]));
 
-    // Skipped: the result reports the release as stored, not the URL passed.
     let skipped = import_with_url(false);
     assert_eq!(skipped["action"], "skipped_existing");
-    assert!(skipped["source_url"].is_null(), "{skipped}");
+    assert!(
+        skipped["source_url"].is_null(),
+        "a skip reports the release as stored, not the url passed: {skipped}"
+    );
     assert!(releases()[0]["source_url"].is_null());
 
-    // --force records it.
     let reimported = import_with_url(true);
     assert_eq!(reimported["action"], "reimported");
     assert_eq!(reimported["source_url"], url);
@@ -2169,8 +2202,11 @@ fn ownership_import_file_with_source_url_records_provenance() {
     assert_eq!(releases[0]["as_of_date"], "2026-08-31");
     assert_eq!(releases[0]["row_count"].as_u64(), Some(17));
 
-    // Skipped again: now the stored URL.
-    assert_eq!(import_with_url(false)["source_url"], url);
+    assert_eq!(
+        import_with_url(false)["source_url"],
+        url,
+        "skipped again, now with the stored url"
+    );
 }
 
 /// IDX added a CONTROLLER_OR_AFFILIATE column to the register from October
@@ -2470,8 +2506,6 @@ fn ownership_import_file_zip_archive_supports_releases_ticker_and_changes() {
 
 #[test]
 fn ownership_sync_downloads_snapshot_larger_than_ten_mib_over_http() {
-    // ureq's default 10 MiB body limit broke `ownership sync` for every
-    // client when a 15.3 MB snapshot (5 months of history) was published.
     let publisher_root = test_env_dir("ownership-sync-large-publisher");
     let (source_db, manifest_path) = prepare_snapshot_fixture(&publisher_root);
     {
@@ -2485,7 +2519,10 @@ fn ownership_sync_downloads_snapshot_larger_than_ten_mib_over_http() {
         .expect("insert padding");
     }
     let snapshot_bytes = fs::read(&source_db).expect("read padded snapshot");
-    assert!(snapshot_bytes.len() > 10 * 1024 * 1024);
+    assert!(
+        snapshot_bytes.len() > 10 * 1024 * 1024,
+        "past ureq's default 10 MiB body limit"
+    );
 
     write_snapshot_manifest(&manifest_path, &source_db, None);
     let snapshot_url = spawn_single_response_server("application/octet-stream", snapshot_bytes);
@@ -2644,29 +2681,33 @@ fn ownership_sync_installs_snapshot_and_preserves_query_behavior() {
     }
 
     let bytes = fs::read(&target_db).unwrap();
-    // A pre-0.3.3 install interrupted between its two renames left only a
-    // backup. Sync restores it before deciding, so it is kept like any local
-    // database (no_change, not a reinstall), and survives a failed download.
-    let backup = sync_root.join(".ownership.db.sync-backup");
-    fs::rename(&target_db, &backup).unwrap();
+    let backup_left_by_interrupted_pre_0_3_3_sync = sync_root.join(".ownership.db.sync-backup");
+    let backup = &backup_left_by_interrupted_pre_0_3_3_sync;
+    fs::rename(&target_db, backup).unwrap();
     let result =
         run_success_json(bin_with_root(&sync_root).args(["-o", "json", "ownership", "sync"]));
-    assert_eq!(result["action"], "no_change");
+    assert_eq!(
+        result["action"], "no_change",
+        "the backup is restored before deciding and kept like any local database"
+    );
     assert_eq!(fs::read(&target_db).unwrap(), bytes);
     assert!(!backup.exists());
 
-    // Both failures happen after a usable local snapshot has been installed.
     write_snapshot_manifest(
         &manifest_path,
         &source_db,
         Some("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"),
     );
-    fs::rename(&target_db, &backup).unwrap();
+    fs::rename(&target_db, backup).unwrap();
     run_error_json(
         bin_with_root(&sync_root).args(["-o", "json", "ownership", "sync", "--force"]),
         "PARSEERROR",
     );
-    assert_eq!(fs::read(&target_db).unwrap(), bytes);
+    assert_eq!(
+        fs::read(&target_db).unwrap(),
+        bytes,
+        "the installed snapshot, restored from its backup, survives a failed download"
+    );
     for (args, expected) in queries.iter().zip(&expected) {
         assert_eq!(
             run_success_json(bin_with_root(&sync_root).args(args)),
@@ -2674,7 +2715,6 @@ fn ownership_sync_installs_snapshot_and_preserves_query_behavior() {
         );
     }
 
-    // A matching checksum must not make an invalid downloaded database installable.
     let invalid = b"not a SQLite database";
     let invalid_url = spawn_single_response_server("application/octet-stream", invalid.to_vec());
     let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
@@ -2686,7 +2726,11 @@ fn ownership_sync_installs_snapshot_and_preserves_query_behavior() {
         bin_with_root(&sync_root).args(["-o", "json", "ownership", "sync", "--force"]),
         "DATABASEERROR",
     );
-    assert_eq!(fs::read(&target_db).unwrap(), bytes);
+    assert_eq!(
+        fs::read(&target_db).unwrap(),
+        bytes,
+        "a matching checksum does not make an invalid download installable"
+    );
     for (args, expected) in queries.iter().zip(&expected) {
         assert_eq!(
             run_success_json(bin_with_root(&sync_root).args(args)),
@@ -2815,9 +2859,15 @@ fn provider_flag_overrides_env() {
                 "BBCA",
             ]),
     );
-    // Only Stockbit reports the market's state; MSN has a market cap.
-    assert_eq!(quotes[0]["market_status"], "close");
-    assert_eq!(quotes[0]["market_cap"], Value::Null);
+    assert_eq!(
+        quotes[0]["market_status"], "close",
+        "only stockbit reports the market's state"
+    );
+    assert_eq!(
+        quotes[0]["market_cap"],
+        Value::Null,
+        "msn has a market cap, stockbit does not"
+    );
 }
 
 #[test]
@@ -2839,8 +2889,10 @@ fn stockbit_login_stores_a_private_session_and_logout_removes_it() {
     assert_eq!(status["refresh"]["present"], true);
     let stored = fs::read_to_string(&session).expect("session file");
     assert!(stored.contains("\"refresh\""));
-    // Status shows expiries, never a token.
-    assert!(!serde_json::to_string(&status).unwrap().contains("eyJ"));
+    assert!(
+        !serde_json::to_string(&status).unwrap().contains("eyJ"),
+        "status shows expiries, never a token"
+    );
     #[cfg(unix)]
     assert_eq!(
         fs::metadata(&session).unwrap().permissions().mode() & 0o777,
@@ -2861,23 +2913,23 @@ fn stockbit_login_stores_a_private_session_and_logout_removes_it() {
     );
     assert_eq!(out["removed"], true);
     assert!(!session.exists());
-    run_error_json(
+    run_error_json_for(
         bin_with_root(&root)
             .env("IDX_USE_MOCK_PROVIDER", "1")
-            // The book fetched above is still cached for a few seconds.
             .args(["-o", "json", "--no-cache", "stocks", "orderbook", "BBCA"]),
         "AUTHERROR",
+        "--no-cache, since the book fetched above is still cached for a few seconds",
     );
 
-    // Anything that is not a session is refused and stores nothing.
-    run_error_json(
+    run_error_json_for(
         bin_with_root(&root)
             .env("IDX_USE_MOCK_PROVIDER", "1")
             .args(["-o", "json", "stockbit", "login"])
             .write_stdin("not a token"),
         "INVALIDINPUT",
+        "anything that is not a session is refused",
     );
-    assert!(!session.exists());
+    assert!(!session.exists(), "a refused login stores nothing");
 }
 
 /// A session file Stockbit no longer accepts does not break `auto` history:
@@ -2961,12 +3013,18 @@ fn movements_keep_the_pages_read_when_a_later_one_fails() {
     assert_eq!(partial["movements"].as_array().unwrap().len(), 8);
     assert_eq!(partial["more"], true);
     assert!(partial["incomplete"].is_string(), "{partial}");
-    // Not cached: the next run reads both pages.
     let full = run(None);
-    assert_eq!(full["movements"].as_array().unwrap().len(), 14);
+    assert_eq!(
+        full["movements"].as_array().unwrap().len(),
+        14,
+        "the partial answer is not cached, so the next run reads both pages"
+    );
     assert!(full.get("incomplete").is_none());
-    // Cached as one answer: a failing page 2 now changes nothing.
-    assert_eq!(run(Some("2")), full);
+    assert_eq!(
+        run(Some("2")),
+        full,
+        "the pages are cached as one answer, so a failing page 2 changes nothing"
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -3031,31 +3089,45 @@ fn offline_and_no_cache_flags_are_rejected() {
 
 #[test]
 fn argument_errors_follow_the_output_format_clap_resolves() {
-    // The last -o wins at any subcommand level, and -o may sit in a cluster:
-    // argument errors pick the same format a successful command would.
-    for args in [
-        &["-o", "table", "config", "-o", "json", "get"][..],
-        &["-qojson", "config", "get"][..],
+    for (case, args) in [
+        (
+            "the last -o wins at any subcommand level, as on success",
+            &["-o", "table", "config", "-o", "json", "get"][..],
+        ),
+        (
+            "-o may sit in a flag cluster, as on success",
+            &["-qojson", "config", "get"][..],
+        ),
     ] {
-        run_error_json(test_bin("argument-error-json").args(args), "INVALIDINPUT");
+        run_error_json_for(
+            test_bin("argument-error-json").args(args),
+            "INVALIDINPUT",
+            case,
+        );
     }
-    // An -o after an unknown argument still counts, over IDX_OUTPUT too.
-    run_error_json(
+    run_error_json_for(
         test_bin("argument-error-json")
             .env("IDX_OUTPUT", "table")
             .args(["config", "get", "--bogus", "-o", "json"]),
         "INVALIDINPUT",
+        "an -o after an unknown argument still counts, over IDX_OUTPUT too",
     );
-    // ...and so does one before it when --help or --version follows.
-    for args in [
-        &["-o", "json", "config", "get", "--bogus", "--help"][..],
-        &["-o", "json", "--bogus", "--version"][..],
+    for (case, args) in [
+        (
+            "an -o before an unknown argument counts when --help follows",
+            &["-o", "json", "config", "get", "--bogus", "--help"][..],
+        ),
+        (
+            "an -o before an unknown argument counts when --version follows",
+            &["-o", "json", "--bogus", "--version"][..],
+        ),
     ] {
-        run_error_json(
+        run_error_json_for(
             test_bin("argument-error-json")
                 .env("IDX_OUTPUT", "table")
                 .args(args),
             "INVALIDINPUT",
+            case,
         );
     }
     test_bin("argument-error-table")
@@ -3257,7 +3329,6 @@ fn msn_screen_ranks_complete_candidates_and_caches_before_limit() {
         let root = test_env_dir(&format!("screen-complete-{filter}"));
         let fixture = write_large_screener_fixture(&root, Some(503));
         let expected: Vec<_> = indices.iter().map(|i| format!("S{i:04}.JK")).collect();
-        // A tiny first request must cache all candidates, including beyond row 500.
         let small = run_success_json(&mut screener_fixture_command(&root, &fixture, filter, 3));
         assert_eq!(screener_symbols(&small), expected[..3], "{filter}");
         assert_eq!(small[0]["price"], 1000);
@@ -3266,7 +3337,11 @@ fn msn_screen_ranks_complete_candidates_and_caches_before_limit() {
         let mut full_cmd = screener_fixture_command(&root, &fixture, filter, 600);
         full_cmd.env("IDX_MOCK_ERROR", "1").arg("--offline");
         let full = run_success_json(&mut full_cmd);
-        assert_eq!(screener_symbols(&full), expected, "{filter}");
+        assert_eq!(
+            screener_symbols(&full),
+            expected,
+            "{filter}: the tiny first request cached all candidates, including beyond row 500"
+        );
         let rows = full.as_array().unwrap();
         for limit in [1, 3, 17, 500, 503, 600] {
             let mut cmd = screener_fixture_command(&root, &fixture, filter, limit);
@@ -3293,27 +3368,32 @@ fn msn_screen_flags_idx_rows_behind_the_session() {
             .map(|row| row["behind_session"].as_bool().unwrap())
             .collect()
     };
-    // Every fixture row last traded on 2026-01-02, long before any session now.
     let fresh = run_success_json(&mut screener_fixture_command(
         &root,
         &fixture,
         "top-performers",
         3,
     ));
-    assert_eq!(behind(&fresh), [true; 3]);
+    assert_eq!(
+        behind(&fresh),
+        [true; 3],
+        "every fixture row last traded on 2026-01-02, long before any session now"
+    );
     let mut offline = screener_fixture_command(&root, &fixture, "top-performers", 3);
     offline.env("IDX_MOCK_ERROR", "1").arg("--offline");
     assert_eq!(behind(&run_success_json(&mut offline)), [true; 3]);
-    // IDX's session rule says nothing about other exchanges.
     let mut us = screener_fixture_command(&root, &fixture, "top-performers", 3);
     us.args(["--region", "us"]);
-    assert_eq!(behind(&run_success_json(&mut us)), [false; 3]);
+    assert_eq!(
+        behind(&run_success_json(&mut us)),
+        [false; 3],
+        "idx's session rule says nothing about other exchanges"
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn quote_read_from_a_0_3_3_cache_entry_is_behind_the_session() {
-    // IDX's session rule says nothing about other exchanges.
     for (symbol, file, behind) in [
         ("BBCA", "BBCA.JK.json", true),
         ("AAPL.US", "AAPL.US.json", false),
@@ -3328,18 +3408,21 @@ fn quote_read_from_a_0_3_3_cache_entry_is_behind_the_session() {
             .map(|file| file.unwrap().path())
             .find(|path| path.ends_with(file))
             .expect("cached quote");
-        // 0.3.3 wrote quotes without the field; this one last traded long ago.
-        let mut cached: serde_json::Value =
+        let mut cached_as_0_3_3_wrote_it: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&entry).unwrap()).unwrap();
-        let data = cached["data"].as_object_mut().unwrap();
+        let data = cached_as_0_3_3_wrote_it["data"].as_object_mut().unwrap();
         data.remove("behind_session")
             .expect("field is cached unmarked");
-        data.insert("as_of".into(), "2026-01-02T16:15:00+07:00".into());
-        fs::write(&entry, cached.to_string()).unwrap();
+        let last_traded_long_ago = "2026-01-02T16:15:00+07:00";
+        data.insert("as_of".into(), last_traded_long_ago.into());
+        fs::write(&entry, cached_as_0_3_3_wrote_it.to_string()).unwrap();
         let mut offline = mock_bin_with_root(&root);
         let quotes =
             run_success_json(offline.args(["--offline", "-o", "json", "stocks", "quote", symbol]));
-        assert_eq!(quotes[0]["behind_session"], behind, "{symbol}");
+        assert_eq!(
+            quotes[0]["behind_session"], behind,
+            "{symbol}: idx's session rule says nothing about other exchanges"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }
@@ -3414,8 +3497,6 @@ fn broker_summary_json_names_brokers_and_keeps_source_totals() {
     assert_eq!(summary["foreign_net_value"], -2_300_000_000_000_i64);
     assert_eq!(summary["rounded"], true);
 
-    // The source does not filter its foreign net figure, so a filtered
-    // summary leaves it out rather than passing it off as filtered.
     let filtered = run_success_json(mock_bin("broker-filtered").args([
         "-o",
         "json",
@@ -3439,7 +3520,10 @@ fn broker_summary_json_names_brokers_and_keeps_source_totals() {
         "sell_value",
         "foreign_net_value",
     ] {
-        assert!(filtered[field].is_null(), "{field}: {filtered}");
+        assert!(
+            filtered[field].is_null(),
+            "{field}: a filtered summary leaves out what the source does not filter: {filtered}"
+        );
     }
     assert_eq!(filtered["buy_value"], 1_600_000_000_000_i64);
     let table = run_success_stdout(mock_bin("broker-filtered-table").args([
@@ -3459,7 +3543,6 @@ fn broker_summary_json_names_brokers_and_keeps_source_totals() {
         "{table}"
     );
 
-    // On all boards, the foreign net gives foreign selling.
     let foreign = run_success_json(mock_bin("broker-foreign").args([
         "-o",
         "json",
@@ -3473,7 +3556,10 @@ fn broker_summary_json_names_brokers_and_keeps_source_totals() {
     ]));
     assert!(foreign["total_value"].is_null());
     assert_eq!(foreign["buy_value"], 1_700_000_000_000_i64);
-    assert_eq!(foreign["sell_value"], 4_000_000_000_000_i64);
+    assert_eq!(
+        foreign["sell_value"], 4_000_000_000_000_i64,
+        "on all boards, the foreign net gives foreign selling"
+    );
     assert_eq!(foreign["foreign_net_value"], -2_300_000_000_000_i64);
 }
 
@@ -3489,14 +3575,15 @@ fn broker_summary_without_dates_finds_the_latest_session_offline() {
         "--date",
         "2026-10-16",
     ]));
-    // Monday 2026-10-19 is not cached and the weekend is skipped, so the
-    // offline lookup lands on Friday's cached session.
     let latest = run_success_json(
         mock_bin_with_root(&root)
             .env("IDX_MOCK_TODAY", "2026-10-19")
             .args(["-o", "json", "--offline", "stocks", "broker", "BBCA"]),
     );
-    assert_eq!(latest["from"], "2026-10-16");
+    assert_eq!(
+        latest["from"], "2026-10-16",
+        "monday is not cached and the weekend is skipped, so offline lands on friday"
+    );
     assert_eq!(latest["buyers"][0]["code"], "MG");
     run_error_json(
         mock_bin_with_root(&root)
@@ -3587,7 +3674,6 @@ fn bandar_reads_the_broker_summary_tiers() {
         .map(|tier| tier["top"].as_i64().unwrap())
         .collect();
     assert_eq!(tiers, [1, 3, 5, 10]);
-    // Top 5 bought 2,939.5B and sold 4,540.4B of 6.6T traded.
     let top5 = &report["tiers"][2];
     assert_eq!(top5["buy_value"], 2_939_500_000_000_i64);
     assert_eq!(top5["sell_value"], 4_540_400_000_000_i64);
@@ -3642,7 +3728,6 @@ fn bandar_screen_ranks_symbols_and_reports_failures_on_stderr() {
     assert_eq!(warning["level"], "warning");
     assert!(warning["message"].as_str().unwrap().contains("ZZZZ.JK"));
 
-    // A one-symbol screen that loses a symbol still prints the screen table.
     let table = run_success_stdout(mock_bin("bandar-screen-table").args([
         "--no-color",
         "stocks",
@@ -3651,7 +3736,10 @@ fn bandar_screen_ranks_symbols_and_reports_failures_on_stderr() {
         "--date",
         "2026-10-16",
     ]));
-    assert!(table.contains("TOP 5 NET %"), "{table}");
+    assert!(
+        table.contains("TOP 5 NET %"),
+        "a one-symbol screen that loses a symbol still prints the screen table: {table}"
+    );
 }
 
 #[test]
@@ -3717,7 +3805,6 @@ fn foreign_flow_from_idx_reads_sessions_oldest_first() {
     assert_eq!(last["foreign_net"], 309_392_800_i64 - 757_227_900_i64);
     assert_eq!(flow["from"], "2026-10-14");
 
-    // A range skips the weekend and the Saturday without trading.
     let range = run_success_json(
         mock_bin("flow-range")
             .env("IDX_MOCK_TODAY", "2026-10-18")
@@ -3735,7 +3822,11 @@ fn foreign_flow_from_idx_reads_sessions_oldest_first() {
                 "2026-10-17",
             ]),
     );
-    assert_eq!(range["days"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        range["days"].as_array().unwrap().len(),
+        5,
+        "a range skips the weekend and the saturday without trading"
+    );
     let net: i64 = range["days"]
         .as_array()
         .unwrap()
@@ -3765,7 +3856,6 @@ fn foreign_flow_from_idx_offline_uses_cached_sessions_only() {
                 "2026-10-16",
             ]),
     );
-    // Another stock's flow for the same sessions needs no new request.
     let offline = run_success_json(
         mock_bin_with_root(&root)
             .env("IDX_MOCK_TODAY", "2026-10-18")
@@ -3782,7 +3872,10 @@ fn foreign_flow_from_idx_offline_uses_cached_sessions_only() {
                 "5",
             ]),
     );
-    assert_eq!(offline["from"], "2026-10-15");
+    assert_eq!(
+        offline["from"], "2026-10-15",
+        "another stock's flow for the same sessions needs no new request"
+    );
     assert_eq!(offline["days"].as_array().unwrap().len(), 2);
     run_error_json(
         mock_bin_with_root(&root)
@@ -3904,14 +3997,13 @@ fn bandar_reads_one_investor_side_against_its_own_trading() {
     assert_eq!(report["buy_value"], 1_700_000_000_000_i64);
     assert_eq!(report["sell_value"], 4_000_000_000_000_i64);
     let top5 = &report["tiers"][2];
-    // Shares of foreign buying and of foreign selling, each within 100%.
     let (buy, sell) = (
         top5["buy_share_bps"].as_i64().unwrap(),
         top5["sell_share_bps"].as_i64().unwrap(),
     );
     assert!(
         (0..=10_000).contains(&buy) && (0..=10_000).contains(&sell),
-        "{top5}"
+        "shares of foreign buying and of foreign selling, each within 100%: {top5}"
     );
     assert!((top5["imbalance_bps"].as_i64().unwrap() - (buy - sell)).abs() <= 1);
     assert!(report["signal"].is_string());
@@ -3934,8 +4026,6 @@ fn bandar_reads_one_investor_side_against_its_own_trading() {
 
 #[test]
 fn bandar_never_reads_a_broker_summary_cached_in_the_old_shape() {
-    // A summary cached before buy_value/sell_value existed: fresh for a
-    // week, with trades, but no denominators for a reading.
     let root = test_env_dir("bandar-legacy-cache");
     let bucket = root.join("cache").join("idx").join("ipot-broker");
     fs::create_dir_all(&bucket).unwrap();
@@ -3943,7 +4033,7 @@ fn bandar_never_reads_a_broker_summary_cached_in_the_old_shape() {
         serde_json::json!({"rank": 1, "code": code, "name": null, "kind": null,
             "lots": value / 100, "value": value, "average_price": 1})
     };
-    let legacy = serde_json::json!({
+    let cached_before_buy_and_sell_values = serde_json::json!({
         "fetched_at": chrono::Utc::now().to_rfc3339(),
         "ttl_secs": 7 * 24 * 3600,
         "schema_version": 1,
@@ -3957,12 +4047,11 @@ fn bandar_never_reads_a_broker_summary_cached_in_the_old_shape() {
     });
     fs::write(
         bucket.join("BBCA-2026-10-16-2026-10-16-all-all.json"),
-        legacy.to_string(),
+        cached_before_buy_and_sell_values.to_string(),
     )
     .unwrap();
 
-    // Offline, the old entry is not served as a complete summary.
-    run_error_json(
+    run_error_json_for(
         mock_bin_with_root(&root).args([
             "-o",
             "json",
@@ -3974,8 +4063,8 @@ fn bandar_never_reads_a_broker_summary_cached_in_the_old_shape() {
             "2026-10-16",
         ]),
         "CACHEMISS",
+        "offline, a week-fresh entry with trades but no buy or sell values is not served as complete",
     );
-    // Online, the summary is fetched again and read in full.
     let reports = run_success_json(mock_bin_with_root(&root).args([
         "-o",
         "json",
@@ -3985,7 +4074,10 @@ fn bandar_never_reads_a_broker_summary_cached_in_the_old_shape() {
         "--date",
         "2026-10-16",
     ]));
-    assert_eq!(reports[0]["imbalance_bps"], -2425);
+    assert_eq!(
+        reports[0]["imbalance_bps"], -2425,
+        "online, the summary is fetched again and read in full"
+    );
     let table = run_success_stdout(mock_bin_with_root(&root).args([
         "--no-color",
         "stocks",

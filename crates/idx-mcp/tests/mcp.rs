@@ -57,10 +57,10 @@ impl Client {
         if seed {
             seed_ownership_db(&home.path().join("data/idx/ownership.db"));
         }
+        let mock_provider_fixture_root = core_dir();
         let mut child = Command::new(env!("CARGO_BIN_EXE_idx-mcp"))
             .args(args)
-            // The mock provider reads `tests/fixtures/...` relative to here.
-            .current_dir(core_dir())
+            .current_dir(mock_provider_fixture_root)
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .env("XDG_CONFIG_HOME", home.path().join("config"))
@@ -157,8 +157,8 @@ fn seed_ownership_db(db: &Path) {
     let fixtures = core_dir().join("tests/fixtures");
     let staging = db.parent().unwrap().join("staging");
     std::fs::create_dir_all(&staging).unwrap();
-    // The importer derives the release from the IDX file name.
-    let xlsx = staging.join("peng-2026-08-00017-satu-persen.xlsx");
+    let idx_file_name_the_release_is_derived_from = "peng-2026-08-00017-satu-persen.xlsx";
+    let xlsx = staging.join(idx_file_name_the_release_is_derived_from);
     std::fs::copy(fixtures.join("ksei_above1_20260831_excerpt.xlsx"), &xlsx).unwrap();
 
     let investor = Investor::new(&CoreConfig {
@@ -327,10 +327,9 @@ fn intraday_is_stockbit_whichever_provider_and_empty_sessions_are_data() {
     let quote = &day["data"]["quote"];
     assert_eq!(quote["symbol"], "BBCA.JK");
     assert_eq!(quote["market_status"], "close");
-    // The closing book is not reported as a live one.
     assert!(
         quote.get("bid").is_none() && quote.get("offer").is_none(),
-        "{quote}"
+        "the closing book is not reported as a live one: {quote}"
     );
     assert_eq!(day["data"]["points"].as_array().unwrap().len(), 335);
 
@@ -413,10 +412,12 @@ fn workarounds_reach_the_agent_as_warnings() {
             .unwrap()
             .contains("falls back to yahoo")
     );
-    // The next call starts with none of the last one's warnings.
     let (is_error, body) = client.call("get_orderbook", json!({"symbol": "BBCA"}));
     assert!(is_error && body["code"] == "AUTHERROR", "{body}");
-    assert!(body.get("warnings").is_none(), "{body}");
+    assert!(
+        body.get("warnings").is_none(),
+        "the next call starts with none of the last one's warnings: {body}"
+    );
 
     let mut client = Client::start_with_env(
         &[],
@@ -460,9 +461,11 @@ fn stockbit_login_returns_a_page_that_takes_the_cookie() {
     assert_eq!(login["already_open"], false, "{login}");
     assert!(login["next"].as_str().unwrap().contains("stockbit_status"));
 
-    // A second call hands back the page that is already up.
     let again = client.ok("stockbit_login", json!({}));
-    assert_eq!(again["url"], login["url"]);
+    assert_eq!(
+        again["url"], login["url"],
+        "a second call hands back the page that is already up"
+    );
     assert_eq!(again["already_open"], true, "{again}");
 
     let waiting = client.ok("stockbit_status", json!({}));
@@ -477,7 +480,6 @@ fn stockbit_login_returns_a_page_that_takes_the_cookie() {
     assert_eq!(status, 200, "{body}");
     assert!(body.contains("\"ok\":true"), "{body}");
 
-    // The sign-in's thread records the outcome just after the page answers.
     let mut status = client.ok("stockbit_status", json!({}));
     for _ in 0..50 {
         if status["sign_in"]["state"] != "waiting" {
@@ -487,12 +489,17 @@ fn stockbit_login_returns_a_page_that_takes_the_cookie() {
         status = client.ok("stockbit_status", json!({}));
     }
     assert_eq!(status["logged_in"], true, "{status}");
-    assert_eq!(status["sign_in"]["state"], "signed_in", "{status}");
+    assert_eq!(
+        status["sign_in"]["state"], "signed_in",
+        "the sign-in's thread records the outcome just after the page answers: {status}"
+    );
 
-    // Now there is nothing to sign in to.
     let done = client.ok("stockbit_login", json!({}));
     assert_eq!(done["state"], "signed_in", "{done}");
-    assert_eq!(done["method"], "existing", "{done}");
+    assert_eq!(
+        done["method"], "existing",
+        "now there is nothing to sign in to: {done}"
+    );
 }
 
 /// Asking for the browser where there is none fails, instead of quietly
@@ -723,18 +730,23 @@ fn errors_carry_cli_codes() {
         assert!(is_error, "{tool} {arguments}: {body}");
         assert_eq!(body["code"], "INVALIDINPUT", "{tool} {arguments}");
     }
-    // Duplicates collapse instead of counting against the cap.
     let repeated = vec!["BBCA"; 50];
     let quotes = client.ok("get_quotes", json!({"symbols": repeated}));
-    assert_eq!(quotes["quotes"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        quotes["quotes"].as_array().unwrap().len(),
+        1,
+        "duplicates collapse instead of counting against the cap"
+    );
 
-    // Empty ownership database: investor tools point at the sync path.
     let status = client.ok("ownership_status", json!({}));
     assert_eq!(status["populated"], false);
     let (is_error, body) = client.call("get_shareholders", json!({"ticker": "BBCA"}));
     assert!(is_error);
     assert_eq!(body["code"], "NOMARKETDATA");
-    assert!(body["message"].as_str().unwrap().contains("--allow-sync"));
+    assert!(
+        body["message"].as_str().unwrap().contains("--allow-sync"),
+        "on an empty ownership database, investor tools point at the sync path"
+    );
 }
 
 #[test]
@@ -781,7 +793,6 @@ fn ownership_tools_read_the_local_database() {
     assert_eq!(limited["changes"].as_array().unwrap().len(), 1);
     assert_eq!(limited["next_offset"], 1);
 
-    // Pages cover every row exactly once, largest change first.
     let mut paged = Vec::new();
     let mut offset = Some(0);
     while let Some(next) = offset {
@@ -790,19 +801,29 @@ fn ownership_tools_read_the_local_database() {
             json!({"from": "2026-01-30", "to": "2026-02-27", "limit": 2, "offset": next}),
         );
         paged.extend(page["changes"].as_array().unwrap().iter().cloned());
-        // The summary covers all rows, so every page carries the same one.
-        assert_eq!(page["summary"], all["summary"], "offset {next}");
+        assert_eq!(
+            page["summary"], all["summary"],
+            "offset {next}: the summary covers all rows, so every page carries the same one"
+        );
         offset = page["next_offset"].as_u64();
     }
-    assert_eq!(paged.len() as u64, total);
-    assert_eq!(&paged, all["changes"].as_array().unwrap());
+    assert_eq!(
+        paged.len() as u64,
+        total,
+        "pages cover every row exactly once"
+    );
+    assert_eq!(
+        &paged,
+        all["changes"].as_array().unwrap(),
+        "pages cover every row exactly once"
+    );
     let deltas: Vec<_> = paged
         .iter()
         .map(|row| row["delta_bps"].as_i64().unwrap().abs())
         .collect();
     assert!(
         deltas.windows(2).all(|pair| pair[0] >= pair[1]),
-        "{deltas:?}"
+        "largest change first: {deltas:?}"
     );
 
     let by_type = all["summary"]["by_type"].as_object().unwrap();
@@ -812,7 +833,6 @@ fn ownership_tools_read_the_local_database() {
     );
     assert!(all["summary"]["tickers"].as_u64().unwrap() >= 1, "{all}");
 
-    // Past the end: an empty last page, not an error.
     for past in [total, total + 5] {
         let page = client.ok(
             "get_ownership_changes",
@@ -822,12 +842,11 @@ fn ownership_tools_read_the_local_database() {
         assert_eq!(
             page["changes"].as_array().unwrap().len(),
             0,
-            "offset {past}"
+            "offset {past}: past the end is an empty last page, not an error"
         );
         assert!(page["next_offset"].is_null(), "offset {past}: {page}");
     }
 
-    // Bad, unknown, or reversed dates are errors, not "everyone is new".
     for (from, to) in [
         ("", "2026-02-27"),
         ("1999-01-01", "2026-02-27"),
@@ -836,7 +855,10 @@ fn ownership_tools_read_the_local_database() {
     ] {
         let (is_error, body) =
             client.call("get_ownership_changes", json!({"from": from, "to": to}));
-        assert!(is_error, "{from}..{to}: {body}");
+        assert!(
+            is_error,
+            "{from}..{to}: bad, unknown or reversed dates are errors, not everyone-is-new: {body}"
+        );
         assert_eq!(body["code"], "INVALIDINPUT", "{from}..{to}: {body}");
     }
     let (is_error, body) = client.call("get_investor_holdings", json!({"entity": "  "}));

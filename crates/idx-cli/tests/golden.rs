@@ -111,8 +111,8 @@ fn seeded_ownership_db() -> &'static Path {
         let root = work_dir().join("seed");
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("create seed dir");
-        // The importer derives the release from the IDX file name.
-        let xlsx = root.join("peng-2026-08-00017-satu-persen.xlsx");
+        let idx_file_name_the_release_is_derived_from = "peng-2026-08-00017-satu-persen.xlsx";
+        let xlsx = root.join(idx_file_name_the_release_is_derived_from);
         fs::copy(
             core_dir().join("tests/fixtures/ksei_above1_20260831_excerpt.xlsx"),
             &xlsx,
